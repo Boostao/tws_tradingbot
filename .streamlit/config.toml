@@ -1,0 +1,17 @@
+[browser]
+gatherUsageStats = false
+
+[server]
+port = 8501
+address = "localhost"
+headless = true
+
+[theme]
+base = "dark"
+primaryColor = "#7aa2f7"
+backgroundColor = "#1a1b26"
+secondaryBackgroundColor = "#16161e"
+textColor = "#c0caf5"
+
+[runner]
+fastReruns = true 

@@ -1,0 +1,5 @@
+# TWS Traderbot Watchlist
+NVDA
+IBIT
+IONQ
+TSLA

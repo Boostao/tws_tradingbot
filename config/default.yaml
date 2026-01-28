@@ -1,0 +1,63 @@
+# Default configuration for TWS Trading Bot (Nautilus Trader)
+
+# Interactive Brokers Connection Settings
+ib:
+  host: "127.0.0.1"
+  port: 7497  # 7497 for paper trading, 7496 for live
+  client_id: 1
+  account: ""  # Leave empty to use default account
+  timeout: 30  # seconds
+  trading_mode: "paper"  # paper | live
+
+# Application Settings
+app:
+  log_level: "INFO"
+  strategies_dir: "strategies"
+  active_strategy_path: "config/active_strategy.json"
+  data_dir: "data"
+  logs_dir: "logs"
+
+# Backtest Configuration
+backtest:
+  default_capital: 10000.0
+  data_dir: "data/historical"
+  default_commission: 0.001  # 0.1%
+  slippage_model: "fixed"  # fixed | variable
+
+# Risk Management
+risk:
+  max_drawdown: 0.10  # 10%
+  daily_loss_limit: 0.05  # 5%
+  max_position_pct: 0.20  # Max 20% of portfolio in single position
+  use_stop_loss: true
+  stop_loss_pct: 0.02  # 2%
+
+# UI Settings
+ui:
+  port: 8501
+  host: "0.0.0.0"
+  refresh_interval: 5  # seconds
+  theme: "dark"
+
+# Database Configuration (DuckDB)
+database:
+  enabled: true                      # Enable DuckDB backend for config and state
+  path: "data/traderbot.duckdb"      # Path to database file (relative to project root)
+  sync_on_start: true                # Sync YAML config to database on startup
+  use_db_for_state: true             # Use database for bot state instead of JSON files
+
+# Logging
+logging:
+  level: "INFO"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  file:
+    enabled: true
+    path: "logs/trading_bot.log"
+    max_bytes: 10485760  # 10MB
+    backup_count: 5
+  console:
+    enabled: true
+    level: "INFO"
+
+# Environment
+environment: "development"  # or "production"
