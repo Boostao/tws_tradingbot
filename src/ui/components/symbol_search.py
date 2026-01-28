@@ -22,6 +22,8 @@ from typing import List, Dict, Optional, Tuple
 import time
 
 from src.bot.tws_data_provider import get_tws_provider
+from src.ui.i18n import I18n
+from src.ui.translations import translations
 
 
 # Cache for symbol data
@@ -80,7 +82,7 @@ def _fetch_symbols_from_tradingview() -> List[Dict]:
         return symbols
         
     except Exception as e:
-        st.warning(f"Could not fetch from TradingView: {e}")
+        st.warning(_get_i18n().t("tradingview_fetch_failed", error=str(e)))
         return []
 
 
@@ -338,6 +340,9 @@ def render_symbol_search(
         placeholder: Placeholder text for the search input
         height: Height of the component in pixels
     """
+    i18n = _get_i18n()
+    if placeholder == "Search symbols (e.g., AAPL, Apple, FLEX)...":
+        placeholder = i18n.t("symbol_search_placeholder")
     # Load symbol database
     symbols = load_symbol_database()
     
@@ -614,9 +619,9 @@ def render_symbol_search(
             />
             <div class="dropdown" id="dropdown">
                 <div class="status-bar">
-                    <span id="resultCount">Type to search...</span>
+                    <span id="resultCount">{i18n.t("type_to_search")}</span>
                     <span class="{'status-connected' if tws_connected else 'status-offline'}">
-                        {'● TWS Connected' if tws_connected else '○ Local Database'}
+                        {'{i18n.t("tws_connected_label")}' if tws_connected else '{i18n.t("local_database_label")}'}
                     </span>
                 </div>
                 <div id="results"></div>
@@ -628,7 +633,7 @@ def render_symbol_search(
                 <span class="selection-symbol" id="selectedSymbol"></span>
                 <span class="selection-name" id="selectedName"></span>
             </div>
-            <button class="add-btn" id="addBtn">➕ Add to Watchlist</button>
+            <button class="add-btn" id="addBtn">{i18n.t("add_to_watchlist")}</button>
         </div>
         
         <script>
@@ -784,16 +789,16 @@ def render_symbol_search(
                 if (filteredResults.length === 0) {{
                     const query = searchInput.value.trim();
                     if (query.length >= 1) {{
-                        results.innerHTML = '<div class="no-results">No results found for "' + escapeHtml(query) + '"</div>';
-                        resultCount.textContent = 'No matches';
+                        results.innerHTML = '<div class="no-results">{i18n.t("no_results_for")} "' + escapeHtml(query) + '"</div>';
+                        resultCount.textContent = '{i18n.t("no_matches")}';
                     }} else {{
                         results.innerHTML = '';
-                        resultCount.textContent = 'Type to search...';
+                        resultCount.textContent = '{i18n.t("type_to_search")}';
                     }}
                     return;
                 }}
                 
-                resultCount.textContent = filteredResults.length + ' result' + (filteredResults.length !== 1 ? 's' : '');
+                resultCount.textContent = filteredResults.length + ' {i18n.t("results")}' + (filteredResults.length !== 1 ? 's' : '');
                 
                 let html = '';
                 filteredResults.forEach((item, index) => {{
@@ -992,6 +997,7 @@ def render_symbol_multiselect(
     Returns:
         The current list of selected symbols.
     """
+    i18n = _get_i18n()
     # Ensure session state exists
     if session_key not in st.session_state:
         st.session_state[session_key] = []
@@ -1028,6 +1034,7 @@ def render_symbol_multiselect(
     # Prepare data for JS
     symbols_json = json.dumps(symbols_db)
     selection_json = json.dumps(current_selection)
+    tws_status_label = i18n.t("tws_short") if tws_connected else i18n.t("local_short")
     
     # Generate HTML/JS
     # Adapted from watchlist.py _render_js_component
@@ -1101,12 +1108,12 @@ body {{ font-family: system-ui, -apple-system, sans-serif; background: transpare
 <body>
 <div class="container">
     <div class="header">
-        <span id="cnt">0 symbols</span>
-        <span>{{'🟢 TWS' if tws_connected else '🟡 Local'}}</span>
+        <span id="cnt">0 {i18n.t("symbols")}</span>
+        <span>{tws_status_label}</span>
     </div>
     <div class="search-box">
         <span class="search-icon">🔍</span>
-        <input type="text" class="search-input" id="inp" placeholder="Search to add..." autocomplete="off"/>
+        <input type="text" class="search-input" id="inp" placeholder="{i18n.t('search_to_add')}" autocomplete="off"/>
         <div class="dropdown" id="dd"><div id="res"></div></div>
     </div>
     <div class="chips" id="chips"></div>
@@ -1133,8 +1140,8 @@ function msg(t, warn) {{
 }}
 
 function render() {{
-    cnt.textContent = LIST.length + ' symbol' + (LIST.length !== 1 ? 's' : '');
-    if (!LIST.length) {{ chips.innerHTML = '<span class="empty">No symbols selected</span>'; return; }}
+    cnt.textContent = LIST.length + ' {i18n.t("symbol")}' + (LIST.length !== 1 ? 's' : '');
+    if (!LIST.length) {{ chips.innerHTML = '<span class="empty">{i18n.t("no_symbols_selected")}</span>'; return; }}
     chips.innerHTML = LIST.map(s => 
         '<div class="chip"><span>' + s + '</span><button class="chip-x" onclick="rm(\\''+s+'\\')">×</button></div>'
     ).join('');
@@ -1143,10 +1150,10 @@ function render() {{
 function add(s) {{
     s = s.toUpperCase().trim();
     if (!s) return;
-    if (LIST.includes(s)) {{ msg(s + ' exists', true); return; }}
+    if (LIST.includes(s)) {{ msg('{i18n.t("symbol_exists")} ' + s, true); return; }}
     LIST.push(s);
     render();
-    msg('Added ' + s);
+    msg('{i18n.t("added")} ' + s);
     save();
     inp.value = '';
     dd.classList.remove('show');
@@ -1158,7 +1165,7 @@ function rm(s) {{
     if (i === -1) return;
     LIST.splice(i, 1);
     render();
-    msg('Removed ' + s);
+    msg('{i18n.t("removed")} ' + s);
     save();
 }}
 
@@ -1201,7 +1208,7 @@ function esc(s) {{ return s ? s.replace(/</g, '&lt;').replace(/>/g, '&gt;') : ''
 
 function renderDD() {{
     if (!filt.length) {{
-        res.innerHTML = inp.value ? '<div class="no-res">No results</div>' : '';
+        res.innerHTML = inp.value ? '<div class="no-res">{i18n.t("no_results")}</div>' : '';
         return;
     }}
     res.innerHTML = filt.map((it, i) => 
@@ -1253,3 +1260,9 @@ render();
     components.html(html, height=max_height, scrolling=False)
     
     return current_selection
+
+
+def _get_i18n() -> I18n:
+    if "i18n" not in st.session_state:
+        st.session_state["i18n"] = I18n(translations)
+    return st.session_state["i18n"]

@@ -26,6 +26,9 @@ def sma(data: NDArray[np.float64], period: int) -> NDArray[np.float64]:
         >>> sma(prices, 3)
         array([nan, nan, 11., 12., 13., 14.])
     """
+    if period <= 0:
+        return np.full(len(data), np.nan)
+
     if len(data) < period:
         return np.full(len(data), np.nan)
     
@@ -57,6 +60,9 @@ def ema(data: NDArray[np.float64], period: int) -> NDArray[np.float64]:
         >>> prices = np.array([22.27, 22.19, 22.08, 22.17, 22.18, 22.13, 22.23, 22.43, 22.24, 22.29])
         >>> ema(prices, 10)  # First 9 values are NaN, 10th is the EMA
     """
+    if period <= 0:
+        return np.full(len(data), np.nan)
+
     if len(data) < period:
         return np.full(len(data), np.nan)
     

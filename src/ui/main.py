@@ -9,29 +9,39 @@ This is the main UI for the Trading Bot system, providing:
 import streamlit as st
 from pathlib import Path
 import sys
-
-# Page configuration - must be first Streamlit command
-st.set_page_config(
-    page_title="Trading Bot - Cobalt",
-    page_icon="📈",
-    layout="wide",
-    initial_sidebar_state="expanded",
-    menu_items={
-        'About': "# Cobalt Trading Bot\nRule-based automated trading with Nautilus Trader."
-    }
-)
+import os
+import hmac
 
 # Add project root to path for imports
 project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
+
+# Page configuration - must be first Streamlit command
+from src.ui.translations import translations
+
+_env_lang = os.environ.get("LANG", "").lower()
+_ui_lang = "fr" if _env_lang.startswith("fr") else "en"
+
+st.set_page_config(
+    page_title=translations[_ui_lang].get("page_title", "Trading Bot - Cobalt"),
+    page_icon="📈",
+    layout="wide",
+    initial_sidebar_state="expanded",
+    menu_items={
+        "About": translations[_ui_lang].get(
+            "about_text",
+            "# Cobalt Trading Bot\nRule-based automated trading with Nautilus Trader."
+        )
+    }
+)
 
 from src.ui.styles import apply_theme, COLORS, status_badge, format_currency
 from src.ui.tabs.monitoring import render_monitoring_tab, get_bot_state
 from src.ui.tabs.strategy import render_strategy_tab
 from src.ui.components.watchlist import render_watchlist_manager
 from src.bot.tws_data_provider import get_tws_provider, reset_tws_provider
-from src.ui.translations import translations
 from src.ui.i18n import I18n
+from src.config.settings import load_config
 
 
 def main():
@@ -58,6 +68,23 @@ def main():
     
     i18n = I18n(translations)
     st.session_state['i18n'] = i18n
+
+    settings = load_config(sync_to_db=False)
+
+    if settings.auth.enabled and not st.session_state.get("authenticated", False):
+        apply_theme()
+        st.markdown(f"## {i18n.t('auth_login_title')}")
+        username = st.text_input(i18n.t("auth_username"), key="auth_username")
+        password = st.text_input(i18n.t("auth_password"), type="password", key="auth_password")
+        if st.button(i18n.t("auth_login")):
+            username_ok = hmac.compare_digest(username, settings.auth.username)
+            password_ok = hmac.compare_digest(password, settings.auth.password)
+            if username_ok and password_ok:
+                st.session_state["authenticated"] = True
+                st.rerun()
+            else:
+                st.error(i18n.t("auth_invalid"))
+        st.stop()
     
     # Apply dark theme
     apply_theme()
@@ -127,15 +154,15 @@ def _render_sidebar(i18n):
         st.divider()
         
         # Active Strategy
-        st.markdown("#### 📋 Active Strategy")
-        strategy_name = st.session_state.get("active_strategy_name", "None")
-        st.markdown(f"**Name:** {strategy_name}")
+        st.markdown(f"#### {i18n.t('active_strategy_header')}")
+        strategy_name = st.session_state.get("active_strategy_name", i18n.t("none"))
+        st.markdown(f"**{i18n.t('name')}:** {strategy_name}")
         
         rule_count = len(st.session_state.get("strategy_rules", []))
-        st.markdown(f"**Rules:** {rule_count}")
+        st.markdown(f"**{i18n.t('rules')}:** {rule_count}")
         
         is_deployed = st.session_state.get("strategy_deployed", False)
-        status_text = "Deployed" if is_deployed else "Draft"
+        status_text = i18n.t("deployed") if is_deployed else i18n.t("draft")
         st.markdown(
             f"**Status:** {status_badge(status_text, is_deployed)}",
             unsafe_allow_html=True
@@ -144,28 +171,28 @@ def _render_sidebar(i18n):
         st.divider()
         
         # Quick Stats - get from bot state
-        st.markdown("#### 📊 Quick Stats")
+        st.markdown(f"#### {i18n.t('quick_stats')}")
         bot_state = get_bot_state()
         col1, col2 = st.columns(2)
         with col1:
-            st.metric("Equity", format_currency(bot_state.equity))
+            st.metric(i18n.t("equity"), format_currency(bot_state.equity))
         with col2:
-            st.metric("Daily P&L", format_currency(bot_state.daily_pnl))
+            st.metric(i18n.t("daily_pnl"), format_currency(bot_state.daily_pnl))
         
         st.divider()
         
         # Settings link
-        st.markdown("#### ⚙️ Settings")
+        st.markdown(f"#### {i18n.t('settings')}")
         
-        with st.expander("Connection Settings", expanded=not tws_connected):
-            host = st.text_input("TWS Host", value="127.0.0.1", key="tws_host")
-            port = st.number_input("TWS Port", value=7497, min_value=1, max_value=65535, key="tws_port")
-            client_id = st.number_input("Client ID", value=10, min_value=1, max_value=999, key="tws_client_id")
+        with st.expander(i18n.t("connection_settings"), expanded=not tws_connected):
+            host = st.text_input(i18n.t("tws_host"), value="127.0.0.1", key="tws_host")
+            port = st.number_input(i18n.t("tws_port"), value=7497, min_value=1, max_value=65535, key="tws_port")
+            client_id = st.number_input(i18n.t("client_id"), value=10, min_value=1, max_value=999, key="tws_client_id")
             
             col1, col2 = st.columns(2)
             with col1:
-                if st.button("🔌 Connect", key="connect_tws", use_container_width=True, disabled=tws_connected):
-                    with st.spinner("Connecting to TWS..."):
+                if st.button(i18n.t("connect"), key="connect_tws", use_container_width=True, disabled=tws_connected):
+                    with st.spinner(i18n.t("connecting_tws")):
                         try:
                             # Reset provider to use new settings
                             reset_tws_provider()
@@ -176,24 +203,24 @@ def _render_sidebar(i18n):
                             
                             if provider.connect(timeout=10.0):
                                 st.session_state["tws_connected"] = True
-                                st.success("✅ Connected to TWS!")
+                                st.success(i18n.t("connected_to_tws"))
                                 st.rerun()
                             else:
-                                st.error("❌ Failed to connect. Check TWS is running and API is enabled.")
+                                st.error(i18n.t("failed_to_connect_tws"))
                         except Exception as e:
-                            st.error(f"❌ Connection error: {str(e)}")
+                            st.error(i18n.t("connection_error", error=str(e)))
             
             with col2:
-                if st.button("🔌 Disconnect", key="disconnect_tws", use_container_width=True, disabled=not tws_connected):
+                if st.button(i18n.t("disconnect"), key="disconnect_tws", use_container_width=True, disabled=not tws_connected):
                     try:
                         provider = get_tws_provider()
                         provider.disconnect()
                         reset_tws_provider()
                         st.session_state["tws_connected"] = False
-                        st.success("Disconnected from TWS")
+                        st.success(i18n.t("disconnected_from_tws"))
                         st.rerun()
                     except Exception as e:
-                        st.error(f"Error disconnecting: {e}")
+                        st.error(i18n.t("disconnect_error", error=str(e)))
 
         st.divider()
 
@@ -204,7 +231,7 @@ def _render_sidebar(i18n):
         st.markdown(
             f"""
             <div style="position: fixed; bottom: 1rem; color: {COLORS['text_secondary']}; font-size: 0.8em;">
-                Cobalt v0.1.0 • Nautilus Trader
+                {i18n.t("footer_text")}
             </div>
             """,
             unsafe_allow_html=True

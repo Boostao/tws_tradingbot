@@ -10,7 +10,7 @@ from enum import Enum
 from typing import Optional, List, Dict, Union, Any
 from uuid import uuid4
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, ConfigDict
 
 
 class RuleScope(str, Enum):
@@ -146,8 +146,7 @@ class Indicator(BaseModel):
             
         return base
 
-    class Config:
-        use_enum_values = True
+    model_config = ConfigDict(use_enum_values=True)
 
 
 class Condition(BaseModel):
@@ -210,8 +209,7 @@ class Condition(BaseModel):
         else:
             return f"{ind_a} {type_str}"
 
-    class Config:
-        use_enum_values = True
+    model_config = ConfigDict(use_enum_values=True)
 
 
 class Rule(BaseModel):
@@ -243,8 +241,7 @@ class Rule(BaseModel):
         enabled_str = "✓" if self.enabled else "✗"
         return f"[{enabled_str}] {scope_str}: {condition_str} → {action_str}"
 
-    class Config:
-        use_enum_values = True
+    model_config = ConfigDict(use_enum_values=True)
 
 
 class Strategy(BaseModel):
@@ -331,8 +328,7 @@ class Strategy(BaseModel):
                 return True
         return False
 
-    class Config:
-        use_enum_values = True
-        json_encoders = {
-            datetime: lambda v: v.isoformat()
-        }
+    model_config = ConfigDict(
+        use_enum_values=True,
+        json_encoders={datetime: lambda v: v.isoformat()}
+    )

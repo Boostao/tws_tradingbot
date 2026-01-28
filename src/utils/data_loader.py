@@ -10,6 +10,8 @@ from typing import Optional, Dict, Any, List
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import Enum
+from pathlib import Path
+import pandas as pd
 
 
 class Timeframe(Enum):
@@ -211,7 +213,28 @@ class DataLoader:
                     return None
                 return float(df.iloc[-1]["close"])
 
-            return await asyncio.to_thread(_fetch_latest_vix)
+            value = await asyncio.to_thread(_fetch_latest_vix)
+            if value is not None:
+                return value
+        except Exception:
+            pass
+
+        # Fallback: sample CSV
+        try:
+            project_root = Path(__file__).resolve().parents[2]
+            sample_path = project_root / "data" / "sample" / "VIX_5min.csv"
+            if not sample_path.exists():
+                return None
+            df = pd.read_csv(sample_path, on_bad_lines="skip")
+            if "timestamp" in df.columns:
+                df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
+                df = df.dropna(subset=["timestamp"])
+            if "close" in df.columns:
+                df["close"] = pd.to_numeric(df["close"], errors="coerce")
+                df = df.dropna(subset=["close"])
+            if df.empty:
+                return None
+            return float(df.iloc[-1]["close"])
         except Exception:
             return None
     

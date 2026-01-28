@@ -518,7 +518,7 @@ class BacktestEngine:
             positions: Dict[str, float] = {}
             last_price: Dict[str, float] = {}
             trades: List[Trade] = []
-            open_trades: Dict[str, Trade] = {}
+            open_trades: Dict[str, List[Trade]] = {}
             equity_points: List[Dict[str, Any]] = []
 
             def _fill_side(fill: Any) -> str:
@@ -540,7 +540,9 @@ class BacktestEngine:
                     ts = datetime.utcnow()
                 else:
                     try:
-                        ts = pd.to_datetime(ts_event)
+                        ts = pd.to_datetime(ts_event, unit="ns", errors="coerce")
+                        if pd.isna(ts):
+                            ts = pd.to_datetime(ts_event, errors="coerce")
                         if not isinstance(ts, datetime):
                             ts = ts.to_pydatetime()
                     except Exception:
@@ -557,8 +559,8 @@ class BacktestEngine:
                     positions[symbol] = position_qty + qty
                     cash -= (qty * px) + self.commission
 
-                    if symbol not in open_trades:
-                        open_trades[symbol] = Trade(
+                    open_trades.setdefault(symbol, []).append(
+                        Trade(
                             entry_time=ts,
                             exit_time=None,
                             symbol=symbol,
@@ -566,30 +568,50 @@ class BacktestEngine:
                             quantity=qty,
                             entry_price=px,
                         )
-                    else:
-                        open_trades[symbol].quantity += qty
+                    )
 
                 elif side == "SELL":
                     positions[symbol] = max(0.0, position_qty - qty)
                     cash += (qty * px) - self.commission
 
-                    if symbol in open_trades:
-                        trade = open_trades[symbol]
-                        trade.close(ts, px)
-                        trades.append(trade)
-                        del open_trades[symbol]
+                    if symbol in open_trades and open_trades[symbol]:
+                        remaining = qty
+                        fifo_trades = open_trades[symbol]
+                        while fifo_trades and remaining > 0:
+                            trade = fifo_trades[0]
+                            if trade.quantity <= remaining:
+                                remaining -= trade.quantity
+                                trade.close(ts, px)
+                                trades.append(trade)
+                                fifo_trades.pop(0)
+                            else:
+                                closed_trade = Trade(
+                                    entry_time=trade.entry_time,
+                                    exit_time=None,
+                                    symbol=trade.symbol,
+                                    side=trade.side,
+                                    quantity=remaining,
+                                    entry_price=trade.entry_price,
+                                )
+                                closed_trade.close(ts, px)
+                                trades.append(closed_trade)
+                                trade.quantity -= remaining
+                                remaining = 0
+                        if not open_trades[symbol]:
+                            del open_trades[symbol]
 
                 equity = cash
                 for sym, pos_qty in positions.items():
                     equity += pos_qty * last_price.get(sym, 0.0)
                 equity_points.append({"timestamp": ts, "equity": equity, "cash": cash})
 
-            for sym, trade in list(open_trades.items()):
+            for sym, trade_list in list(open_trades.items()):
                 last_px = last_price.get(sym)
                 if last_px is None:
                     continue
-                trade.close(trade.entry_time, last_px)
-                trades.append(trade)
+                for trade in trade_list:
+                    trade.close(trade.entry_time, last_px)
+                    trades.append(trade)
 
             equity_df = pd.DataFrame(equity_points)
             if not equity_df.empty:
@@ -750,11 +772,13 @@ class BacktestEngine:
             
             if path.exists():
                 try:
-                    df = pd.read_csv(path)
+                    df = pd.read_csv(path, on_bad_lines="skip")
+                    df = self._sanitize_bars_df(df)
                     
                     # Ensure timestamp column exists and is datetime
                     if "timestamp" in df.columns:
-                        df["timestamp"] = pd.to_datetime(df["timestamp"])
+                        df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
+                        df = df.dropna(subset=["timestamp"])
                         
                         # Filter by date
                         df["date"] = df["timestamp"].dt.date
@@ -778,6 +802,24 @@ class BacktestEngine:
                 pass
                 
         return data
+
+    def _sanitize_bars_df(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Coerce bar columns to numeric and drop invalid rows."""
+        required_cols = ["open", "high", "low", "close"]
+        if not isinstance(df, pd.DataFrame) or df.empty:
+            return df
+
+        for col in required_cols:
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors="coerce")
+
+        if "volume" in df.columns:
+            df["volume"] = pd.to_numeric(df["volume"], errors="coerce").fillna(0)
+
+        if all(col in df.columns for col in required_cols):
+            df = df.dropna(subset=required_cols)
+
+        return df
 
     def _load_tws_data(
         self,

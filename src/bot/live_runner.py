@@ -31,6 +31,7 @@ from src.bot.strategy.base import (
     NAUTILUS_AVAILABLE,
 )
 from src.bot.strategy.rules.serialization import load_strategy
+from src.bot.tws_data_provider import TWSDataProvider
 from src.utils.logger import setup_logging
 
 
@@ -78,6 +79,7 @@ class LiveTradingRunner:
         self.adapter: Optional[IBAdapter] = None
         self.strategy: Optional[DynamicRuleStrategy] = None
         self.node: Optional[object] = None
+        self._tws_provider: Optional[TWSDataProvider] = None
         
         # State
         self._running = False
@@ -237,6 +239,13 @@ class LiveTradingRunner:
             
             # Create new strategy instance
             self.strategy = DynamicRuleStrategy(strategy_config)
+
+            if self._tws_provider:
+                self.strategy.set_order_handlers(
+                    submit_buy=self._submit_buy_order,
+                    submit_sell=self._submit_sell_order,
+                    cancel_order=self._cancel_order,
+                )
             
             # Start new strategy
             logger.info("Starting new strategy...")
@@ -369,6 +378,20 @@ class LiveTradingRunner:
                     use_equal_allocation=True,
                 )
                 self.strategy = DynamicRuleStrategy(strategy_config)
+
+                self._tws_provider = TWSDataProvider(
+                    host=self.settings.ib.host,
+                    port=self.settings.ib.port,
+                    client_id=self.settings.ib.client_id + 1,
+                )
+                if not self._tws_provider.connect():
+                    logger.error("Failed to connect to TWS for order execution")
+                    return False
+                self.strategy.set_order_handlers(
+                    submit_buy=self._submit_buy_order,
+                    submit_sell=self._submit_sell_order,
+                    cancel_order=self._cancel_order,
+                )
             
             logger.info(f"Strategy created: {strategy_config.strategy_id}")
             logger.info(f"Trading instruments: {formatted_instruments}")
@@ -507,8 +530,39 @@ class LiveTradingRunner:
                 self.node.dispose()
             except Exception as e:
                 logger.warning(f"Error disposing node: {e}")
+
+        if self._tws_provider:
+            try:
+                self._tws_provider.disconnect()
+            except Exception as e:
+                logger.warning(f"Error disconnecting TWS provider: {e}")
         
         logger.info("Shutdown complete")
+
+    def _submit_buy_order(self, instrument_id: str, quantity: float) -> Optional[int]:
+        if not self._tws_provider:
+            logger.error("TWS provider not initialized")
+            return None
+        symbol = instrument_id.split(".")[0]
+        qty_int = max(1, int(quantity))
+        return self._tws_provider.place_order(symbol=symbol, action="BUY", quantity=qty_int)
+
+    def _submit_sell_order(self, instrument_id: str, quantity: float) -> Optional[int]:
+        if not self._tws_provider:
+            logger.error("TWS provider not initialized")
+            return None
+        symbol = instrument_id.split(".")[0]
+        qty_int = max(1, int(quantity))
+        return self._tws_provider.place_order(symbol=symbol, action="SELL", quantity=qty_int)
+
+    def _cancel_order(self, order_id: str) -> None:
+        if not self._tws_provider:
+            logger.error("TWS provider not initialized")
+            return
+        try:
+            self._tws_provider.cancel_order(int(order_id))
+        except ValueError:
+            logger.warning(f"Invalid order id: {order_id}")
 
     def _get_required_symbols(self, strategy_model) -> List[str]:
         """Collect symbol overrides (e.g., VIX) used by rule indicators."""

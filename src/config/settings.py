@@ -67,6 +67,14 @@ class UIConfig:
 
 
 @dataclass
+class AuthConfig:
+    """Authentication configuration for the UI."""
+    enabled: bool = False
+    username: str = "admin"
+    password: str = "change-me"
+
+
+@dataclass
 class DatabaseConfig:
     """DuckDB database configuration."""
     enabled: bool = True
@@ -96,6 +104,7 @@ class Settings:
     backtest: BacktestConfig = field(default_factory=BacktestConfig)
     risk: RiskConfig = field(default_factory=RiskConfig)
     ui: UIConfig = field(default_factory=UIConfig)
+    auth: AuthConfig = field(default_factory=AuthConfig)
     database: DatabaseConfig = field(default_factory=DatabaseConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
 
@@ -173,6 +182,9 @@ class ConfigLoader:
             "IB_TRADING_MODE": ("ib", "trading_mode"),
             "LOG_LEVEL": ("app", "log_level"),
             "BACKTEST_CAPITAL": ("backtest", "default_capital"),
+            "AUTH_ENABLED": ("auth", "enabled"),
+            "AUTH_USERNAME": ("auth", "username"),
+            "AUTH_PASSWORD": ("auth", "password"),
         }
 
         for env_key, config_path in env_mappings.items():
@@ -207,6 +219,7 @@ class ConfigLoader:
         backtest_cfg = raw_config.get("backtest", {})
         risk_cfg = raw_config.get("risk", {})
         ui_cfg = raw_config.get("ui", {})
+        auth_cfg = raw_config.get("auth", {})
         database_cfg = raw_config.get("database", {})
         logging_cfg = raw_config.get("logging", {})
 
@@ -244,6 +257,11 @@ class ConfigLoader:
                 host=ui_cfg.get("host", "0.0.0.0"),
                 refresh_interval=ui_cfg.get("refresh_interval", 5),
                 theme=ui_cfg.get("theme", "dark"),
+            ),
+            auth=AuthConfig(
+                enabled=auth_cfg.get("enabled", False),
+                username=auth_cfg.get("username", "admin"),
+                password=auth_cfg.get("password", "change-me"),
             ),
             database=DatabaseConfig(
                 enabled=database_cfg.get("enabled", True),
@@ -297,6 +315,7 @@ def load_config(config_dir: Optional[Path] = None, sync_to_db: bool = True) -> S
             db.set_section_config("backtest", asdict(settings.backtest))
             db.set_section_config("risk", asdict(settings.risk))
             db.set_section_config("ui", asdict(settings.ui))
+            db.set_section_config("auth", asdict(settings.auth))
             db.set_section_config("database", asdict(settings.database))
             db.set_section_config("logging", asdict(settings.logging))
             
@@ -338,6 +357,7 @@ def load_config_from_db(db_path: Optional[Path] = None) -> Optional[Settings]:
         backtest_cfg = config.get("backtest", {})
         risk_cfg = config.get("risk", {})
         ui_cfg = config.get("ui", {})
+        auth_cfg = config.get("auth", {})
         database_cfg = config.get("database", {})
         logging_cfg = config.get("logging", {})
         
@@ -347,6 +367,7 @@ def load_config_from_db(db_path: Optional[Path] = None) -> Optional[Settings]:
             backtest=BacktestConfig(**backtest_cfg) if backtest_cfg else BacktestConfig(),
             risk=RiskConfig(**risk_cfg) if risk_cfg else RiskConfig(),
             ui=UIConfig(**ui_cfg) if ui_cfg else UIConfig(),
+            auth=AuthConfig(**auth_cfg) if auth_cfg else AuthConfig(),
             database=DatabaseConfig(**database_cfg) if database_cfg else DatabaseConfig(),
             logging=LoggingConfig(**logging_cfg) if logging_cfg else LoggingConfig(),
             _raw_config=config,

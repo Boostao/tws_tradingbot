@@ -39,6 +39,12 @@ ui:
   refresh_interval: 5  # seconds
   theme: "dark"
 
+# Authentication
+auth:
+  enabled: false
+  username: "admin"
+  password: "change-me"
+
 # Database Configuration (DuckDB)
 database:
   enabled: true                      # Enable DuckDB backend for config and state

@@ -150,19 +150,19 @@ def _render_connection_status(state: BotState) -> None:
                 unsafe_allow_html=True
             )
             if state.error_message:
-                st.caption(f"Error: {state.error_message}")
+                st.caption(i18n.t("bot_error", error=state.error_message))
         else:
             status_color = is_running or bot_status == BotStatus.STARTING.value
             st.markdown(status_badge(bot_status, status_color), unsafe_allow_html=True)
         
         # Show active strategy
         if state.active_strategy:
-            st.caption(f"Strategy: {state.active_strategy}")
+            st.caption(i18n.t("active_strategy", strategy=state.active_strategy))
 
 
 def _render_tws_account_snapshot() -> None:
     """Render a live snapshot of TWS account values."""
-    st.markdown("#### TWS Account Snapshot")
+    st.markdown(f"#### {i18n.t('tws_account_snapshot')}")
 
     if "account_refresh_interval" not in st.session_state:
         st.session_state.account_refresh_interval = DEFAULT_ACCOUNT_REFRESH_INTERVAL
@@ -171,17 +171,17 @@ def _render_tws_account_snapshot() -> None:
 
     col1, col2, col3 = st.columns([2, 2, 2])
     with col1:
-        account_auto_refresh = st.toggle("Refresh account data", value=False, key="account_refresh_toggle")
+        account_auto_refresh = st.toggle(i18n.t("refresh_account_data"), value=False, key="account_refresh_toggle")
     with col2:
         refresh_interval = st.selectbox(
-            "Refresh interval",
+            i18n.t("refresh_interval"),
             options=[5, 10, 15, 30, 60],
             index=2,
             key="account_refresh_interval_select",
         )
         st.session_state.account_refresh_interval = refresh_interval
     with col3:
-        if st.button("🔄 Refresh now", key="account_refresh_now"):
+        if st.button(i18n.t("refresh_now"), key="account_refresh_now"):
             st.session_state.account_last_refresh = 0.0
 
     provider = None
@@ -192,7 +192,7 @@ def _render_tws_account_snapshot() -> None:
         tws_connected = False
 
     if not tws_connected:
-        st.info("TWS is not connected. Account values unavailable.")
+        st.info(i18n.t("tws_not_connected_account"))
         return
 
     now = time.time()
@@ -226,11 +226,11 @@ def _render_tws_account_snapshot() -> None:
 
     col_a, col_b, col_c = st.columns(3)
     with col_a:
-        st.metric("Net Liquidation", format_currency(net_liq or 0.0))
+        st.metric(i18n.t("net_liquidation"), format_currency(net_liq or 0.0))
     with col_b:
-        st.metric("Cash", format_currency(cash or 0.0))
+        st.metric(i18n.t("cash"), format_currency(cash or 0.0))
     with col_c:
-        st.metric("Gross Position Value", format_currency(gross or 0.0))
+        st.metric(i18n.t("gross_position_value"), format_currency(gross or 0.0))
 
 
 def _render_metrics_row(state: BotState) -> None:
@@ -273,7 +273,7 @@ def _render_metrics_row(state: BotState) -> None:
     
     with col5:
         st.metric(
-            label="🔄 Trades Today",
+            label=i18n.t("trades_today"),
             value=str(state.trades_today),
             delta=None
         )
@@ -281,14 +281,14 @@ def _render_metrics_row(state: BotState) -> None:
     with col6:
         win_rate_str = f"{state.win_rate_today:.1f}%" if state.trades_today > 0 else "N/A"
         st.metric(
-            label="🎯 Win Rate (Today)",
+            label=i18n.t("win_rate_today"),
             value=win_rate_str,
             delta=None
         )
     
     with col7:
         st.metric(
-            label="💵 Total P&L",
+            label=i18n.t("total_pnl"),
             value=format_currency(state.total_pnl),
             delta=None
         )
@@ -297,7 +297,7 @@ def _render_metrics_row(state: BotState) -> None:
         # Calculate unrealized PnL from positions
         unrealized = sum(p.unrealized_pnl for p in state.positions) if state.positions else 0
         st.metric(
-            label="📉 Unrealized P&L",
+            label=i18n.t("unrealized_pnl"),
             value=format_currency(unrealized),
             delta=None
         )
@@ -366,7 +366,7 @@ def _render_orders_table(state: BotState) -> None:
             i18n.t("quantity"): f"{order.quantity:,.0f}",
             i18n.t("price"): price_str,
             i18n.t("status"): order.status,
-            i18n.t("time"): order.submitted_time or "N/A",
+            i18n.t("time"): order.submitted_time or i18n.t("not_available"),
         })
     
     df = pd.DataFrame(orders_data)
@@ -408,10 +408,10 @@ def _render_bot_controls(state: BotState) -> None:
             type="primary" if is_stopped else "secondary"
         ):
             if write_start_command():
-                st.toast("Start command sent to bot", icon="🚀")
+                st.toast(i18n.t("start_command_sent"), icon="🚀")
                 st.rerun()
             else:
-                st.error("Failed to send start command")
+                st.error(i18n.t("start_command_failed"))
     
     with col2:
         # Stop button
@@ -426,7 +426,7 @@ def _render_bot_controls(state: BotState) -> None:
                 st.toast(i18n.t("stop_signal_sent"), icon="🛑")
                 st.rerun()
             else:
-                st.error("Failed to send stop signal")
+                st.error(i18n.t("stop_signal_failed"))
     
     with col3:
         # Emergency stop button
@@ -442,49 +442,46 @@ def _render_bot_controls(state: BotState) -> None:
     with col4:
         # Status info
         if is_running:
-            st.success("Bot is running", icon="✅")
+            st.success(i18n.t("bot_running"), icon="✅")
         elif state.status == BotStatus.ERROR.value:
-            st.error(f"Bot error: {state.error_message or 'Unknown error'}", icon="❌")
+            st.error(i18n.t("bot_error", error=state.error_message or i18n.t("unknown_error")), icon="❌")
         else:
-            st.info("Bot is stopped", icon="ℹ️")
+            st.info(i18n.t("bot_stopped"), icon="ℹ️")
 
 
-@st.dialog("⚠️ Emergency Stop Confirmation")
 def _show_emergency_stop_dialog():
     """Show emergency stop confirmation dialog."""
-    st.warning(
-        "This will:\n"
-        "- Cancel ALL pending orders\n"
-        "- Close ALL open positions at market\n"
-        "- Stop the trading bot\n\n"
-        "**This action cannot be undone!**"
-    )
-    
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button("Cancel", width="stretch"):
-            st.rerun()
-    with col2:
-        if st.button("🚨 CONFIRM EMERGENCY STOP", width="stretch", type="primary"):
-            if write_emergency_stop():
-                st.toast("Emergency stop triggered!", icon="🚨")
-                time.sleep(0.5)
+    @st.dialog(i18n.t("emergency_stop_confirmation"))
+    def _dialog():
+        st.warning(i18n.t("emergency_stop_warning"))
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button(i18n.t("cancel"), width="stretch"):
                 st.rerun()
-            else:
-                st.error("Failed to trigger emergency stop")
+        with col2:
+            if st.button(i18n.t("confirm_emergency_stop"), width="stretch", type="primary"):
+                if write_emergency_stop():
+                    st.toast(i18n.t("emergency_stop_triggered"), icon="🚨")
+                    time.sleep(0.5)
+                    st.rerun()
+                else:
+                    st.error(i18n.t("emergency_stop_failed"))
+
+    _dialog()
 
 
 def _render_logs_section(state: BotState) -> None:
     """Render the logs section."""
-    st.markdown("#### 📜 Recent Activity Logs")
+    st.markdown(f"#### {i18n.t('recent_activity_logs')}")
     
     # Get logs from state
     logs = state.recent_logs if state.recent_logs else []
     
     if not logs:
         logs = [
-            f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [INFO] Monitoring UI initialized",
-            f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [INFO] Waiting for bot state updates...",
+            f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [INFO] {i18n.t('monitoring_ui_initialized')}",
+            f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [INFO] {i18n.t('waiting_for_updates')}",
         ]
     
     # Create a scrollable log area with proper styling
@@ -505,10 +502,10 @@ def _render_logs_section(state: BotState) -> None:
     # Log controls
     col1, col2, col3 = st.columns([1, 1, 4])
     with col1:
-        if st.button("🔄 Refresh", key="refresh_logs"):
+        if st.button(i18n.t("refresh"), key="refresh_logs"):
             st.rerun()
     with col2:
-        if st.button("🗑️ Clear Signals", key="clear_signals"):
+        if st.button(i18n.t("clear_signals"), key="clear_signals"):
             clear_stop_signals()
-            st.toast("Signal files cleared", icon="🗑️")
+            st.toast(i18n.t("signals_cleared"), icon="🗑️")
 

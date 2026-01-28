@@ -12,6 +12,8 @@ from pathlib import Path
 from typing import List
 
 from src.bot.tws_data_provider import get_tws_provider
+from src.ui.i18n import I18n
+from src.ui.translations import translations
 
 
 # Project root for file paths
@@ -48,9 +50,15 @@ def _save_watchlist(symbols: List[str]) -> bool:
         return False
 
 
+def _get_i18n() -> I18n:
+    if "i18n" not in st.session_state:
+        st.session_state["i18n"] = I18n(translations)
+    return st.session_state["i18n"]
+
+
 def render_watchlist_manager() -> None:
     """Render fast JS-based watchlist manager."""
-    i18n = st.session_state['i18n']
+    i18n = _get_i18n()
     
     st.markdown(f"### {i18n.t('watchlist')}")
     
@@ -83,7 +91,7 @@ def render_watchlist_manager() -> None:
     symbols_db = load_symbol_database()
     
     # Render unified JS component
-    _render_js_component(symbols_db, watchlist, is_connected)
+    _render_js_component(symbols_db, watchlist, is_connected, i18n)
     
     # Minimal Streamlit fallback controls
     with st.expander(i18n.t("manual_controls")):
@@ -106,7 +114,7 @@ def render_watchlist_manager() -> None:
                 st.rerun()
 
 
-def _render_js_component(symbols_db: List[dict], watchlist: List[str], tws_connected: bool) -> None:
+def _render_js_component(symbols_db: List[dict], watchlist: List[str], tws_connected: bool, i18n: I18n) -> None:
     """Render the all-in-one JS component."""
     
     symbols_json = json.dumps(symbols_db)
@@ -184,12 +192,12 @@ body {{ font-family: system-ui, -apple-system, sans-serif; background: transpare
 <div class="container">
     <div class="search-box">
         <span class="search-icon">🔍</span>
-        <input type="text" class="search-input" id="inp" placeholder="Search to add..." autocomplete="off"/>
+        <input type="text" class="search-input" id="inp" placeholder="{i18n.t('search_to_add')}" autocomplete="off"/>
         <div class="dropdown" id="dd"><div id="res"></div></div>
     </div>
     <div class="header">
-        <span id="cnt">0 symbols</span>
-        <span>{'🟢 TWS' if tws_connected else '🟡 Local'}</span>
+        <span id="cnt">0 {i18n.t('symbols')}</span>
+        <span>{i18n.t('tws_short') if tws_connected else i18n.t('local_short')}</span>
     </div>
     <div class="chips" id="chips"></div>
 </div>
@@ -214,8 +222,8 @@ function msg(t, warn) {{
 }}
 
 function render() {{
-    cnt.textContent = WL.length + ' symbol' + (WL.length !== 1 ? 's' : '');
-    if (!WL.length) {{ chips.innerHTML = '<span class="empty">Empty</span>'; return; }}
+    cnt.textContent = WL.length + ' {i18n.t('symbol')}' + (WL.length !== 1 ? 's' : '');
+    if (!WL.length) {{ chips.innerHTML = '<span class="empty">{i18n.t('empty')}</span>'; return; }}
     chips.innerHTML = WL.map(s => 
         '<div class="chip"><span>' + s + '</span><button class="chip-x" onclick="rm(\\''+s+'\\')">×</button></div>'
     ).join('');
@@ -224,10 +232,10 @@ function render() {{
 function add(s) {{
     s = s.toUpperCase().trim();
     if (!s) return;
-    if (WL.includes(s)) {{ msg(s + ' exists', true); return; }}
+    if (WL.includes(s)) {{ msg('{i18n.t('symbol_exists')} ' + s, true); return; }}
     WL.push(s);
     render();
-    msg('Added ' + s);
+    msg('{i18n.t('added')} ' + s);
     save();
     inp.value = '';
     dd.classList.remove('show');
@@ -239,7 +247,7 @@ function rm(s) {{
     if (i === -1) return;
     WL.splice(i, 1);
     render();
-    msg('Removed ' + s);
+    msg('{i18n.t('removed')} ' + s);
     save();
 }}
 

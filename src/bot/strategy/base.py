@@ -628,7 +628,22 @@ class DynamicRuleStrategy:
             quantity: Quantity to buy
         """
         if self._submit_buy_handler:
-            self._submit_buy_handler(instrument_id, quantity)
+            order_id = self._submit_buy_handler(instrument_id, quantity)
+            if order_id is not None:
+                order = StateOrder(
+                    order_id=str(order_id),
+                    symbol=instrument_id.split(".")[0],
+                    side="BUY",
+                    quantity=float(quantity),
+                    price=None,
+                    status="SUBMITTED",
+                    order_type="MARKET",
+                    submitted_time=datetime.now().isoformat(),
+                )
+                self._pending_orders[order.order_id] = order
+                self._update_bot_state()
+            else:
+                logger.warning("BUY order submission failed")
             return
 
         logger.info(f"SUBMIT BUY ORDER: {quantity} {instrument_id}")
@@ -659,7 +674,22 @@ class DynamicRuleStrategy:
             quantity: Quantity to sell
         """
         if self._submit_sell_handler:
-            self._submit_sell_handler(instrument_id, quantity)
+            order_id = self._submit_sell_handler(instrument_id, quantity)
+            if order_id is not None:
+                order = StateOrder(
+                    order_id=str(order_id),
+                    symbol=instrument_id.split(".")[0],
+                    side="SELL",
+                    quantity=float(quantity),
+                    price=None,
+                    status="SUBMITTED",
+                    order_type="MARKET",
+                    submitted_time=datetime.now().isoformat(),
+                )
+                self._pending_orders[order.order_id] = order
+                self._update_bot_state()
+            else:
+                logger.warning("SELL order submission failed")
             return
 
         logger.info(f"SUBMIT SELL ORDER: {quantity} {instrument_id}")

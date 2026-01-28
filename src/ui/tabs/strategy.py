@@ -32,6 +32,8 @@ from src.ui.components.charts import (
     render_trade_distribution,
     render_cumulative_pnl,
 )
+from src.ui.i18n import I18n
+from src.ui.translations import translations
 
 
 # Project root (from src/ui/tabs -> src/ui -> src -> project root)
@@ -45,6 +47,12 @@ ACTIVE_STRATEGY_PATH = _PROJECT_ROOT / "config" / "active_strategy.json"
 
 # Reload signal file path (tells the bot to reload strategy)
 RELOAD_SIGNAL_FILE = Path(__file__).parent.parent.parent / "config" / ".reload_signal"
+
+
+def _get_i18n() -> I18n:
+    if "i18n" not in st.session_state:
+        st.session_state["i18n"] = I18n(translations)
+    return st.session_state["i18n"]
 
 
 def _load_strategy_from_session() -> Optional[Strategy]:
@@ -67,7 +75,8 @@ def _load_strategy_from_file(filepath: Path) -> Optional[Strategy]:
                 data = json.load(f)
             return Strategy.model_validate(data)
     except Exception as e:
-        st.error(f"Error loading strategy: {e}")
+        i18n = _get_i18n()
+        st.error(i18n.t("error_loading_strategy", error=str(e)))
     return None
 
 
@@ -79,7 +88,8 @@ def _save_strategy_to_file(strategy: Strategy, filepath: Path) -> bool:
             json.dump(strategy.model_dump(mode="json"), f, indent=2, default=str)
         return True
     except Exception as e:
-        st.error(f"Error saving strategy: {e}")
+        i18n = _get_i18n()
+        st.error(i18n.t("error_saving_strategy", error=str(e)))
         return False
 
 
@@ -97,11 +107,12 @@ def _get_or_create_strategy() -> Strategy:
         return strategy
     
     # Create a new empty strategy
+    i18n = _get_i18n()
     strategy = Strategy(
         id=str(uuid.uuid4()),
-        name="New Strategy",
+        name=i18n.t("new_strategy"),
         version="1.0.0",
-        description="Created with Strategy Builder",
+        description=i18n.t("created_with_strategy_builder"),
         rules=[],
     )
     _save_strategy_to_session(strategy)
@@ -125,7 +136,8 @@ def _load_watchlist_from_file() -> List[str]:
                     if line and not line.startswith("#"):
                         symbols.append(line.upper())
     except Exception as e:
-        st.warning(f"Could not load watchlist file: {e}")
+        i18n = _get_i18n()
+        st.warning(i18n.t("watchlist_load_failed", error=str(e)))
     return symbols
 
 
@@ -139,11 +151,11 @@ def _get_tws_connection_status() -> Tuple[bool, str]:
     try:
         provider = get_tws_provider()
         if provider.is_connected():
-            return True, "🟢 TWS Connected"
+            return True, _get_i18n().t("tws_connected_status")
         else:
-            return False, "🔴 TWS Not Connected"
+            return False, _get_i18n().t("tws_not_connected_status")
     except Exception as e:
-        return False, f"🔴 TWS Error: {str(e)[:30]}"
+        return False, _get_i18n().t("tws_error_status", error=str(e)[:30])
 
 
 def _get_available_tickers() -> Tuple[List[str], str]:
@@ -168,21 +180,22 @@ def _get_available_tickers() -> Tuple[List[str], str]:
             if tws_symbols:
                 # Merge TWS symbols with watchlist, TWS first
                 combined = list(dict.fromkeys(tws_symbols + watchlist_symbols))
-                return combined, "TWS + Watchlist"
+                return combined, _get_i18n().t("ticker_source_tws_watchlist")
     except Exception:
         pass
     
     # Return watchlist symbols if available
     if watchlist_symbols:
-        return watchlist_symbols, "Local Watchlist"
+        return watchlist_symbols, _get_i18n().t("ticker_source_local_watchlist")
     
     # Default fallback symbols
     default_symbols = ["SPY", "QQQ", "AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "TSLA"]
-    return default_symbols, "Default"
+    return default_symbols, _get_i18n().t("ticker_source_default")
 
 
 def render_strategy_tab() -> None:
     """Render the Strategy Builder tab content."""
+    i18n = _get_i18n()
     # Get or create strategy
     strategy = _get_or_create_strategy()
     
@@ -210,16 +223,17 @@ def render_strategy_tab() -> None:
 
 def _render_strategy_header(strategy: Strategy) -> None:
     """Render the strategy header with name and description."""
+    i18n = _get_i18n()
     col1, col2 = st.columns([3, 1])
     
     with col1:
         # Editable strategy name
         new_name = st.text_input(
-            "Strategy Name",
+            i18n.t("strategy_name"),
             value=strategy.name,
             key="strategy_name_input",
             label_visibility="collapsed",
-            placeholder="Enter strategy name...",
+            placeholder=i18n.t("strategy_name_placeholder"),
         )
         
         # Update if changed
@@ -231,8 +245,7 @@ def _render_strategy_header(strategy: Strategy) -> None:
         # Description
         st.markdown(
             f'<span style="color: {COLORS["text_secondary"]};">'
-            f'Configure your trading rules and backtest before deploying • '
-            f'{len(strategy.rules)} rule(s) defined'
+            f'{i18n.t("strategy_header_subtitle", count=len(strategy.rules))}'
             f'</span>',
             unsafe_allow_html=True
         )
@@ -241,7 +254,7 @@ def _render_strategy_header(strategy: Strategy) -> None:
         # Strategy status
         is_deployed = st.session_state.get("strategy_deployed", False)
         status_color = COLORS["accent_green"] if is_deployed else COLORS["accent_yellow"]
-        status_text = "🟢 Deployed" if is_deployed else "🟡 Draft"
+        status_text = i18n.t("strategy_status_deployed") if is_deployed else i18n.t("strategy_status_draft")
         st.markdown(
             f'<div style="text-align: right; color: {status_color};">'
             f'<strong>{status_text}</strong>'
@@ -254,7 +267,7 @@ def _render_strategy_header(strategy: Strategy) -> None:
         ticker_rules = len([r for r in strategy.rules if r.scope == RuleScope.PER_TICKER])
         st.markdown(
             f'<div style="text-align: right; color: {COLORS["text_secondary"]}; font-size: 0.85em;">'
-            f'🌍 {global_rules} global • 🎯 {ticker_rules} per-ticker'
+            f'{i18n.t("strategy_rule_counts", global_count=global_rules, ticker_count=ticker_rules)}'
             f'</div>',
             unsafe_allow_html=True
         )
@@ -262,7 +275,8 @@ def _render_strategy_header(strategy: Strategy) -> None:
 
 def _render_rules_section(strategy: Strategy) -> None:
     """Render the rules list and rule builder."""
-    st.markdown("#### Trading Rules")
+    i18n = _get_i18n()
+    st.markdown(f"#### {i18n.t('trading_rules')}")
     
     # Callbacks for rule operations
     def on_delete_rule(rule_id: str):
@@ -288,7 +302,7 @@ def _render_rules_section(strategy: Strategy) -> None:
     
     # Add Rule section
     st.markdown("---")
-    with st.expander("➕ Add New Rule", expanded=False):
+    with st.expander(i18n.t("add_new_rule"), expanded=False):
         # Use the new rule builder component
         new_rule = render_rule_builder(key_prefix="new_rule")
         
@@ -297,13 +311,14 @@ def _render_rules_section(strategy: Strategy) -> None:
             strategy.rules.append(new_rule)
             strategy.updated_at = datetime.now()
             _save_strategy_to_session(strategy)
-            st.success(f"Rule '{new_rule.name}' added successfully!")
+            st.success(i18n.t("rule_added_success", name=new_rule.name))
             st.rerun()
 
 
 def _render_backtest_section(strategy: Strategy) -> None:
     """Render the backtest configuration section with TWS integration."""
-    st.markdown("#### Backtest Configuration")
+    i18n = _get_i18n()
+    st.markdown(f"#### {i18n.t('backtest_configuration')}")
     
     # Show TWS connection status
     is_connected, status_msg = _get_tws_connection_status()
@@ -334,9 +349,9 @@ def _render_backtest_section(strategy: Strategy) -> None:
         # Load from watchlist button
         col_lbl, col_btn = st.columns([3, 1])
         with col_lbl:
-             st.markdown(f"**Select Tickers** ({ticker_source})")
+               st.markdown(i18n.t("select_tickers", source=ticker_source))
         with col_btn:
-             if st.button("📥 Load Watchlist", help="Replace current selection with watchlist"):
+               if st.button(i18n.t("load_watchlist"), help=i18n.t("load_watchlist_help")):
                  watchlist_symbols = _load_watchlist_from_file()
                  st.session_state.backtest_tickers = watchlist_symbols
                  st.rerun()
@@ -360,14 +375,14 @@ def _render_backtest_section(strategy: Strategy) -> None:
         col1, col2 = st.columns(2)
         with col1:
             start_date = st.date_input(
-                "Start Date",
+                i18n.t("start_date"),
                 value=date.today() - timedelta(days=90),
                 max_value=date.today() - timedelta(days=1),
                 key="backtest_start_date"
             )
         with col2:
             end_date = st.date_input(
-                "End Date",
+                i18n.t("end_date"),
                 value=date.today(),
                 max_value=date.today(),
                 key="backtest_end_date"
@@ -375,13 +390,13 @@ def _render_backtest_section(strategy: Strategy) -> None:
         
         # Validate date range
         if start_date >= end_date:
-            st.warning("Start date must be before end date")
+            st.warning(i18n.t("start_date_before_end_date"))
         
         # Initial capital and timeframe
         col1, col2 = st.columns(2)
         with col1:
             initial_capital = st.number_input(
-                "Initial Capital ($)",
+                i18n.t("initial_capital"),
                 min_value=1000,
                 max_value=10000000,
                 value=10000,
@@ -390,7 +405,7 @@ def _render_backtest_section(strategy: Strategy) -> None:
             )
         with col2:
             timeframe = st.selectbox(
-                "Timeframe",
+                i18n.t("timeframe"),
                 options=["5m", "15m", "30m", "1h", "1d"],
                 index=0,
                 key="backtest_timeframe"
@@ -398,24 +413,24 @@ def _render_backtest_section(strategy: Strategy) -> None:
         
         # Data source toggle (TWS vs Sample)
         use_tws_data = st.checkbox(
-            "Use Real TWS Data",
+            i18n.t("use_real_tws_data"),
             value=is_connected,
             disabled=not is_connected,
-            help="When enabled and TWS is connected, uses real historical market data. Otherwise uses sample/synthetic data.",
+            help=i18n.t("use_real_tws_data_help"),
             key="use_tws_data"
         )
         
         if not is_connected and use_tws_data:
-            st.warning("TWS is not connected. Will use sample data for backtesting.")
+            st.warning(i18n.t("tws_not_connected_backtest"))
         
         # Run backtest button
         can_run = bool(tickers) and bool(strategy.rules) and start_date < end_date
         
         if not strategy.rules:
-            st.info("Add at least one trading rule before running backtest.", icon="💡")
+            st.info(i18n.t("add_rule_before_backtest"), icon="💡")
         
         if st.button(
-            "🚀 Run Backtest", 
+            i18n.t("run_backtest"), 
             key="run_backtest", 
             width="stretch",
             disabled=not can_run
@@ -457,8 +472,9 @@ def _run_backtest(
         timeframe: Data timeframe (e.g., "5m", "1h", "1d")
         use_tws_data: Whether to use real TWS data (vs sample data)
     """
-    data_source_msg = "real TWS data" if use_tws_data else "sample data"
-    with st.spinner(f"Running backtest with {data_source_msg}... This may take a moment."):
+    i18n = _get_i18n()
+    data_source_msg = i18n.t("data_source_real_tws") if use_tws_data else i18n.t("data_source_sample")
+    with st.spinner(i18n.t("running_backtest", source=data_source_msg)):
         try:
             # Create backtest engine with TWS data flag
             engine = BacktestEngine(
@@ -479,23 +495,27 @@ def _run_backtest(
             st.session_state.backtest_result = result
             
             # Show result summary with data source info
-            data_source_info = f" (Data: {result.data_source})" if hasattr(result, 'data_source') else ""
+            data_source_info = f" {i18n.t('data_source_label', source=result.data_source)}" if hasattr(result, 'data_source') else ""
             st.success(
-                f"Backtest complete!{data_source_info} "
-                f"Return: {result.metrics.total_return_percent:+.2f}% | "
-                f"Trades: {result.metrics.total_trades}"
+                i18n.t(
+                    "backtest_complete",
+                    data_source=data_source_info,
+                    return_pct=f"{result.metrics.total_return_percent:+.2f}%",
+                    trades=str(result.metrics.total_trades),
+                )
             )
             
         except Exception as e:
-            st.error(f"Backtest failed: {e}")
+            st.error(i18n.t("backtest_failed", error=str(e)))
             import traceback
             st.code(traceback.format_exc())
 
 
 def _render_backtest_results(result: BacktestResult) -> None:
     """Render backtest results."""
+    i18n = _get_i18n()
     st.markdown("---")
-    st.markdown("##### 📊 Backtest Results")
+    st.markdown(f"##### {i18n.t('backtest_results')}")
     
     # Show data source badge
     if hasattr(result, 'data_source') and result.data_source:
@@ -504,20 +524,20 @@ def _render_backtest_results(result: BacktestResult) -> None:
             f'<div style="display: inline-block; background-color: {source_color}20; '
             f'color: {source_color}; padding: 2px 8px; border-radius: 4px; '
             f'font-size: 0.75em; margin-bottom: 8px;">'
-            f'📊 Data: {result.data_source}</div>',
+            f'{i18n.t("data_source_badge", source=result.data_source)}</div>',
             unsafe_allow_html=True
         )
     
     # Summary metrics in expandable section (collapsed by default for space)
-    with st.expander("📈 Performance Metrics", expanded=True):
+    with st.expander(i18n.t("performance_metrics"), expanded=True):
         render_metrics_cards(result.metrics, result.initial_capital)
     
     # Equity curve
-    with st.expander("📉 Equity Curve", expanded=True):
+    with st.expander(i18n.t("equity_curve"), expanded=True):
         render_equity_curve(result)
     
     # Trade analysis
-    with st.expander(f"📋 Trade History ({result.metrics.total_trades} trades)", expanded=False):
+    with st.expander(i18n.t("trade_history", count=result.metrics.total_trades), expanded=False):
         # Trade table
         render_trade_table(result.trades)
         
@@ -530,21 +550,22 @@ def _render_backtest_results(result: BacktestResult) -> None:
                 render_cumulative_pnl(result.trades)
     
     # Clear results button
-    if st.button("🗑️ Clear Results", key="clear_backtest_results"):
+    if st.button(i18n.t("clear_results"), key="clear_backtest_results"):
         del st.session_state.backtest_result
         st.rerun()
 
 
 def _render_action_buttons(strategy: Strategy) -> None:
     """Render the main action buttons."""
-    st.markdown("#### Actions")
+    i18n = _get_i18n()
+    st.markdown(f"#### {i18n.t('actions')}")
     
     col1, col2, col3, col4, col5 = st.columns(5)
     
     with col1:
         # Import - file uploader
         uploaded_file = st.file_uploader(
-            "Import Strategy",
+            i18n.t("import_strategy"),
             type=["json"],
             key="import_strategy_file",
             label_visibility="collapsed",
@@ -554,7 +575,7 @@ def _render_action_buttons(strategy: Strategy) -> None:
     
     with col2:
         # Export as download
-        if st.button("📤 Export JSON", key="export_strategy", width="stretch"):
+        if st.button(i18n.t("export_json"), key="export_strategy", width="stretch"):
             pass  # Download button rendered below
         
         # Prepare download
@@ -564,7 +585,7 @@ def _render_action_buttons(strategy: Strategy) -> None:
             default=str
         )
         st.download_button(
-            label="📥 Download Strategy",
+            label=i18n.t("download_strategy"),
             data=json_str,
             file_name=f"strategy_{strategy.id[:8]}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
             mime="application/json",
@@ -573,20 +594,20 @@ def _render_action_buttons(strategy: Strategy) -> None:
         )
     
     with col3:
-        if st.button("💾 Save Draft", key="save_draft", width="stretch"):
+        if st.button(i18n.t("save_draft"), key="save_draft", width="stretch"):
             strategy.updated_at = datetime.now()
             if _save_strategy_to_file(strategy, ACTIVE_STRATEGY_PATH):
-                st.toast("Strategy saved successfully!", icon="✅")
+                st.toast(i18n.t("strategy_saved_success"), icon="✅")
             else:
-                st.toast("Failed to save strategy", icon="❌")
+                st.toast(i18n.t("strategy_saved_failed"), icon="❌")
     
     with col4:
-        if st.button("🚀 Deploy to Bot", key="apply_to_bot", width="stretch"):
+        if st.button(i18n.t("deploy_to_bot"), key="apply_to_bot", width="stretch"):
             _deploy_strategy(strategy)
     
     with col5:
         # Apply to Trading Bot (hot-reload)
-        if st.button("⚡ Apply Strategy", key="apply_hot_reload", width="stretch"):
+        if st.button(i18n.t("apply_strategy"), key="apply_hot_reload", width="stretch"):
             _apply_strategy_hot_reload(strategy)
 
 
@@ -605,25 +626,27 @@ def _import_strategy(uploaded_file) -> None:
         # Save to session
         _save_strategy_to_session(imported_strategy)
         
-        st.success(f"Strategy '{imported_strategy.name}' imported successfully!")
+        i18n = _get_i18n()
+        st.success(i18n.t("strategy_imported_success", name=imported_strategy.name))
         st.rerun()
         
     except json.JSONDecodeError:
-        st.error("Invalid JSON file. Please upload a valid strategy JSON.")
+        st.error(_get_i18n().t("invalid_json"))
     except Exception as e:
-        st.error(f"Error importing strategy: {e}")
+        st.error(_get_i18n().t("strategy_import_failed", error=str(e)))
 
 
 def _deploy_strategy(strategy: Strategy) -> None:
     """Deploy the current strategy to the trading bot."""
+    i18n = _get_i18n()
     if not strategy.rules:
-        st.error("Cannot deploy an empty strategy. Please add at least one rule.")
+        st.error(i18n.t("cannot_deploy_empty"))
         return
     
     # Validate strategy before deployment
     validation_errors = validate_strategy(strategy)
     if validation_errors:
-        st.error("❌ Strategy validation failed:")
+        st.error(i18n.t("strategy_validation_failed"))
         for error in validation_errors:
             st.markdown(
                 f'<div style="color: {COLORS["accent_red"]}; padding: 4px 8px; '
@@ -636,31 +659,28 @@ def _deploy_strategy(strategy: Strategy) -> None:
         return
     
     # Show confirmation dialog
-    st.warning(
-        "⚠️ This will deploy the strategy to the LIVE trading bot. "
-        "Make sure you have tested it thoroughly!"
-    )
+    st.warning(i18n.t("deploy_warning"))
     
     # Display rules summary
-    st.markdown("**Rules to deploy:**")
+    st.markdown(i18n.t("rules_to_deploy"))
     for rule in strategy.rules:
         st.markdown(f"- {rule.name}: {rule_to_human_readable(rule)}")
     
     col1, col2 = st.columns(2)
     with col1:
-        if st.button("✅ Confirm Deployment", key="confirm_deploy", width="stretch"):
+        if st.button(i18n.t("confirm_deploy"), key="confirm_deploy", width="stretch"):
             # Save to active_strategy.json
             strategy.updated_at = datetime.now()
             if _save_strategy_to_file(strategy, ACTIVE_STRATEGY_PATH):
                 st.session_state.strategy_deployed = True
-                st.success("Strategy deployed successfully!")
-                st.toast("Strategy is now active on the trading bot", icon="🚀")
+                st.success(i18n.t("strategy_deployed_success"))
+                st.toast(i18n.t("strategy_now_active"), icon="🚀")
                 st.balloons()
             else:
-                st.error("Failed to deploy strategy")
+                st.error(i18n.t("strategy_deploy_failed"))
     
     with col2:
-        if st.button("❌ Cancel", key="cancel_deploy", width="stretch"):
+        if st.button(i18n.t("cancel"), key="cancel_deploy", width="stretch"):
             st.rerun()
 
 
@@ -672,14 +692,15 @@ def _apply_strategy_hot_reload(strategy: Strategy) -> None:
     a reload signal file that the bot watches for to trigger
     a strategy reload without restart.
     """
+    i18n = _get_i18n()
     if not strategy.rules:
-        st.error("Cannot apply an empty strategy. Please add at least one rule.")
+        st.error(i18n.t("cannot_apply_empty"))
         return
     
     # Validate strategy before applying
     validation_errors = validate_strategy(strategy)
     if validation_errors:
-        st.error("❌ Strategy validation failed. Please fix the following errors:")
+        st.error(i18n.t("strategy_validation_failed_fix"))
         for error in validation_errors:
             st.markdown(
                 f'<div style="color: {COLORS["accent_red"]}; padding: 4px 8px; '
@@ -692,12 +713,12 @@ def _apply_strategy_hot_reload(strategy: Strategy) -> None:
         return
     
     # Strategy passed validation - show success with green checkmark
-    st.success("✅ Strategy validation passed")
+    st.success(i18n.t("strategy_validation_passed"))
     
     # Save strategy to active_strategy.json
     strategy.updated_at = datetime.now()
     if not _save_strategy_to_file(strategy, ACTIVE_STRATEGY_PATH):
-        st.error("Failed to save strategy to disk")
+        st.error(i18n.t("strategy_save_to_disk_failed"))
         return
     
     # Write reload signal file to trigger hot-reload
@@ -707,7 +728,7 @@ def _apply_strategy_hot_reload(strategy: Strategy) -> None:
             f.write(datetime.now().isoformat())
         
         st.session_state.strategy_deployed = True
-        st.success("⚡ Strategy applied successfully!")
+        st.success(i18n.t("strategy_applied_success"))
         
         # Check if bot is running
         from src.bot.state import BotState
@@ -715,24 +736,21 @@ def _apply_strategy_hot_reload(strategy: Strategy) -> None:
             bot_state = BotState.load()
             if bot_state.status in ["running", "simulating"]:
                 st.toast(
-                    "Strategy will be reloaded by the running bot",
+                    i18n.t("strategy_reload_by_bot"),
                     icon="♻️"
                 )
                 st.info(
-                    "ℹ️ The trading bot is running and will automatically "
-                    "reload the strategy within a few seconds."
+                    i18n.t("bot_running_reload_notice")
                 )
             else:
                 st.warning(
-                    "⚠️ The trading bot is not currently running. "
-                    "Start the bot to begin trading with this strategy."
+                    i18n.t("bot_not_running_notice")
                 )
         except Exception:
             # Bot state not available
             st.info(
-                "ℹ️ Strategy saved. If the bot is running, it will "
-                "automatically reload the strategy."
+                i18n.t("strategy_saved_reload_if_running")
             )
         
     except Exception as e:
-        st.error(f"Failed to write reload signal: {e}")
+        st.error(i18n.t("write_reload_failed", error=str(e)))

@@ -14,6 +14,8 @@ from typing import List, Optional
 
 from src.bot.backtest_runner import BacktestResult, BacktestMetrics, Trade
 from src.ui.styles import COLORS
+from src.ui.i18n import I18n
+from src.ui.translations import translations
 
 
 def render_equity_curve(result: BacktestResult) -> None:
@@ -31,7 +33,7 @@ def render_equity_curve(result: BacktestResult) -> None:
     equity_df = result.equity_curve
     
     if equity_df.empty:
-        st.info("No equity data available to display.")
+        st.info(_get_i18n().t("no_equity_data"))
         return
     
     # Create figure with secondary y-axis for drawdown
@@ -40,7 +42,7 @@ def render_equity_curve(result: BacktestResult) -> None:
         row_heights=[0.75, 0.25],
         shared_xaxes=True,
         vertical_spacing=0.05,
-        subplot_titles=("Equity Curve", "Drawdown")
+        subplot_titles=(_get_i18n().t("equity_curve"), _get_i18n().t("drawdown"))
     )
     
     # Main equity line
@@ -61,7 +63,7 @@ def render_equity_curve(result: BacktestResult) -> None:
         y=result.initial_capital,
         line_dash="dash",
         line_color=COLORS["text_secondary"],
-        annotation_text=f"Initial: ${result.initial_capital:,.0f}",
+        annotation_text=_get_i18n().t("initial_capital_label", value=f"${result.initial_capital:,.0f}"),
         annotation_position="right",
         row=1, col=1
     )
@@ -87,7 +89,7 @@ def render_equity_curve(result: BacktestResult) -> None:
                 x=equity_df["timestamp"],
                 y=-equity_df["drawdown_pct"],
                 mode="lines",
-                name="Drawdown %",
+                name=_get_i18n().t("drawdown_percent"),
                 fill="tozeroy",
                 fillcolor=f"rgba(239, 83, 80, 0.3)",
                 line=dict(color=COLORS["accent_red"], width=1),
@@ -123,7 +125,7 @@ def render_equity_curve(result: BacktestResult) -> None:
                         x=list(times),
                         y=list(equities),
                         mode="markers",
-                        name="Entry",
+                        name=_get_i18n().t("entry"),
                         marker=dict(
                             color=COLORS["accent_green"],
                             size=8,
@@ -204,7 +206,7 @@ def render_metrics_cards(metrics: BacktestMetrics, initial_capital: float = 1000
     
     with col1:
         _render_metric_card(
-            "Total Return",
+            _get_i18n().t("total_return"),
             f"${metrics.total_return:,.2f}",
             f"{metrics.total_return_percent:+.2f}%",
             is_positive=metrics.total_return >= 0
@@ -212,15 +214,15 @@ def render_metrics_cards(metrics: BacktestMetrics, initial_capital: float = 1000
     
     with col2:
         _render_metric_card(
-            "Sharpe Ratio",
+            _get_i18n().t("sharpe_ratio"),
             f"{metrics.sharpe_ratio:.2f}",
-            "Risk-adjusted return",
+            _get_i18n().t("risk_adjusted_return"),
             is_positive=metrics.sharpe_ratio > 0
         )
     
     with col3:
         _render_metric_card(
-            "Max Drawdown",
+            _get_i18n().t("max_drawdown"),
             f"-{metrics.max_drawdown_percent:.2f}%",
             f"${metrics.max_drawdown:,.2f}",
             is_positive=False,
@@ -229,9 +231,9 @@ def render_metrics_cards(metrics: BacktestMetrics, initial_capital: float = 1000
     
     with col4:
         _render_metric_card(
-            "Win Rate",
+            _get_i18n().t("win_rate"),
             f"{metrics.win_rate:.1f}%",
-            f"{metrics.winning_trades}/{metrics.total_trades} trades",
+            _get_i18n().t("win_rate_trades", wins=metrics.winning_trades, total=metrics.total_trades),
             is_positive=metrics.win_rate >= 50
         )
     
@@ -241,34 +243,34 @@ def render_metrics_cards(metrics: BacktestMetrics, initial_capital: float = 1000
     
     with col1:
         _render_metric_card(
-            "Total Trades",
+            _get_i18n().t("total_trades"),
             str(metrics.total_trades),
-            f"W: {metrics.winning_trades} / L: {metrics.losing_trades}",
+            _get_i18n().t("wins_losses", wins=metrics.winning_trades, losses=metrics.losing_trades),
             neutral=True
         )
     
     with col2:
         _render_metric_card(
-            "Avg Win",
+            _get_i18n().t("avg_win"),
             f"${metrics.avg_win:,.2f}" if metrics.avg_win > 0 else "$0.00",
-            "Per winning trade",
+            _get_i18n().t("per_winning_trade"),
             is_positive=True
         )
     
     with col3:
         _render_metric_card(
-            "Avg Loss",
+            _get_i18n().t("avg_loss"),
             f"${metrics.avg_loss:,.2f}" if metrics.avg_loss > 0 else "$0.00",
-            "Per losing trade",
+            _get_i18n().t("per_losing_trade"),
             is_positive=False
         )
     
     with col4:
         pf_display = f"{metrics.profit_factor:.2f}" if metrics.profit_factor < float('inf') else "∞"
         _render_metric_card(
-            "Profit Factor",
+            _get_i18n().t("profit_factor"),
             pf_display,
-            "Gross profit / loss",
+            _get_i18n().t("gross_profit_loss"),
             is_positive=metrics.profit_factor > 1
         )
 
@@ -327,7 +329,7 @@ def render_trade_table(trades: List[Trade]) -> None:
         trades: List of Trade objects
     """
     if not trades:
-        st.info("No trades executed during the backtest.")
+        st.info(_get_i18n().t("no_trades_executed"))
         return
     
     # Convert to DataFrame
@@ -344,24 +346,34 @@ def render_trade_table(trades: List[Trade]) -> None:
     
     # Rename columns for display
     df = df.rename(columns={
-        "entry_time": "Entry Time",
-        "exit_time": "Exit Time",
-        "symbol": "Symbol",
-        "side": "Side",
-        "quantity": "Qty",
-        "entry_price": "Entry $",
-        "exit_price": "Exit $",
-        "pnl": "P&L",
-        "pnl_percent": "P&L %"
+        "entry_time": _get_i18n().t("entry_time"),
+        "exit_time": _get_i18n().t("exit_time"),
+        "symbol": _get_i18n().t("symbol"),
+        "side": _get_i18n().t("side"),
+        "quantity": _get_i18n().t("quantity_short"),
+        "entry_price": _get_i18n().t("entry_price"),
+        "exit_price": _get_i18n().t("exit_price"),
+        "pnl": _get_i18n().t("pnl"),
+        "pnl_percent": _get_i18n().t("pnl_percent")
     })
     
     # Reorder columns
-    df = df[["Entry Time", "Exit Time", "Symbol", "Side", "Qty", "Entry $", "Exit $", "P&L", "P&L %"]]
+    df = df[[
+        _get_i18n().t("entry_time"),
+        _get_i18n().t("exit_time"),
+        _get_i18n().t("symbol"),
+        _get_i18n().t("side"),
+        _get_i18n().t("quantity_short"),
+        _get_i18n().t("entry_price"),
+        _get_i18n().t("exit_price"),
+        _get_i18n().t("pnl"),
+        _get_i18n().t("pnl_percent")
+    ]]
     
     # Display with styling
     st.markdown(
         f'<div style="color: {COLORS["text_secondary"]}; margin-bottom: 0.5rem;">'
-        f'Showing {len(df)} trades'
+        f'{_get_i18n().t("showing_trades", count=len(df))}'
         f'</div>',
         unsafe_allow_html=True
     )
@@ -414,9 +426,9 @@ def render_trade_distribution(trades: List[Trade]) -> None:
         )
     
     fig.update_layout(
-        title="Trade P&L Distribution",
-        xaxis_title="P&L ($)",
-        yaxis_title="Count",
+        title=_get_i18n().t("trade_pnl_distribution"),
+        xaxis_title=_get_i18n().t("pnl_dollars"),
+        yaxis_title=_get_i18n().t("count"),
         barmode="overlay",
         height=300,
         paper_bgcolor=COLORS["bg_main"],
@@ -504,9 +516,9 @@ def render_cumulative_pnl(trades: List[Trade]) -> None:
     )
     
     fig.update_layout(
-        title="Cumulative P&L by Trade",
-        xaxis_title="Time",
-        yaxis_title="Cumulative P&L ($)",
+        title=_get_i18n().t("cumulative_pnl_by_trade"),
+        xaxis_title=_get_i18n().t("time"),
+        yaxis_title=_get_i18n().t("cumulative_pnl_dollars"),
         height=300,
         paper_bgcolor=COLORS["bg_main"],
         plot_bgcolor=COLORS["bg_card"],
@@ -526,3 +538,9 @@ def render_cumulative_pnl(trades: List[Trade]) -> None:
     )
     
     st.plotly_chart(fig, width="stretch")
+
+
+def _get_i18n() -> I18n:
+    if "i18n" not in st.session_state:
+        st.session_state["i18n"] = I18n(translations)
+    return st.session_state["i18n"]

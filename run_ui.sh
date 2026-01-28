@@ -41,9 +41,34 @@ fi
 # Set Python path
 export PYTHONPATH="$SCRIPT_DIR:$PYTHONPATH"
 
+# Pick an available port (default 8501, then 8502-8510)
+PORT=$(uv run python - <<'PY'
+import socket
+import sys
+
+for port in range(8501, 8511):
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            sock.bind(("127.0.0.1", port))
+        except OSError:
+            continue
+        print(port)
+        sys.exit(0)
+
+print("")
+sys.exit(1)
+PY
+)
+
+if [ -z "$PORT" ]; then
+    log_error "No free port found in range 8501-8510."
+    exit 1
+fi
+
 # Run the Streamlit app using uv
 echo "🚀 Starting Cobalt Trading Bot UI..."
-echo "   URL: http://localhost:8501"
+echo "   URL: http://localhost:${PORT}"
 echo ""
 
-uv run streamlit run src/ui/main.py
+uv run streamlit run src/ui/main.py --server.port "$PORT"

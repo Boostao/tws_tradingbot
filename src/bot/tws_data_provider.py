@@ -26,6 +26,7 @@ try:
     from ibapi.wrapper import EWrapper
     from ibapi.contract import Contract
     from ibapi.common import BarData, TickerId, TickAttrib
+    from ibapi.order import Order
     from ibapi.scanner import ScannerSubscription
     IBAPI_AVAILABLE = True
 except ImportError:
@@ -143,6 +144,17 @@ class TWSDataWrapper(EWrapper):
         self._next_valid_id: Optional[int] = None
         self._connected = False
         self._managed_accounts: List[str] = []
+
+        # Real-time market data
+        self._market_data: Dict[int, Dict[str, Any]] = {}
+        self._market_data_events: Dict[int, threading.Event] = {}
+        self._market_data_symbols: Dict[int, str] = {}
+        self._market_data_lock = threading.Lock()
+
+        # Order tracking
+        self._orders: Dict[int, Dict[str, Any]] = {}
+        self._order_events: Dict[int, threading.Event] = {}
+        self._order_lock = threading.Lock()
         
         # Event queues for synchronization
         self._connection_event = threading.Event()
@@ -196,6 +208,10 @@ class TWSDataWrapper(EWrapper):
             self._errors[reqId] = errorString
             if reqId in self._data_events:
                 self._data_events[reqId].set()
+            if reqId in self._market_data_events:
+                self._market_data_events[reqId].set()
+            if reqId in self._order_events:
+                self._order_events[reqId].set()
     
     def connectionClosed(self):
         """Handle connection closed."""
@@ -324,6 +340,107 @@ class TWSDataWrapper(EWrapper):
         if reqId in self._data_events:
             self._data_events[reqId].set()
 
+    # Order Callbacks
+
+    def openOrder(self, orderId: int, contract: Contract, order: Order, orderState):
+        """Handle open order info."""
+        with self._order_lock:
+            self._orders.setdefault(orderId, {})
+            self._orders[orderId].update(
+                {
+                    "order_id": orderId,
+                    "symbol": contract.symbol,
+                    "action": order.action,
+                    "quantity": getattr(order, "totalQuantity", None),
+                    "order_type": getattr(order, "orderType", None),
+                    "status": getattr(orderState, "status", None),
+                }
+            )
+
+    def orderStatus(
+        self,
+        orderId: int,
+        status: str,
+        filled: float,
+        remaining: float,
+        avgFillPrice: float,
+        permId: int,
+        parentId: int,
+        lastFillPrice: float,
+        clientId: int,
+        whyHeld: str,
+        mktCapPrice: float,
+    ):
+        """Handle order status updates."""
+        with self._order_lock:
+            data = self._orders.setdefault(orderId, {"order_id": orderId})
+            data.update(
+                {
+                    "status": status,
+                    "filled": filled,
+                    "remaining": remaining,
+                    "avg_fill_price": avgFillPrice,
+                    "last_fill_price": lastFillPrice,
+                    "timestamp": datetime.utcnow(),
+                }
+            )
+        if orderId in self._order_events:
+            self._order_events[orderId].set()
+
+    # Real-time Market Data Callbacks
+
+    def tickPrice(self, reqId: int, tickType: int, price: float, attrib: TickAttrib):
+        """Receive real-time price updates."""
+        with self._market_data_lock:
+            data = self._market_data.setdefault(reqId, {"symbol": self._market_data_symbols.get(reqId)})
+            data["timestamp"] = datetime.utcnow()
+
+            price_map = {
+                1: "bid",
+                2: "ask",
+                4: "last",
+                6: "high",
+                7: "low",
+                9: "close",
+                14: "open",
+                66: "bid",
+                67: "ask",
+                68: "last",
+                72: "high",
+                73: "low",
+                75: "close",
+            }
+
+            field = price_map.get(tickType)
+            if field:
+                data[field] = price
+
+    def tickSize(self, reqId: int, tickType: int, size: int):
+        """Receive real-time size updates."""
+        with self._market_data_lock:
+            data = self._market_data.setdefault(reqId, {"symbol": self._market_data_symbols.get(reqId)})
+            data["timestamp"] = datetime.utcnow()
+
+            size_map = {
+                0: "bid_size",
+                3: "ask_size",
+                5: "last_size",
+                8: "volume",
+                69: "bid_size",
+                70: "ask_size",
+                71: "last_size",
+                74: "volume",
+            }
+
+            field = size_map.get(tickType)
+            if field:
+                data[field] = size
+
+    def tickSnapshotEnd(self, reqId: int):
+        """Snapshot data complete."""
+        if reqId in self._market_data_events:
+            self._market_data_events[reqId].set()
+
 
 class TWSDataClient(TWSDataWrapper, EClient):
     """
@@ -337,6 +454,7 @@ class TWSDataClient(TWSDataWrapper, EClient):
         EClient.__init__(self, wrapper=self)
         
         self._req_id_counter = 1000
+        self._order_id_counter: Optional[int] = None
         self._thread: Optional[threading.Thread] = None
         self._lock = threading.Lock()
     
@@ -345,6 +463,19 @@ class TWSDataClient(TWSDataWrapper, EClient):
         with self._lock:
             self._req_id_counter += 1
             return self._req_id_counter
+
+    def _get_next_order_id(self, timeout: float = 5.0) -> Optional[int]:
+        """Get next order ID from TWS in a thread-safe manner."""
+        if self._order_id_counter is None:
+            if not self._connection_event.wait(timeout=timeout):
+                return None
+            with self._lock:
+                self._order_id_counter = self._next_valid_id or 1
+
+        with self._lock:
+            order_id = self._order_id_counter
+            self._order_id_counter += 1
+            return order_id
     
     def connect_and_run(
         self,
@@ -437,6 +568,7 @@ class TWSDataProvider:
         self.client_id = client_id
         
         self._client: Optional[TWSDataClient] = None
+        self._market_data_subscriptions: Dict[str, int] = {}
     
     def connect(self, timeout: float = 10.0) -> bool:
         """
@@ -462,6 +594,11 @@ class TWSDataProvider:
     def disconnect(self):
         """Disconnect from TWS."""
         if self._client:
+            try:
+                for req_id in list(self._market_data_subscriptions.values()):
+                    self._client.cancelMktData(req_id)
+            except Exception:
+                pass
             self._client.disconnect_client()
             self._client = None
     
@@ -525,6 +662,206 @@ class TWSDataProvider:
         contract.exchange = exchange
         contract.currency = "USD"
         return contract
+
+    def _build_market_data_contract(
+        self,
+        symbol: str,
+        exchange: str = "SMART",
+        currency: str = "USD",
+    ) -> Contract:
+        """Build a contract for market data requests."""
+        if symbol.upper() == "VIX":
+            return self.create_index_contract("VIX", exchange="CBOE")
+        return self.create_stock_contract(symbol, exchange=exchange, currency=currency)
+
+    def _build_order_contract(
+        self,
+        symbol: str,
+        exchange: str = "SMART",
+        currency: str = "USD",
+    ) -> Contract:
+        """Build a contract for order placement."""
+        return self._build_market_data_contract(symbol, exchange=exchange, currency=currency)
+
+    def place_order(
+        self,
+        symbol: str,
+        action: str,
+        quantity: int,
+        order_type: str = "MKT",
+        limit_price: Optional[float] = None,
+        stop_price: Optional[float] = None,
+        exchange: str = "SMART",
+        currency: str = "USD",
+        tif: str = "DAY",
+        timeout: float = 5.0,
+    ) -> Optional[int]:
+        """
+        Place a live order through TWS.
+
+        Args:
+            symbol: Ticker symbol
+            action: BUY or SELL
+            quantity: Number of shares
+            order_type: MKT, LMT, STP, STP LMT
+            limit_price: Limit price for LMT/STP LMT
+            stop_price: Stop price for STP/STP LMT
+            exchange: Exchange for the contract
+            currency: Currency
+            tif: Time in force
+            timeout: Timeout waiting for order id
+
+        Returns:
+            Order ID if submitted, else None
+        """
+        if not self._ensure_connected():
+            logger.error("Not connected to TWS")
+            return None
+
+        if quantity <= 0:
+            logger.error("Order quantity must be positive")
+            return None
+
+        order_id = self._client._get_next_order_id(timeout=timeout)
+        if order_id is None:
+            logger.error("Failed to get valid order id")
+            return None
+
+        contract = self._build_order_contract(symbol, exchange=exchange, currency=currency)
+
+        order = Order()
+        order.action = action.upper()
+        order.totalQuantity = int(quantity)
+        order.orderType = order_type
+        order.tif = tif
+
+        if order_type == "LMT" and limit_price is not None:
+            order.lmtPrice = float(limit_price)
+        if order_type in ("STP", "STP LMT") and stop_price is not None:
+            order.auxPrice = float(stop_price)
+        if order_type == "STP LMT" and limit_price is not None:
+            order.lmtPrice = float(limit_price)
+
+        with self._client._order_lock:
+            self._client._orders[order_id] = {
+                "order_id": order_id,
+                "symbol": symbol,
+                "action": order.action,
+                "quantity": order.totalQuantity,
+                "order_type": order.orderType,
+                "status": "SUBMITTED",
+                "timestamp": datetime.utcnow(),
+            }
+
+        self._client.placeOrder(order_id, contract, order)
+        logger.info(f"Order submitted: {order_id} {action} {quantity} {symbol} {order_type}")
+        return order_id
+
+    def cancel_order(self, order_id: int) -> bool:
+        """Cancel an existing order."""
+        if not self._client:
+            return False
+        try:
+            self._client.cancelOrder(order_id)
+            return True
+        except Exception as e:
+            logger.warning(f"Cancel order failed for {order_id}: {e}")
+            return False
+
+    def get_order_status(self, order_id: int) -> Optional[Dict[str, Any]]:
+        """Get the latest cached order status for an order."""
+        if not self._client:
+            return None
+        with self._client._order_lock:
+            return self._client._orders.get(order_id)
+
+    def subscribe_market_data(
+        self,
+        symbol: str,
+        snapshot: bool = False,
+        exchange: str = "SMART",
+        currency: str = "USD",
+        timeout: float = 5.0,
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Subscribe to market data for a symbol.
+
+        Args:
+            symbol: Ticker symbol
+            snapshot: If True, request a one-time snapshot
+            exchange: Exchange for the contract
+            currency: Currency for the contract
+            timeout: Snapshot timeout
+
+        Returns:
+            Snapshot dict if snapshot=True, else None
+        """
+        if not self._ensure_connected():
+            logger.error("Not connected to TWS")
+            return None
+
+        req_id = self._client._get_next_req_id()
+        contract = self._build_market_data_contract(symbol, exchange=exchange, currency=currency)
+
+        self._client._market_data_symbols[req_id] = symbol
+        self._client._market_data[req_id] = {"symbol": symbol, "timestamp": datetime.utcnow()}
+
+        if snapshot:
+            self._client._market_data_events[req_id] = threading.Event()
+
+        self._client.reqMktData(
+            reqId=req_id,
+            contract=contract,
+            genericTickList="",
+            snapshot=snapshot,
+            regulatorySnapshot=False,
+            mktDataOptions=[],
+        )
+
+        if snapshot:
+            if not self._client._market_data_events[req_id].wait(timeout=timeout):
+                logger.warning(f"Snapshot timeout for {symbol}")
+            self._client.cancelMktData(req_id)
+            return self._client._market_data.get(req_id)
+
+        self._market_data_subscriptions[symbol] = req_id
+        return None
+
+    def unsubscribe_market_data(self, symbol: str) -> bool:
+        """Unsubscribe from streaming market data for a symbol."""
+        if not self._client or symbol not in self._market_data_subscriptions:
+            return False
+        req_id = self._market_data_subscriptions.pop(symbol)
+        try:
+            self._client.cancelMktData(req_id)
+            return True
+        except Exception:
+            return False
+
+    def get_latest_market_data(self, symbol: str) -> Optional[Dict[str, Any]]:
+        """Get the latest cached market data for a symbol."""
+        if not self._client:
+            return None
+        req_id = self._market_data_subscriptions.get(symbol)
+        if not req_id:
+            return None
+        return self._client._market_data.get(req_id)
+
+    def get_market_data_snapshot(
+        self,
+        symbol: str,
+        exchange: str = "SMART",
+        currency: str = "USD",
+        timeout: float = 5.0,
+    ) -> Optional[Dict[str, Any]]:
+        """Fetch a one-time market data snapshot for a symbol."""
+        return self.subscribe_market_data(
+            symbol=symbol,
+            snapshot=True,
+            exchange=exchange,
+            currency=currency,
+            timeout=timeout,
+        )
     
     def get_historical_data(
         self,

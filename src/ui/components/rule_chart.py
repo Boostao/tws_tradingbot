@@ -24,6 +24,8 @@ from src.bot.strategy.rules.models import (
 from src.bot.strategy.rules.indicators import IndicatorFactory
 from src.bot.strategy.rules.evaluator import evaluate_rule_history, get_last_true_info
 from src.ui.styles import COLORS
+from src.ui.i18n import I18n
+from src.ui.translations import translations
 
 
 # Chart styling constants matching Tokyo Night theme
@@ -55,7 +57,7 @@ def render_rule_mini_chart(
         height: Chart height in pixels
     """
     if bars is None or len(bars) == 0:
-        st.warning("No bar data available for visualization")
+        st.warning(_get_i18n().t("no_bar_data_visualization"))
         return
     
     # Limit to last N bars
@@ -162,14 +164,14 @@ def _add_true_markers(
                 x=list(true_x),
                 y=list(true_y),
                 mode='markers',
-                name='TRUE',
+                name=_get_i18n().t("true_label"),
                 marker=dict(
                     symbol='triangle-up',
                     size=10,
                     color=TRUE_MARKER_COLOR,
                     line=dict(color='white', width=1)
                 ),
-                hovertemplate='TRUE<br>%{x}<extra></extra>'
+                hovertemplate=f"{_get_i18n().t('true_label')}<br>%{{x}}<extra></extra>"
             ))
     
     return fig
@@ -275,7 +277,7 @@ def _create_slope_chart(
         fig.add_hline(
             y=condition.threshold,
             line=dict(color=THRESHOLD_LINE_COLOR, width=1, dash='dash'),
-            annotation_text=f"Threshold: {condition.threshold}",
+            annotation_text=_get_i18n().t("threshold_label", value=str(condition.threshold)),
             annotation_position="bottom right",
             row=2, col=1
         )
@@ -295,7 +297,7 @@ def _create_slope_chart(
                 x=list(true_x),
                 y=list(true_y),
                 mode='markers',
-                name='TRUE',
+                name=_get_i18n().t("true_label"),
                 marker=dict(symbol='triangle-up', size=8, color=TRUE_MARKER_COLOR),
             ), row=2, col=1)
     
@@ -352,7 +354,7 @@ def _create_threshold_chart(
         fig.add_hline(
             y=condition.threshold,
             line=dict(color=THRESHOLD_LINE_COLOR, width=2, dash='dash'),
-            annotation_text=f"Threshold: {condition.threshold}",
+            annotation_text=_get_i18n().t("threshold_label", value=str(condition.threshold)),
             annotation_position="bottom right",
         )
     
@@ -386,7 +388,7 @@ def _create_time_range_chart(
         x=x_values,
         y=[1] * len(bars),
         marker_color=colors,
-        name='In Range',
+        name=_get_i18n().t("in_range"),
         hovertemplate='%{x}<br>In Range: %{customdata}<extra></extra>',
         customdata=['Yes' if v else 'No' for v in history.values]
     ))
@@ -396,7 +398,7 @@ def _create_time_range_chart(
     fig.update_yaxes(visible=False)
     fig.update_layout(
         title=dict(
-            text=f"Time Range: {condition.range_start} - {condition.range_end}",
+            text=_get_i18n().t("time_range_label", start=condition.range_start, end=condition.range_end),
             font=dict(size=11, color=CHART_TEXT_COLOR)
         )
     )
@@ -452,7 +454,7 @@ def _render_last_true_info(
         st.markdown(
             f'<div style="text-align: center; color: {COLORS["text_secondary"]}; '
             f'font-size: 0.9em; margin-top: -10px;">'
-            f'📍 <strong>Last True:</strong> Never (in displayed data)'
+            f'{_get_i18n().t("last_true_never")}'
             f'</div>',
             unsafe_allow_html=True
         )
@@ -475,25 +477,31 @@ def _render_last_true_info(
         # Color based on recency
         if bars_ago == 0:
             color = COLORS["accent_green"]
-            ago_text = "Current bar"
+            ago_text = _get_i18n().t("current_bar")
         elif bars_ago <= 5:
             color = COLORS["accent_green"]
-            ago_text = f"{bars_ago} bar{'s' if bars_ago > 1 else ''} ago"
+            ago_text = _get_i18n().t("bars_ago", count=bars_ago)
         elif bars_ago <= 20:
             color = COLORS["accent_yellow"]
-            ago_text = f"{bars_ago} bars ago"
+            ago_text = _get_i18n().t("bars_ago", count=bars_ago)
         else:
             color = COLORS["text_secondary"]
-            ago_text = f"{bars_ago} bars ago"
+            ago_text = _get_i18n().t("bars_ago", count=bars_ago)
         
         st.markdown(
             f'<div style="text-align: center; font-size: 0.9em; margin-top: -10px;">'
-            f'<span style="color: {color};">📍 <strong>Last True:</strong> {ago_text}{dt_str}</span>'
+            f'<span style="color: {color};">{_get_i18n().t("last_true", ago=ago_text, dt=dt_str)}</span>'
             f' &nbsp;|&nbsp; '
-            f'<span style="color: {COLORS["text_secondary"]};">Total: {total_true} occurrences</span>'
+            f'<span style="color: {COLORS["text_secondary"]};">{_get_i18n().t("total_occurrences", count=total_true)}</span>'
             f'</div>',
             unsafe_allow_html=True
         )
+
+
+def _get_i18n() -> I18n:
+    if "i18n" not in st.session_state:
+        st.session_state["i18n"] = I18n(translations)
+    return st.session_state["i18n"]
 
 
 def load_sample_data(symbol: str = "SPY", timeframe: str = "5m") -> Optional[pd.DataFrame]:

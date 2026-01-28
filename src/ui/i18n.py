@@ -27,7 +27,7 @@ class I18n:
         langs = list(self.translations.keys())
         current = st.session_state.get('lang', self.default_locale)
         index = langs.index(current) if current in langs else 0
-        new_lang = st.selectbox("Language", langs, index=index, key="lang_selector")
+        new_lang = st.selectbox(self.t("language"), langs, index=index, key="lang_selector")
         if new_lang != current:
             st.session_state['lang'] = new_lang
             st.rerun()

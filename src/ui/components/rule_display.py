@@ -11,6 +11,8 @@ import pandas as pd
 from src.bot.strategy.rules.models import Rule, RuleScope, ActionType
 from src.ui.styles import COLORS
 from src.ui.components.rule_builder import rule_to_human_readable
+from src.ui.i18n import I18n
+from src.ui.translations import translations
 
 
 def render_rule_card(
@@ -33,23 +35,24 @@ def render_rule_card(
     Returns:
         Current enabled state of the rule
     """
+    i18n = _get_i18n()
     # Get scope info
     scope_val = rule.scope.value if hasattr(rule.scope, 'value') else rule.scope
     is_global = scope_val == "global"
     scope_emoji = "🌍" if is_global else "🎯"
-    scope_label = "Global" if is_global else "Per-Ticker"
+    scope_label = i18n.t("scope_global") if is_global else i18n.t("scope_per_ticker")
     
     # Get action info
     action_val = rule.action.value if hasattr(rule.action, 'value') else rule.action
     if action_val == "buy":
         action_color = COLORS["accent_green"]
-        action_label = "BUY"
+        action_label = i18n.t("action_buy")
     elif action_val == "sell":
         action_color = COLORS["accent_red"]
-        action_label = "SELL"
+        action_label = i18n.t("action_sell")
     else:
         action_color = COLORS["accent_yellow"]
-        action_label = "FILTER"
+        action_label = i18n.t("action_filter")
     
     # Build condition description
     condition_text = rule_to_human_readable(rule)
@@ -92,7 +95,7 @@ def render_rule_card(
         with col2:
             # Enable/disable toggle
             enabled = st.toggle(
-                "Enabled",
+                i18n.t("enabled"),
                 value=rule.enabled,
                 key=f"rule_toggle_{rule.id}_{index}",
                 label_visibility="collapsed"
@@ -102,7 +105,7 @@ def render_rule_card(
         
         with col3:
             # Delete button
-            if st.button("🗑️", key=f"delete_rule_{rule.id}_{index}", help="Delete this rule"):
+            if st.button("🗑️", key=f"delete_rule_{rule.id}_{index}", help=i18n.t("delete_rule")):
                 if on_delete:
                     on_delete(rule.id)
         
@@ -120,14 +123,14 @@ def render_rule_card(
         if rule.priority > 0:
             st.markdown(
                 f'<div style="color: {COLORS["text_secondary"]}; font-size: 0.8em;">'
-                f'Priority: {rule.priority}'
+                f'{i18n.t("priority_label", priority=rule.priority)}'
                 f'</div>',
                 unsafe_allow_html=True
             )
         
         # Chart for "Last True" visualization
         if show_chart_placeholder:
-            with st.expander("📊 View Rule Performance", expanded=False):
+            with st.expander(i18n.t("view_rule_performance"), expanded=False):
                 _render_rule_performance_chart(rule, index)
         
         # Close the card div
@@ -148,7 +151,7 @@ def _render_rule_performance_chart(rule: Rule, index: int) -> None:
     
     # Try to load from cache
     if cache_key not in st.session_state:
-        with st.spinner("Loading chart data..."):
+        with st.spinner(_get_i18n().t("loading_chart_data")):
             # Load sample data
             from src.ui.components.rule_chart import load_sample_data
             
@@ -175,14 +178,12 @@ def _render_rule_performance_chart(rule: Rule, index: int) -> None:
     vix_bars = cached.get('vix_bars')
     
     if bars is None or len(bars) == 0:
+        i18n = _get_i18n()
         st.markdown(
             f'<div style="background-color: {COLORS["bg_main"]}; '
             f'border: 1px dashed {COLORS["border"]}; border-radius: 4px; '
             f'padding: 1.5rem; text-align: center; color: {COLORS["text_secondary"]};">'
-            f'📉 No sample data available<br>'
-            f'<span style="font-size: 0.85em;">'
-            f'Add sample data files to <code>data/sample/</code> directory'
-            f'</span>'
+            f'{i18n.t("no_sample_data")}'
             f'</div>',
             unsafe_allow_html=True
         )
@@ -205,9 +206,10 @@ def render_rules_list(
         on_delete: Callback for delete actions
         on_toggle: Callback for toggle actions
     """
+    i18n = _get_i18n()
     if not rules:
         st.info(
-            "No rules defined yet. Use the Rule Builder below to create your first trading rule.",
+            i18n.t("no_rules_defined"),
             icon="📝"
         )
         return
@@ -220,7 +222,7 @@ def render_rules_list(
     if global_rules:
         st.markdown(
             f'<div style="color: {COLORS["text_secondary"]}; font-size: 0.9em; margin-bottom: 0.5rem;">'
-            f'🌍 GLOBAL FILTERS ({len(global_rules)})'
+            f'{i18n.t("global_filters", count=len(global_rules))}'
             f'</div>',
             unsafe_allow_html=True
         )
@@ -231,7 +233,7 @@ def render_rules_list(
     if ticker_rules:
         st.markdown(
             f'<div style="color: {COLORS["text_secondary"]}; font-size: 0.9em; margin-bottom: 0.5rem; margin-top: 1rem;">'
-            f'🎯 PER-TICKER SIGNALS ({len(ticker_rules)})'
+            f'{i18n.t("per_ticker_signals", count=len(ticker_rules))}'
             f'</div>',
             unsafe_allow_html=True
         )
@@ -246,6 +248,7 @@ def render_compact_rule_summary(rule: Rule) -> None:
     Args:
         rule: The Rule to summarize
     """
+    i18n = _get_i18n()
     scope_val = rule.scope.value if hasattr(rule.scope, 'value') else rule.scope
     scope_emoji = "🌍" if scope_val == "global" else "🎯"
     
@@ -271,3 +274,9 @@ def render_compact_rule_summary(rule: Rule) -> None:
         f'</div>',
         unsafe_allow_html=True
     )
+
+
+def _get_i18n() -> I18n:
+    if "i18n" not in st.session_state:
+        st.session_state["i18n"] = I18n(translations)
+    return st.session_state["i18n"]
