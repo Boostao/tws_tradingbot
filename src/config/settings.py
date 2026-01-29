@@ -362,7 +362,11 @@ def load_config(config_dir: Optional[Path] = None, sync_to_db: bool = True) -> S
             if not db_path.is_absolute():
                 db_path = loader.project_root / db_path
             
-            db = get_database(db_path)
+            db = get_database(
+                db_path,
+                backend=settings.database.backend,
+                dsn=settings.database.dsn,
+            )
             
             # Sync each configuration section to database
             db.set_section_config("ib", asdict(settings.ib))

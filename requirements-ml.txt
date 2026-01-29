@@ -1,0 +1,3 @@
+# Optional ML inference dependencies
+joblib>=1.3.0
+onnxruntime>=1.17.0

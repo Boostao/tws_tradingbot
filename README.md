@@ -135,6 +135,10 @@ Notes:
 
 You can use an ML model (or a precomputed signal column) as an indicator.
 
+ML inference dependencies are optional. To enable model loading:
+- `uv sync --extra ml`
+- or `pip install -r requirements-ml.txt`
+
 ### Option A: Use a precomputed column
 Provide a `signal` (or custom) column in your bars. The ML Signal indicator will read it directly.
 
