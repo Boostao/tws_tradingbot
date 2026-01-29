@@ -42,6 +42,7 @@ INDICATOR_TYPE_OPTIONS = {
     "Dividend Yield": IndicatorType.DIVIDEND_YIELD,
     "P/E Ratio": IndicatorType.PE_RATIO,
     "Rel. Performance": IndicatorType.RELATIVE_PERFORMANCE,
+    "ML Signal": IndicatorType.ML_SIGNAL,
 }
 
 TIMEFRAME_OPTIONS = {
@@ -105,6 +106,8 @@ def rule_to_human_readable(rule: Rule) -> str:
             base = f"VIX({itf})"
         elif itype == 'time':
             base = "Time"
+        elif itype == 'ml_signal':
+            base = "ML Signal"
         elif itype == 'volume':
             base = f"Volume({itf})"
         else:
@@ -319,6 +322,32 @@ def render_indicator_inputs(
             key=f"{prefix}_comp"
         )
         component = {v: k for k, v in alligator_options.items()}[alligator_label]
+
+    elif ind_type_key == "ML Signal":
+        c1, c2 = st.columns(2)
+        with c1:
+            params["model_path"] = st.text_input(
+                i18n.t("model_path"),
+                placeholder="models/signal.onnx",
+                key=f"{prefix}_model_path",
+            )
+        with c2:
+            params["column"] = st.text_input(
+                i18n.t("signal_column"),
+                value="signal",
+                key=f"{prefix}_signal_column",
+            )
+        params["feature_columns"] = st.text_input(
+            i18n.t("feature_columns"),
+            placeholder="open,high,low,close,volume",
+            key=f"{prefix}_feature_columns",
+        )
+        if params["feature_columns"]:
+            params["feature_columns"] = [
+                c.strip()
+                for c in params["feature_columns"].split(",")
+                if c.strip()
+            ]
 
     # Build indicator
     indicator = Indicator(

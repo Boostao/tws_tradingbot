@@ -17,7 +17,7 @@ import uuid
 
 from src.bot.strategy.rules.models import Strategy, Rule, RuleScope, ActionType
 from src.bot.strategy.validator import validate_strategy, is_valid
-from src.bot.backtest_runner import BacktestEngine, BacktestResult
+from src.bot.backtest_runner import BacktestEngine, BacktestResult, NAUTILUS_BACKTEST_AVAILABLE
 from src.bot.tws_data_provider import get_tws_provider, TWSDataProvider
 from src.ui.styles import COLORS
 from src.ui.components import (
@@ -31,6 +31,7 @@ from src.ui.components.charts import (
     render_trade_table,
     render_trade_distribution,
     render_cumulative_pnl,
+    render_quantstats_report,
 )
 from src.ui.i18n import I18n
 from src.ui.translations import translations
@@ -419,6 +420,17 @@ def _render_backtest_section(strategy: Strategy) -> None:
             help=i18n.t("use_real_tws_data_help"),
             key="use_tws_data"
         )
+
+        use_nautilus = st.checkbox(
+            i18n.t("use_nautilus_backtest"),
+            value=False,
+            help=i18n.t("use_nautilus_backtest_help"),
+            key="use_nautilus_backtest",
+            disabled=not NAUTILUS_BACKTEST_AVAILABLE,
+        )
+
+        if not NAUTILUS_BACKTEST_AVAILABLE:
+            st.info(i18n.t("nautilus_backtest_unavailable"))
         
         if not is_connected and use_tws_data:
             st.warning(i18n.t("tws_not_connected_backtest"))
@@ -437,13 +449,14 @@ def _render_backtest_section(strategy: Strategy) -> None:
         ):
             if can_run:
                 _run_backtest(
-                    strategy, 
-                    tickers, 
-                    start_date, 
-                    end_date, 
-                    initial_capital, 
+                    strategy,
+                    tickers,
+                    start_date,
+                    end_date,
+                    initial_capital,
                     timeframe,
-                    use_tws_data=use_tws_data and is_connected
+                    use_tws_data=use_tws_data and is_connected,
+                    use_nautilus=use_nautilus,
                 )
         
         # Show results if available
@@ -458,7 +471,8 @@ def _run_backtest(
     end_date: date,
     initial_capital: float,
     timeframe: str,
-    use_tws_data: bool = True
+    use_tws_data: bool = True,
+    use_nautilus: bool = False,
 ) -> None:
     """
     Execute the backtest and store results.
@@ -481,6 +495,7 @@ def _run_backtest(
                 strategy=strategy,
                 initial_capital=initial_capital,
                 use_tws_data=use_tws_data,
+                use_nautilus=use_nautilus,
             )
             
             # Run backtest
@@ -535,6 +550,10 @@ def _render_backtest_results(result: BacktestResult) -> None:
     # Equity curve
     with st.expander(i18n.t("equity_curve"), expanded=True):
         render_equity_curve(result)
+
+    # QuantStats tear sheet
+    with st.expander(i18n.t("quantstats_report"), expanded=False):
+        render_quantstats_report(result)
     
     # Trade analysis
     with st.expander(i18n.t("trade_history", count=result.metrics.total_trades), expanded=False):

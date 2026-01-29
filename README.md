@@ -102,6 +102,65 @@ The UI will open at `http://localhost:8501`
 python -m src.bot.live_runner
 ```
 
+## 🐳 Docker / Compose
+
+Run UI, bot, and PostgreSQL together:
+
+```bash
+docker compose up --build
+```
+
+This uses `DATABASE_BACKEND=postgres` and the Postgres service defined in docker-compose.yml.
+
+## 🧪 Strategy Optimization (Optuna)
+
+Use the Optuna optimizer to auto-tune indicator parameters via multiple backtests.
+
+```bash
+optimizer \
+  --strategy config/active_strategy.json \
+  --tickers SPY QQQ \
+  --start-date 2024-01-02 \
+  --end-date 2024-03-01 \
+  --timeframe 5m \
+  --trials 50 \
+  --output strategies/optimized_strategy.json
+```
+
+Notes:
+- Add `--use-tws-data` to use real TWS data when connected.
+- Add `--use-nautilus` to use the Nautilus backtest engine (more accurate, slower).
+
+## 🤖 ML Signal Indicator
+
+You can use an ML model (or a precomputed signal column) as an indicator.
+
+### Option A: Use a precomputed column
+Provide a `signal` (or custom) column in your bars. The ML Signal indicator will read it directly.
+
+### Option B: Load a model and generate signals
+Configure the indicator with a model path and feature columns.
+
+**Example (rule JSON):**
+```json
+{
+  "type": "greater_than",
+  "indicator_a": {
+    "type": "ml_signal",
+    "params": {
+      "model_path": "models/signal.onnx",
+      "feature_columns": ["open", "high", "low", "close", "volume"],
+      "column": "signal"
+    }
+  },
+  "threshold": 0.8
+}
+```
+
+Supported model formats:
+- `.onnx` (via `onnxruntime`)
+- `.joblib` (via `joblib`)
+
 ## 📊 Creating Your First Strategy
 
 ### Using the Strategy Builder UI
@@ -264,6 +323,21 @@ logging:
   file: logs/trading.log
 ```
 
+### Notifications
+```yaml
+notifications:
+  enabled: false
+  telegram:
+    enabled: false
+    bot_token: ""
+    chat_id: ""
+    commands_enabled: false
+    poll_interval: 5
+  discord:
+    enabled: false
+    webhook_url: ""
+```
+
 ### Environment Variables
 | Variable | Description | Default |
 |----------|-------------|---------|
@@ -272,6 +346,16 @@ logging:
 | `TWS_CLIENT_ID` | TWS client ID | 1 |
 | `ACCOUNT_ID` | IB account ID | - |
 | `LOG_LEVEL` | Logging level | INFO |
+| `DATABASE_BACKEND` | Database backend (`duckdb` or `postgres`) | duckdb |
+| `DATABASE_DSN` | Postgres DSN | - |
+| `NOTIFICATIONS_ENABLED` | Enable notifications | false |
+| `TELEGRAM_ENABLED` | Enable Telegram notifications | false |
+| `TELEGRAM_BOT_TOKEN` | Telegram bot token | - |
+| `TELEGRAM_CHAT_ID` | Telegram chat ID | - |
+| `TELEGRAM_COMMANDS_ENABLED` | Enable Telegram commands | false |
+| `TELEGRAM_POLL_INTERVAL` | Telegram poll interval (seconds) | 5 |
+| `DISCORD_ENABLED` | Enable Discord notifications | false |
+| `DISCORD_WEBHOOK_URL` | Discord webhook URL | - |
 
 ## 🔧 Troubleshooting
 

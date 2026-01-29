@@ -930,12 +930,14 @@ if NAUTILUS_AVAILABLE:
             if not subscriptions:
                 subscriptions = [(instrument_id, TimeframeUnit.M5) for instrument_id in self._strategy.config.instruments]
 
+            default_venue = "ARCA"
+            if self._strategy.config.instruments:
+                default_venue = self._strategy.config.instruments[0].split(".")[-1]
+
             for symbol, timeframe in subscriptions:
                 instrument_str = symbol
-                if symbol == "VIX":
-                    instrument_str = "VIX.CBOE"
-                elif "." not in symbol:
-                    instrument_str = f"{symbol}.ARCA"
+                if "." not in symbol:
+                    instrument_str = f"{symbol}.{default_venue}"
 
                 instrument_id = InstrumentId.from_str(instrument_str)
 

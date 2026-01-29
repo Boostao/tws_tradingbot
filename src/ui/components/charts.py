@@ -11,11 +11,17 @@ import plotly.express as px
 from plotly.subplots import make_subplots
 import pandas as pd
 from typing import List, Optional
+from streamlit.components.v1 import html as st_html
 
 from src.bot.backtest_runner import BacktestResult, BacktestMetrics, Trade
 from src.ui.styles import COLORS
 from src.ui.i18n import I18n
 from src.ui.translations import translations
+
+try:
+    import quantstats as qs
+except Exception:  # pragma: no cover - optional dependency
+    qs = None
 
 
 def render_equity_curve(result: BacktestResult) -> None:
@@ -457,6 +463,40 @@ def render_trade_distribution(trades: List[Trade]) -> None:
     )
     
     st.plotly_chart(fig, width="stretch")
+
+
+def render_quantstats_report(result: BacktestResult) -> None:
+    """Render a QuantStats tear sheet for the backtest result."""
+    i18n = _get_i18n()
+
+    if qs is None:
+        st.info(i18n.t("quantstats_unavailable"))
+        return
+
+    equity_df = result.equity_curve
+    if equity_df.empty or "equity" not in equity_df.columns:
+        st.info(i18n.t("quantstats_no_data"))
+        return
+
+    returns = (
+        equity_df
+        .set_index("timestamp")
+        .sort_index()["equity"]
+        .pct_change()
+        .dropna()
+    )
+
+    if returns.empty:
+        st.info(i18n.t("quantstats_no_data"))
+        return
+
+    report_html = qs.reports.html(
+        returns,
+        output=None,
+        title=i18n.t("quantstats_report_title"),
+    )
+
+    st_html(report_html, height=900, scrolling=True)
 
 
 def render_cumulative_pnl(trades: List[Trade]) -> None:

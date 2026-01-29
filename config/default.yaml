@@ -51,6 +51,8 @@ database:
   path: "data/traderbot.duckdb"      # Path to database file (relative to project root)
   sync_on_start: true                # Sync YAML config to database on startup
   use_db_for_state: true             # Use database for bot state instead of JSON files
+  backend: "duckdb"                  # duckdb | postgres
+  dsn: ""                             # Postgres DSN
 
 # Logging
 logging:
@@ -64,6 +66,19 @@ logging:
   console:
     enabled: true
     level: "INFO"
+
+# Notifications
+notifications:
+  enabled: false
+  telegram:
+    enabled: false
+    bot_token: ""
+    chat_id: ""
+    commands_enabled: false
+    poll_interval: 5
+  discord:
+    enabled: false
+    webhook_url: ""
 
 # Environment
 environment: "development"  # or "production"

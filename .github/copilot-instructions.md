@@ -12,6 +12,15 @@ Build and maintain a rule‑based trading bot with a Streamlit UI and Nautilus T
 - **Package manager:** `uv` with virtual env in `.venv/`.
 - **Tests:** `uv run pytest tests/ -v` should pass (count may vary).
 
+## 🧩 Recent Session Updates (Jan 28, 2026)
+- **QuantStats report** integrated in UI charts and strategy tab (optional dependency).
+- **Optuna optimizer** CLI added (`src/bot/optimizer.py`).
+- **Notifications**: Telegram/Discord alerts + Telegram command polling.
+- **ML signal indicator** with model loader support (ONNX/joblib).
+- **Database**: Postgres backend option added; DuckDB remains default.
+- **Docker**: `Dockerfile` uses Python 3.14-slim with `uv`; `docker-compose.yml` added.
+- **Tests**: Shutdown/hanging test cleanup via session teardown.
+
 ## 🗺️ Where Things Live (Quick Map)
 - **UI Entry:** `src/ui/main.py`
 - **UI Tabs:** `src/ui/tabs/monitoring.py`, `src/ui/tabs/strategy.py`
@@ -78,6 +87,7 @@ Build and maintain a rule‑based trading bot with a Streamlit UI and Nautilus T
 - Prefer minimal, targeted edits.
 - Update tests when behavior changes.
 - If UI text changes, update translations immediately.
+- Update README.md when behavior, configuration, or user-facing features change.
 
 ## 📞 Support Contacts
 - **Framework:** [Nautilus Trader Docs](https://nautilustrader.io/)

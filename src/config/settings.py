@@ -81,6 +81,8 @@ class DatabaseConfig:
     path: str = "data/traderbot.duckdb"
     sync_on_start: bool = True  # Sync YAML config to DB on startup
     use_db_for_state: bool = True  # Use DB for bot state instead of JSON files
+    backend: str = "duckdb"  # duckdb | postgres
+    dsn: str = ""  # Postgres DSN
 
 
 @dataclass
@@ -97,6 +99,31 @@ class LoggingConfig:
 
 
 @dataclass
+class TelegramConfig:
+    """Telegram notification configuration."""
+    enabled: bool = False
+    bot_token: str = ""
+    chat_id: str = ""
+    commands_enabled: bool = False
+    poll_interval: int = 5
+
+
+@dataclass
+class DiscordConfig:
+    """Discord notification configuration."""
+    enabled: bool = False
+    webhook_url: str = ""
+
+
+@dataclass
+class NotificationsConfig:
+    """Notification configuration."""
+    enabled: bool = False
+    telegram: TelegramConfig = field(default_factory=TelegramConfig)
+    discord: DiscordConfig = field(default_factory=DiscordConfig)
+
+
+@dataclass
 class Settings:
     """Main settings container with all configuration sections."""
     ib: IBConfig = field(default_factory=IBConfig)
@@ -107,6 +134,7 @@ class Settings:
     auth: AuthConfig = field(default_factory=AuthConfig)
     database: DatabaseConfig = field(default_factory=DatabaseConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
+    notifications: NotificationsConfig = field(default_factory=NotificationsConfig)
 
     # Store raw config for backward compatibility
     _raw_config: Dict[str, Any] = field(default_factory=dict, repr=False)
@@ -185,6 +213,16 @@ class ConfigLoader:
             "AUTH_ENABLED": ("auth", "enabled"),
             "AUTH_USERNAME": ("auth", "username"),
             "AUTH_PASSWORD": ("auth", "password"),
+            "DATABASE_BACKEND": ("database", "backend"),
+            "DATABASE_DSN": ("database", "dsn"),
+            "NOTIFICATIONS_ENABLED": ("notifications", "enabled"),
+            "TELEGRAM_ENABLED": ("notifications", "telegram", "enabled"),
+            "TELEGRAM_BOT_TOKEN": ("notifications", "telegram", "bot_token"),
+            "TELEGRAM_CHAT_ID": ("notifications", "telegram", "chat_id"),
+            "TELEGRAM_COMMANDS_ENABLED": ("notifications", "telegram", "commands_enabled"),
+            "TELEGRAM_POLL_INTERVAL": ("notifications", "telegram", "poll_interval"),
+            "DISCORD_ENABLED": ("notifications", "discord", "enabled"),
+            "DISCORD_WEBHOOK_URL": ("notifications", "discord", "webhook_url"),
         }
 
         for env_key, config_path in env_mappings.items():
@@ -222,6 +260,7 @@ class ConfigLoader:
         auth_cfg = raw_config.get("auth", {})
         database_cfg = raw_config.get("database", {})
         logging_cfg = raw_config.get("logging", {})
+        notifications_cfg = raw_config.get("notifications", {})
 
         return Settings(
             ib=IBConfig(
@@ -268,6 +307,8 @@ class ConfigLoader:
                 path=database_cfg.get("path", "data/traderbot.duckdb"),
                 sync_on_start=database_cfg.get("sync_on_start", True),
                 use_db_for_state=database_cfg.get("use_db_for_state", True),
+                backend=database_cfg.get("backend", "duckdb"),
+                dsn=database_cfg.get("dsn", ""),
             ),
             logging=LoggingConfig(
                 level=logging_cfg.get("level", "INFO"),
@@ -278,6 +319,20 @@ class ConfigLoader:
                 file_backup_count=logging_cfg.get("file", {}).get("backup_count", 5),
                 console_enabled=logging_cfg.get("console", {}).get("enabled", True),
                 console_level=logging_cfg.get("console", {}).get("level", "INFO"),
+            ),
+            notifications=NotificationsConfig(
+                enabled=notifications_cfg.get("enabled", False),
+                telegram=TelegramConfig(
+                    enabled=notifications_cfg.get("telegram", {}).get("enabled", False),
+                    bot_token=notifications_cfg.get("telegram", {}).get("bot_token", ""),
+                    chat_id=notifications_cfg.get("telegram", {}).get("chat_id", ""),
+                    commands_enabled=notifications_cfg.get("telegram", {}).get("commands_enabled", False),
+                    poll_interval=notifications_cfg.get("telegram", {}).get("poll_interval", 5),
+                ),
+                discord=DiscordConfig(
+                    enabled=notifications_cfg.get("discord", {}).get("enabled", False),
+                    webhook_url=notifications_cfg.get("discord", {}).get("webhook_url", ""),
+                ),
             ),
             _raw_config=raw_config,
         )
@@ -318,6 +373,7 @@ def load_config(config_dir: Optional[Path] = None, sync_to_db: bool = True) -> S
             db.set_section_config("auth", asdict(settings.auth))
             db.set_section_config("database", asdict(settings.database))
             db.set_section_config("logging", asdict(settings.logging))
+            db.set_section_config("notifications", asdict(settings.notifications))
             
         except Exception as e:
             import logging
@@ -360,6 +416,7 @@ def load_config_from_db(db_path: Optional[Path] = None) -> Optional[Settings]:
         auth_cfg = config.get("auth", {})
         database_cfg = config.get("database", {})
         logging_cfg = config.get("logging", {})
+        notifications_cfg = config.get("notifications", {})
         
         return Settings(
             ib=IBConfig(**ib_cfg) if ib_cfg else IBConfig(),
@@ -370,6 +427,7 @@ def load_config_from_db(db_path: Optional[Path] = None) -> Optional[Settings]:
             auth=AuthConfig(**auth_cfg) if auth_cfg else AuthConfig(),
             database=DatabaseConfig(**database_cfg) if database_cfg else DatabaseConfig(),
             logging=LoggingConfig(**logging_cfg) if logging_cfg else LoggingConfig(),
+            notifications=NotificationsConfig(**notifications_cfg) if notifications_cfg else NotificationsConfig(),
             _raw_config=config,
         )
         

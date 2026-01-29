@@ -93,14 +93,16 @@ class TWSDataProvider:
         self._api_thread = None
         self._reconnect_thread = None
         self._stop_reconnect = threading.Event()
-
-        # Start reconnection monitor
-        self._start_reconnect_monitor()
+        self._monitor_started = False
 
     def _start_reconnect_monitor(self):
         """Start background thread to monitor and maintain connection."""
+        if self._monitor_started:
+            return
+        self._stop_reconnect.clear()
         self._reconnect_thread = threading.Thread(target=self._reconnect_loop, daemon=True)
         self._reconnect_thread.start()
+        self._monitor_started = True
 
     def _reconnect_loop(self):
         """Background loop to handle reconnection."""
@@ -132,9 +134,12 @@ class TWSDataProvider:
         """Connect to TWS. Returns True if successful."""
         with self._lock:
             if self.is_connected():
+                self._start_reconnect_monitor()
                 return True
             try:
                 self._connect_internal()
+                if self.is_connected():
+                    self._start_reconnect_monitor()
                 return self.is_connected()
             except Exception as e:
                 logger.error(f"Connection failed: {e}")
@@ -148,6 +153,10 @@ class TWSDataProvider:
                 self.wrapper.connected_event.clear()
                 if self._api_thread:
                     self._api_thread.join(timeout=5)
+            if self._reconnect_thread and self._reconnect_thread.is_alive():
+                self._stop_reconnect.set()
+                self._reconnect_thread.join(timeout=5)
+            self._monitor_started = False
 
     def is_connected(self) -> bool:
         """Check if connected to TWS."""

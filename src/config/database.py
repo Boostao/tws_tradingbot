@@ -15,6 +15,11 @@ from typing import Any, Dict, Generator, List, Optional
 
 import duckdb
 
+try:
+    import psycopg
+except Exception:  # pragma: no cover - optional dependency
+    psycopg = None
+
 logger = logging.getLogger(__name__)
 
 # Default database path
@@ -180,6 +185,618 @@ class DatabaseManager:
             """)
             
             logger.info(f"Database initialized at {self.db_path}")
+
+
+class PostgresDatabaseManager:
+    """PostgreSQL database backend for configuration and state management."""
+
+    def __init__(self, dsn: str):
+        if psycopg is None:
+            raise ImportError("psycopg is required for PostgreSQL support")
+        self.dsn = dsn
+        self._initialize_database()
+
+    @contextmanager
+    def get_connection(self) -> Generator[Any, None, None]:
+        conn = psycopg.connect(self.dsn)
+        conn.autocommit = True
+        try:
+            yield conn
+        finally:
+            conn.close()
+
+    def _initialize_database(self) -> None:
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS config (
+                        section TEXT NOT NULL,
+                        key TEXT NOT NULL,
+                        value JSONB NOT NULL,
+                        updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+                        PRIMARY KEY (section, key)
+                    )
+                    """
+                )
+                cur.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS bot_state (
+                        id INTEGER PRIMARY KEY,
+                        status TEXT DEFAULT 'STOPPED',
+                        tws_connected BOOLEAN DEFAULT FALSE,
+                        equity DOUBLE PRECISION DEFAULT 0.0,
+                        daily_pnl DOUBLE PRECISION DEFAULT 0.0,
+                        daily_pnl_percent DOUBLE PRECISION DEFAULT 0.0,
+                        total_pnl DOUBLE PRECISION DEFAULT 0.0,
+                        active_strategy TEXT DEFAULT '',
+                        error_message TEXT DEFAULT '',
+                        trades_today INTEGER DEFAULT 0,
+                        win_rate_today DOUBLE PRECISION DEFAULT 0.0,
+                        last_update TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+                    )
+                    """
+                )
+                cur.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS positions (
+                        id BIGSERIAL PRIMARY KEY,
+                        symbol TEXT NOT NULL,
+                        quantity DOUBLE PRECISION NOT NULL,
+                        entry_price DOUBLE PRECISION NOT NULL,
+                        current_price DOUBLE PRECISION DEFAULT 0.0,
+                        unrealized_pnl DOUBLE PRECISION DEFAULT 0.0,
+                        entry_time TIMESTAMPTZ,
+                        updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+                    )
+                    """
+                )
+                cur.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS orders (
+                        order_id TEXT PRIMARY KEY,
+                        symbol TEXT NOT NULL,
+                        side TEXT NOT NULL,
+                        quantity DOUBLE PRECISION NOT NULL,
+                        price DOUBLE PRECISION,
+                        status TEXT DEFAULT 'PENDING',
+                        order_type TEXT DEFAULT 'MARKET',
+                        submitted_time TIMESTAMPTZ,
+                        filled_quantity DOUBLE PRECISION DEFAULT 0.0,
+                        updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+                    )
+                    """
+                )
+                cur.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS logs (
+                        id BIGSERIAL PRIMARY KEY,
+                        timestamp TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+                        level TEXT NOT NULL,
+                        message TEXT NOT NULL
+                    )
+                    """
+                )
+                cur.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS bot_commands (
+                        id BIGSERIAL PRIMARY KEY,
+                        command TEXT NOT NULL,
+                        payload JSONB,
+                        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+                        processed BOOLEAN DEFAULT FALSE
+                    )
+                    """
+                )
+                cur.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS trade_history (
+                        id BIGSERIAL PRIMARY KEY,
+                        symbol TEXT NOT NULL,
+                        side TEXT NOT NULL,
+                        quantity DOUBLE PRECISION NOT NULL,
+                        price DOUBLE PRECISION NOT NULL,
+                        pnl DOUBLE PRECISION DEFAULT 0.0,
+                        strategy TEXT,
+                        executed_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+                    )
+                    """
+                )
+                cur.execute(
+                    """
+                    INSERT INTO bot_state (id)
+                    VALUES (1)
+                    ON CONFLICT (id) DO NOTHING
+                    """
+                )
+
+    def _json_value(self, value: Any) -> Any:
+        if value is None:
+            return None
+        if isinstance(value, str):
+            try:
+                return json.loads(value)
+            except Exception:
+                return value
+        return value
+
+    # Configuration Methods
+    def set_config(self, section: str, key: str, value: Any) -> None:
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO config (section, key, value, updated_at)
+                    VALUES (%s, %s, %s::jsonb, CURRENT_TIMESTAMP)
+                    ON CONFLICT (section, key)
+                    DO UPDATE SET value = EXCLUDED.value, updated_at = CURRENT_TIMESTAMP
+                    """,
+                    [section, key, json.dumps(value)],
+                )
+
+    def get_config(self, section: str, key: str, default: Any = None) -> Any:
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT value FROM config WHERE section = %s AND key = %s",
+                    [section, key],
+                )
+                row = cur.fetchone()
+                if row:
+                    return self._json_value(row[0])
+                return default
+
+    def get_section_config(self, section: str) -> Dict[str, Any]:
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT key, value FROM config WHERE section = %s", [section])
+                rows = cur.fetchall()
+                return {row[0]: self._json_value(row[1]) for row in rows}
+
+    def set_section_config(self, section: str, config: Dict[str, Any]) -> None:
+        for key, value in config.items():
+            self.set_config(section, key, value)
+
+    def get_all_config(self) -> Dict[str, Dict[str, Any]]:
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT section, key, value FROM config")
+                rows = cur.fetchall()
+                result: Dict[str, Dict[str, Any]] = {}
+                for section, key, value in rows:
+                    result.setdefault(section, {})[key] = self._json_value(value)
+                return result
+
+    def delete_config(self, section: str, key: Optional[str] = None) -> None:
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                if key is None:
+                    cur.execute("DELETE FROM config WHERE section = %s", [section])
+                else:
+                    cur.execute("DELETE FROM config WHERE section = %s AND key = %s", [section, key])
+
+    # Bot State
+    def update_bot_state(self, **kwargs) -> None:
+        updates = []
+        params = []
+        for key, value in kwargs.items():
+            updates.append(f"{key} = %s")
+            params.append(value)
+        if updates:
+            updates.append("last_update = CURRENT_TIMESTAMP")
+            params.append(1)
+            with self.get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        f"UPDATE bot_state SET {', '.join(updates)} WHERE id = %s",
+                        params,
+                    )
+
+    def get_bot_state(self) -> Dict[str, Any]:
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT * FROM bot_state WHERE id = 1")
+                row = cur.fetchone()
+                if not row:
+                    return {}
+                columns = [desc[0] for desc in cur.description]
+                return dict(zip(columns, row))
+
+    def reset_bot_state(self) -> None:
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    UPDATE bot_state SET
+                        status = 'STOPPED',
+                        tws_connected = FALSE,
+                        equity = 0.0,
+                        daily_pnl = 0.0,
+                        daily_pnl_percent = 0.0,
+                        total_pnl = 0.0,
+                        active_strategy = '',
+                        error_message = '',
+                        trades_today = 0,
+                        win_rate_today = 0.0,
+                        last_update = CURRENT_TIMESTAMP
+                    WHERE id = 1
+                    """
+                )
+
+    # Positions
+    def add_position(
+        self,
+        symbol: str,
+        quantity: float,
+        entry_price: float,
+        current_price: float = 0.0,
+        unrealized_pnl: float = 0.0,
+        entry_time: Optional[datetime] = None,
+    ) -> int:
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO positions (symbol, quantity, entry_price, current_price, unrealized_pnl, entry_time, updated_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
+                    RETURNING id
+                    """,
+                    [symbol, quantity, entry_price, current_price, unrealized_pnl, entry_time],
+                )
+                return cur.fetchone()[0]
+
+    def update_position(
+        self,
+        position_id: int,
+        current_price: Optional[float] = None,
+        unrealized_pnl: Optional[float] = None,
+        quantity: Optional[float] = None,
+    ) -> None:
+        updates = []
+        params = []
+        if current_price is not None:
+            updates.append("current_price = %s")
+            params.append(current_price)
+        if unrealized_pnl is not None:
+            updates.append("unrealized_pnl = %s")
+            params.append(unrealized_pnl)
+        if quantity is not None:
+            updates.append("quantity = %s")
+            params.append(quantity)
+        if updates:
+            updates.append("updated_at = CURRENT_TIMESTAMP")
+            params.append(position_id)
+            with self.get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        f"UPDATE positions SET {', '.join(updates)} WHERE id = %s",
+                        params,
+                    )
+
+    def get_positions(self) -> List[Dict[str, Any]]:
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT id, symbol, quantity, entry_price, current_price,
+                           unrealized_pnl, entry_time, updated_at
+                    FROM positions ORDER BY entry_time DESC
+                    """
+                )
+                rows = cur.fetchall()
+                results = []
+                for row in rows:
+                    results.append(
+                        {
+                            "id": row[0],
+                            "symbol": row[1],
+                            "quantity": row[2],
+                            "entry_price": row[3],
+                            "current_price": row[4],
+                            "unrealized_pnl": row[5],
+                            "entry_time": row[6].isoformat() if row[6] else None,
+                            "updated_at": row[7].isoformat() if row[7] else None,
+                        }
+                    )
+                return results
+
+    def get_position_by_symbol(self, symbol: str) -> Optional[Dict[str, Any]]:
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT id, symbol, quantity, entry_price, current_price,
+                           unrealized_pnl, entry_time, updated_at
+                    FROM positions WHERE symbol = %s
+                    """,
+                    [symbol],
+                )
+                row = cur.fetchone()
+                if not row:
+                    return None
+                return {
+                    "id": row[0],
+                    "symbol": row[1],
+                    "quantity": row[2],
+                    "entry_price": row[3],
+                    "current_price": row[4],
+                    "unrealized_pnl": row[5],
+                    "entry_time": row[6].isoformat() if row[6] else None,
+                    "updated_at": row[7].isoformat() if row[7] else None,
+                }
+
+    def delete_position(self, position_id: int) -> None:
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM positions WHERE id = %s", [position_id])
+
+    def clear_positions(self) -> None:
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM positions")
+
+    # Orders
+    def add_order(
+        self,
+        order_id: str,
+        symbol: str,
+        side: str,
+        quantity: float,
+        price: Optional[float] = None,
+        status: str = "PENDING",
+        order_type: str = "MARKET",
+        submitted_time: Optional[datetime] = None,
+    ) -> None:
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO orders (order_id, symbol, side, quantity, price, status, order_type, submitted_time, filled_quantity, updated_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 0.0, CURRENT_TIMESTAMP)
+                    ON CONFLICT (order_id) DO NOTHING
+                    """,
+                    [order_id, symbol, side, quantity, price, status, order_type, submitted_time],
+                )
+
+    def update_order(
+        self,
+        order_id: str,
+        status: Optional[str] = None,
+        filled_quantity: Optional[float] = None,
+        price: Optional[float] = None,
+    ) -> None:
+        updates = []
+        params = []
+        if status is not None:
+            updates.append("status = %s")
+            params.append(status)
+        if filled_quantity is not None:
+            updates.append("filled_quantity = %s")
+            params.append(filled_quantity)
+        if price is not None:
+            updates.append("price = %s")
+            params.append(price)
+        if updates:
+            updates.append("updated_at = CURRENT_TIMESTAMP")
+            params.append(order_id)
+            with self.get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        f"UPDATE orders SET {', '.join(updates)} WHERE order_id = %s",
+                        params,
+                    )
+
+    def get_orders(self, status: Optional[str] = None) -> List[Dict[str, Any]]:
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                if status:
+                    cur.execute(
+                        """
+                        SELECT order_id, symbol, side, quantity, price, status, order_type,
+                               submitted_time, filled_quantity, updated_at
+                        FROM orders WHERE status = %s ORDER BY updated_at DESC
+                        """,
+                        [status],
+                    )
+                else:
+                    cur.execute(
+                        """
+                        SELECT order_id, symbol, side, quantity, price, status, order_type,
+                               submitted_time, filled_quantity, updated_at
+                        FROM orders ORDER BY updated_at DESC
+                        """
+                    )
+                rows = cur.fetchall()
+                return [
+                    {
+                        "order_id": row[0],
+                        "symbol": row[1],
+                        "side": row[2],
+                        "quantity": row[3],
+                        "price": row[4],
+                        "status": row[5],
+                        "order_type": row[6],
+                        "submitted_time": row[7].isoformat() if row[7] else None,
+                        "filled_quantity": row[8],
+                        "updated_at": row[9].isoformat() if row[9] else None,
+                    }
+                    for row in rows
+                ]
+
+    def get_pending_orders(self) -> List[Dict[str, Any]]:
+        return self.get_orders(status="PENDING")
+
+    def delete_order(self, order_id: str) -> None:
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM orders WHERE order_id = %s", [order_id])
+
+    def clear_orders(self) -> None:
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM orders")
+
+    # Logs
+    def add_log(self, level: str, message: str) -> None:
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "INSERT INTO logs (level, message) VALUES (%s, %s)",
+                    [level, message],
+                )
+
+    def get_recent_logs(self, limit: int = 50) -> List[Dict[str, Any]]:
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT id, timestamp, level, message FROM logs ORDER BY timestamp DESC LIMIT %s",
+                    [limit],
+                )
+                rows = cur.fetchall()
+                return [
+                    {
+                        "id": row[0],
+                        "timestamp": row[1].isoformat() if row[1] else None,
+                        "level": row[2],
+                        "message": row[3],
+                    }
+                    for row in rows
+                ]
+
+    def clear_logs(self) -> None:
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM logs")
+
+    # Commands
+    def add_command(self, command: str, payload: Optional[Dict[str, Any]] = None) -> int:
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "INSERT INTO bot_commands (command, payload) VALUES (%s, %s::jsonb) RETURNING id",
+                    [command, json.dumps(payload) if payload else None],
+                )
+                return cur.fetchone()[0]
+
+    def get_pending_commands(self) -> List[Dict[str, Any]]:
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT id, command, payload, created_at, processed FROM bot_commands WHERE processed = FALSE ORDER BY created_at ASC"
+                )
+                rows = cur.fetchall()
+                return [
+                    {
+                        "id": row[0],
+                        "command": row[1],
+                        "payload": self._json_value(row[2]) if row[2] else None,
+                        "created_at": row[3].isoformat() if row[3] else None,
+                        "processed": row[4],
+                    }
+                    for row in rows
+                ]
+
+    def mark_command_processed(self, command_id: int) -> None:
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("UPDATE bot_commands SET processed = TRUE WHERE id = %s", [command_id])
+
+    def clear_commands(self) -> None:
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM bot_commands")
+
+    # Trade History
+    def add_trade(
+        self,
+        symbol: str,
+        side: str,
+        quantity: float,
+        price: float,
+        pnl: float = 0.0,
+        strategy: Optional[str] = None,
+    ) -> None:
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO trade_history (symbol, side, quantity, price, pnl, strategy)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                    """,
+                    [symbol, side, quantity, price, pnl, strategy],
+                )
+
+    def get_trade_history(
+        self,
+        limit: int = 100,
+        symbol: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                if symbol:
+                    cur.execute(
+                        """
+                        SELECT id, symbol, side, quantity, price, pnl, strategy, executed_at
+                        FROM trade_history WHERE symbol = %s
+                        ORDER BY executed_at DESC LIMIT %s
+                        """,
+                        [symbol, limit],
+                    )
+                else:
+                    cur.execute(
+                        """
+                        SELECT id, symbol, side, quantity, price, pnl, strategy, executed_at
+                        FROM trade_history ORDER BY executed_at DESC LIMIT %s
+                        """,
+                        [limit],
+                    )
+                rows = cur.fetchall()
+                return [
+                    {
+                        "id": row[0],
+                        "symbol": row[1],
+                        "side": row[2],
+                        "quantity": row[3],
+                        "price": row[4],
+                        "pnl": row[5],
+                        "strategy": row[6],
+                        "executed_at": row[7].isoformat() if row[7] else None,
+                    }
+                    for row in rows
+                ]
+
+    def get_daily_stats(self, date: Optional[datetime] = None) -> Dict[str, Any]:
+        date_str = (date or datetime.utcnow()).strftime("%Y-%m-%d")
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT
+                        COUNT(*) as total_trades,
+                        SUM(CASE WHEN pnl > 0 THEN 1 ELSE 0 END) as winning_trades,
+                        SUM(pnl) as total_pnl,
+                        AVG(pnl) as avg_pnl,
+                        MAX(pnl) as max_profit,
+                        MIN(pnl) as max_loss
+                    FROM trade_history
+                    WHERE DATE(executed_at) = %s
+                    """,
+                    [date_str],
+                )
+                result = cur.fetchone()
+                total_trades = result[0] or 0
+                winning_trades = result[1] or 0
+                return {
+                    "date": date_str,
+                    "total_trades": total_trades,
+                    "winning_trades": winning_trades,
+                    "losing_trades": total_trades - winning_trades,
+                    "win_rate": (winning_trades / total_trades * 100) if total_trades > 0 else 0.0,
+                    "total_pnl": result[2] or 0.0,
+                    "avg_pnl": result[3] or 0.0,
+                    "max_profit": result[4] or 0.0,
+                    "max_loss": result[5] or 0.0,
+                }
     
     # =========================================================================
     # Configuration Methods
@@ -854,7 +1471,19 @@ def get_database(db_path: Optional[Path] = None) -> DatabaseManager:
     """
     global _db_manager
     if _db_manager is None:
-        _db_manager = DatabaseManager(db_path)
+        try:
+            from src.config.settings import get_settings
+            settings = get_settings()
+            backend = settings.database.backend.lower()
+            if backend == "postgres":
+                if not settings.database.dsn:
+                    raise ValueError("Postgres backend selected but database.dsn is empty")
+                _db_manager = PostgresDatabaseManager(settings.database.dsn)
+            else:
+                _db_manager = DatabaseManager(db_path)
+        except Exception as exc:
+            logger.warning("Database backend fallback to DuckDB: %s", exc)
+            _db_manager = DatabaseManager(db_path)
     return _db_manager
 
 

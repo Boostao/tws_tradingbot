@@ -36,6 +36,7 @@ class IndicatorType(str, Enum):
     DIVIDEND_YIELD = "dividend_yield" # Dividend Yield %
     PE_RATIO = "pe_ratio" # Price to Earnings Ratio
     RELATIVE_PERFORMANCE = "relative_performance" # Relative Performance vs Benchmark
+    ML_SIGNAL = "ml_signal" # ML/AI signal column
 
 
 class ConditionType(str, Enum):
@@ -118,6 +119,8 @@ class Indicator(BaseModel):
             base = f"VIX({timeframe_str})"
         elif type_str == "time":
             base = "Market Hours"
+        elif type_str == "ml_signal":
+            base = "ML Signal"
         else:
             # Use main length if available
             length_str = str(self.length) if self.length else ""

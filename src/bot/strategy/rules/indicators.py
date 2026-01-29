@@ -20,6 +20,7 @@ from src.utils.indicators import (
     ema, sma, rsi, bollinger_bands, macd,
     stochastic, obv, williams_alligator
 )
+from src.utils.ml_models import predict_signal_series
 
 
 class IndicatorFactory:
@@ -238,6 +239,23 @@ class IndicatorFactory:
 
         elif indicator_type == "relative_performance":
             return np.ones(len(bars))
+
+        elif indicator_type == "ml_signal":
+            column = indicator.params.get("column", "signal")
+            if column in bars.columns:
+                return bars[column].astype(np.float64).values
+
+            model_path = indicator.params.get("model_path")
+            feature_cols = indicator.params.get("feature_columns", [])
+            if model_path and feature_cols:
+                series = predict_signal_series(
+                    bars=bars,
+                    model_path=str(model_path),
+                    feature_columns=list(feature_cols),
+                )
+                return series.values.astype(np.float64)
+
+            return np.full(len(bars), np.nan)
         
         else:
             raise ValueError(f"Unsupported indicator type: {indicator_type}")

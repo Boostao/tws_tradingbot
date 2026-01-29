@@ -9,6 +9,7 @@ Supports both simulated sample data and real TWS historical data.
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime, date, timedelta
+from decimal import Decimal
 from typing import List, Dict, Optional, Any
 from enum import Enum
 from pathlib import Path
@@ -311,7 +312,7 @@ class BacktestEngine:
             from numpy import uint64
             
             for ticker, df in bar_data_dict.items():
-                if ticker == "VIX": continue # Skip VIX as tradeable instrument for now
+                df = df.sort_values("timestamp")
                 
                 # Define instrument
                 instrument_id = InstrumentId.from_str(f"{ticker}.SIM")
@@ -322,7 +323,8 @@ class BacktestEngine:
                 
                 # Add instrument to engine
                 engine.add_instrument(instrument)
-                instruments.append(str(instrument_id))
+                if ticker in tickers:
+                    instruments.append(str(instrument_id))
                 
                 # Define Bar Type
                 bar_type = BarType(
@@ -332,7 +334,7 @@ class BacktestEngine:
                         freq=nautilus_freq_map[agg_freq],
                         price_type=PriceType.LAST,
                     ),
-                    aggregation=BarAggregation.MINUTE, # Actually depends on spec
+                    aggregation=nautilus_freq_map[agg_freq],
                 )
                 
                 # Convert data and add to engine
@@ -340,8 +342,11 @@ class BacktestEngine:
                 engine.add_data(bars)
                 
             # 5. Add Strategy
+            strategy_path = Path(__file__).parent.parent.parent / "config" / ".backtest_strategy.json"
+            strategy_path.write_text(self.strategy.model_dump_json(indent=2))
+
             config = NautilusDynamicRuleStrategyConfig(
-                strategy_config_path="config/active_strategy.json",
+                strategy_config_path=str(strategy_path),
                 instruments=instruments,
                 max_position_per_instrument=Decimal(str(self.initial_capital / max(1, len(instruments)))),
                 use_equal_allocation=True,

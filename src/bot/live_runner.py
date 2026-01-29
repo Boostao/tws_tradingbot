@@ -33,6 +33,8 @@ from src.bot.strategy.base import (
 from src.bot.strategy.rules.serialization import load_strategy
 from src.bot.tws_data_provider import TWSDataProvider
 from src.utils.logger import setup_logging
+from src.utils.notifications import NotificationManager
+from src.bot.state import read_state, write_stop_signal, write_emergency_stop
 
 
 logger = logging.getLogger(__name__)
@@ -80,6 +82,7 @@ class LiveTradingRunner:
         self.strategy: Optional[DynamicRuleStrategy] = None
         self.node: Optional[object] = None
         self._tws_provider: Optional[TWSDataProvider] = None
+        self._notifier = NotificationManager(self.settings)
         
         # State
         self._running = False
@@ -419,15 +422,20 @@ class LiveTradingRunner:
         logger.info(f"Trading Mode: {ib_config.trading_mode.upper()}")
         logger.info(f"IB Connection: {ib_config.host}:{ib_config.port}")
         logger.info(f"Account: {ib_config.account or 'Default'}")
+
+        self._notifier.notify_status("✅ Bot started", ib_config.trading_mode.upper())
+        self._notifier.start_command_listener(self._handle_command)
         
         # Check prerequisites
         if not self.check_prerequisites():
             logger.error("Prerequisites check failed")
+            self._notifier.notify_error("Prerequisites check failed")
             return 1
         
         # Setup components
         if not self.setup():
             logger.error("Setup failed")
+            self._notifier.notify_error("Setup failed")
             return 1
         
         # Start trading
@@ -457,8 +465,10 @@ class LiveTradingRunner:
             logger.info("Keyboard interrupt received")
         except Exception as e:
             logger.error(f"Error during execution: {e}", exc_info=True)
+            self._notifier.notify_error(str(e))
             return 1
         finally:
+            self._notifier.stop_command_listener()
             self.shutdown()
         
         return 0
@@ -538,6 +548,21 @@ class LiveTradingRunner:
                 logger.warning(f"Error disconnecting TWS provider: {e}")
         
         logger.info("Shutdown complete")
+        self._notifier.notify_status("🛑 Bot stopped", self.settings.ib.trading_mode.upper())
+
+    def _handle_command(self, command: str) -> str:
+        cmd = command.split()[0].lower()
+        if cmd == "/status":
+            state = read_state()
+            status = state.status.value if hasattr(state.status, "value") else str(state.status)
+            equity = f"${state.equity:,.2f}" if state.equity is not None else "N/A"
+            pnl = f"${state.pnl:,.2f}" if state.pnl is not None else "N/A"
+            return f"Status: {status}\nEquity: {equity}\nPnL: {pnl}"
+        if cmd == "/stop":
+            return "Stop signal sent" if write_stop_signal() else "Failed to send stop signal"
+        if cmd in {"/force_exit", "/emergency_stop"}:
+            return "Emergency stop sent" if write_emergency_stop() else "Failed to send emergency stop"
+        return "Unknown command. Available: /status, /stop, /force_exit"
 
     def _submit_buy_order(self, instrument_id: str, quantity: float) -> Optional[int]:
         if not self._tws_provider:
@@ -545,7 +570,9 @@ class LiveTradingRunner:
             return None
         symbol = instrument_id.split(".")[0]
         qty_int = max(1, int(quantity))
-        return self._tws_provider.place_order(symbol=symbol, action="BUY", quantity=qty_int)
+        order_id = self._tws_provider.place_order(symbol=symbol, action="BUY", quantity=qty_int)
+        self._notifier.notify_order("BUY", symbol, qty_int, order_id)
+        return order_id
 
     def _submit_sell_order(self, instrument_id: str, quantity: float) -> Optional[int]:
         if not self._tws_provider:
@@ -553,7 +580,9 @@ class LiveTradingRunner:
             return None
         symbol = instrument_id.split(".")[0]
         qty_int = max(1, int(quantity))
-        return self._tws_provider.place_order(symbol=symbol, action="SELL", quantity=qty_int)
+        order_id = self._tws_provider.place_order(symbol=symbol, action="SELL", quantity=qty_int)
+        self._notifier.notify_order("SELL", symbol, qty_int, order_id)
+        return order_id
 
     def _cancel_order(self, order_id: str) -> None:
         if not self._tws_provider:
@@ -561,6 +590,7 @@ class LiveTradingRunner:
             return
         try:
             self._tws_provider.cancel_order(int(order_id))
+            self._notifier.notify(f"Canceled order {order_id}")
         except ValueError:
             logger.warning(f"Invalid order id: {order_id}")
 

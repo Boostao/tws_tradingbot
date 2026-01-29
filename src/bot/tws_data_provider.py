@@ -527,6 +527,9 @@ class TWSDataClient(TWSDataWrapper, EClient):
             self.disconnect()
             self._connected = False
             logger.info("Disconnected from TWS")
+        if self._thread and self._thread.is_alive():
+            self._thread.join(timeout=5)
+        self._thread = None
     
     @property
     def is_connected(self) -> bool:
@@ -953,8 +956,20 @@ class TWSDataProvider:
         
         df = pd.DataFrame(bars)
         
-        # Parse timestamp
-        df["timestamp"] = pd.to_datetime(df["timestamp"])
+        # Parse timestamp with explicit format to avoid warnings
+        ts = df["timestamp"]
+        if ts.dtype.kind in {"i", "u", "f"}:
+            parsed = pd.to_datetime(ts, unit="s", errors="coerce")
+        else:
+            parsed = pd.to_datetime(ts, format="%Y%m%d %H:%M:%S", errors="coerce")
+            if parsed.isna().any():
+                parsed_alt = pd.to_datetime(ts, format="%Y-%m-%d %H:%M:%S", errors="coerce")
+                parsed = parsed.fillna(parsed_alt)
+
+        if parsed.isna().any():
+            logger.warning("Some timestamps could not be parsed for %s", symbol)
+
+        df["timestamp"] = parsed
         df = df.sort_values("timestamp").reset_index(drop=True)
         
         logger.info(f"Received {len(df)} bars for {symbol}")

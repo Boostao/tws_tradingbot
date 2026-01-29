@@ -20,6 +20,7 @@ from src.ui.components.charts import (
     render_trade_table,
     render_trade_distribution,
     render_cumulative_pnl,
+    render_quantstats_report,
 )
 from src.ui.components.rule_chart import (
     render_rule_mini_chart,
@@ -44,6 +45,7 @@ __all__ = [
     "render_metrics_cards",
     "render_trade_table",
     "render_trade_distribution",
+    "render_quantstats_report",
     "render_cumulative_pnl",
     # Rule mini-charts
     "render_rule_mini_chart",
