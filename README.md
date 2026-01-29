@@ -1,6 +1,6 @@
 # TWS Trader Bot
 
-A sophisticated rule-based trading bot built with [Nautilus Trader](https://nautilustrader.io/) framework, integrating with Interactive Brokers' Trader Workstation (TWS). Features a TradingView-inspired dark theme Streamlit UI for live monitoring and visual strategy building.
+A sophisticated rule-based trading bot built with [Nautilus Trader](https://nautilustrader.io/) framework, integrating with Interactive Brokers' Trader Workstation (TWS). Includes a SvelteKit frontend with a FastAPI backend.
 
 ![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)
 ![Nautilus Trader](https://img.shields.io/badge/nautilus--trader-1.180.0+-green.svg)
@@ -22,11 +22,10 @@ A sophisticated rule-based trading bot built with [Nautilus Trader](https://naut
 - **Global Filters**: VIX-based and time-based filtering for all trades
 - **Per-Ticker Rules**: Individual entry/exit rules per symbol
 
-### User Interface (Streamlit)
-- **Live Trading Tab**: Real-time position monitoring, P&L tracking, trade history
-- **Strategy Builder Tab**: Visual strategy creation with mini-charts
-- **TradingView Theme**: Professional dark theme matching TradingView's design
-- **Auto-Refresh**: Live data updates every second during market hours
+### User Interface
+**SvelteKit**
+- Real-time Monitoring, Strategy Builder, Backtest, Watchlist, Notifications
+- WebSocket-first updates with REST fallback
 
 ## 📋 Prerequisites
 
@@ -73,27 +72,18 @@ See [TWS_SETUP_GUIDE.md](../TWS_SETUP_GUIDE.md) for detailed instructions.
 
 ### 5. Configure Environment
 ```bash
-cp config/environment/.env.example config/environment/.env
+cp .env.example .env
 ```
 
 Edit `.env` with your settings:
 ```env
-TWS_HOST=127.0.0.1
-TWS_PORT=7497          # 7497 for paper, 7496 for live
-TWS_CLIENT_ID=1
-ACCOUNT_ID=your_account_id
+IB_HOST=127.0.0.1
+IB_PORT=7497          # 7497 for paper, 7496 for live
+IB_CLIENT_ID=1
+IB_ACCOUNT=your_account_id
 ```
 
 ## 🎯 Quick Start
-
-### Running the UI
-```bash
-./run_ui.sh
-# or
-streamlit run src/ui/main.py
-```
-
-The UI will open at `http://localhost:8501`
 
 ### Running the Trading Bot
 ```bash
@@ -102,9 +92,35 @@ The UI will open at `http://localhost:8501`
 python -m src.bot.live_runner
 ```
 
+### Running the API
+```bash
+./run_api.sh
+# or
+uvicorn src.api.main:app --host 0.0.0.0 --port 8000
+```
+
+API will be available at `http://localhost:8000` with health check at `/health`.
+
+### Running the SvelteKit Web App
+```bash
+cd web
+npm install
+npm run dev
+```
+
+Set the API base URL if needed:
+```bash
+cp .env.example .env
+```
+
+Or use the convenience script:
+```bash
+./run_web.sh
+```
+
 ## 🐳 Docker / Compose
 
-Run UI, bot, and PostgreSQL together:
+Run API, SvelteKit web app, bot, and PostgreSQL together:
 
 ```bash
 docker compose up --build
@@ -229,7 +245,7 @@ Strategies are stored as JSON files in `strategies/`:
 ## 🔄 Hot-Reload Workflow
 
 1. **Start the bot** with `./run_bot.sh`
-2. **Open the UI** with `./run_ui.sh`
+2. **Open the UI** with `./run_web.sh`
 3. **Edit strategy** in the Strategy Builder tab
 4. **Click "Apply"** to hot-reload the strategy
 5. The bot will pick up changes within seconds
@@ -284,25 +300,18 @@ tws_traderbot/
 │   ├── config/
 │   │   ├── settings.py        # Configuration loading
 │   │   └── validation.py      # Config validation
-│   ├── ui/
-│   │   ├── main.py            # Streamlit entry point
-│   │   ├── components/
-│   │   │   ├── rule_chart.py  # Mini-charts for rules
-│   │   │   └── rule_display.py
-│   │   └── tabs/
-│   │       ├── monitoring.py  # Live trading tab
-│   │       └── strategy.py    # Strategy builder tab
 │   └── utils/
 │       ├── indicators.py      # Technical indicators
 │       ├── logger.py          # Enhanced logging
 │       └── market_hours.py    # Market hours utilities
+├── web/                        # SvelteKit UI
 ├── strategies/                # Saved strategy JSON files
 ├── tests/
 │   ├── unit/                  # Unit tests
 │   ├── integration/           # Integration tests
 │   └── fixtures/              # Test fixtures
 ├── run_bot.sh                 # Start trading bot
-├── run_ui.sh                  # Start Streamlit UI
+├── run_web.sh                 # Start SvelteKit UI
 ├── requirements.txt           # Python dependencies
 └── README.md                  # This file
 ```
@@ -345,11 +354,14 @@ notifications:
 ### Environment Variables
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `TWS_HOST` | TWS hostname | 127.0.0.1 |
-| `TWS_PORT` | TWS API port | 7497 |
-| `TWS_CLIENT_ID` | TWS client ID | 1 |
-| `ACCOUNT_ID` | IB account ID | - |
+| `IB_HOST` | TWS hostname | 127.0.0.1 |
+| `IB_PORT` | TWS API port | 7497 |
+| `IB_CLIENT_ID` | TWS client ID | 1 |
+| `IB_ACCOUNT` | IB account ID | - |
 | `LOG_LEVEL` | Logging level | INFO |
+| `APP_ACTIVE_STRATEGY_PATH` | Strategy JSON path | config/active_strategy.json |
+| `APP_WATCHLIST_PATH` | Watchlist path | config/watchlist.txt |
+| `APP_SYMBOL_CACHE_PATH` | Symbol cache path | data/symbol_cache.json |
 | `DATABASE_BACKEND` | Database backend (`duckdb` or `postgres`) | duckdb |
 | `DATABASE_DSN` | Postgres DSN | - |
 | `NOTIFICATIONS_ENABLED` | Enable notifications | false |
@@ -360,6 +372,12 @@ notifications:
 | `TELEGRAM_POLL_INTERVAL` | Telegram poll interval (seconds) | 5 |
 | `DISCORD_ENABLED` | Enable Discord notifications | false |
 | `DISCORD_WEBHOOK_URL` | Discord webhook URL | - |
+| `API_CORS_ORIGINS` | Allowed CORS origins (comma-separated) | http://localhost:5173,http://127.0.0.1:5173 |
+| `API_RATE_LIMIT_ENABLED` | Enable API rate limiting | false |
+| `API_RATE_LIMIT_RPS` | API requests per second | 5 |
+| `API_RATE_LIMIT_BURST` | API burst limit | 20 |
+| `TRADERBOT_CONFIG_DIR` | Config directory override | config/ |
+| `TRADERBOT_DOTENV_PATH` | Explicit .env path | - |
 
 ## 🔧 Troubleshooting
 
@@ -378,7 +396,7 @@ notifications:
 
 **UI not showing live data**
 - Ensure bot is running
-- Check that state file exists in `.state/`
+- Check that state file exists in `config/.bot_state.json` when DB is disabled
 - Verify market is open (US Eastern time)
 
 **Hot-reload not working**
@@ -426,5 +444,5 @@ Contributions are welcome! Please:
 
 - [Nautilus Trader Documentation](https://nautilustrader.io/docs/)
 - [Interactive Brokers API](https://interactivebrokers.github.io/tws-api/)
-- [Streamlit Documentation](https://docs.streamlit.io/)
+- [Svelte Documentation](https://svelte.dev/docs)
 - [TradingView](https://www.tradingview.com/) - UI design inspiration

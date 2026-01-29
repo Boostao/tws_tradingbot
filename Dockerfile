@@ -15,6 +15,6 @@ COPY . .
 # Install dependencies with uv
 RUN uv sync
 
-EXPOSE 8501
+EXPOSE 8000
 
-CMD ["bash", "./run_ui.sh"]
+CMD ["bash", "./run_api.sh"]

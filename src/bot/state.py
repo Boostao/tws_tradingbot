@@ -2,7 +2,7 @@
 Bot State Management Module
 
 Provides shared state mechanism for communication between the trading bot
-and the Streamlit UI. Supports both JSON file-based state (legacy) and
+and the UI. Supports both JSON file-based state (legacy) and
 DuckDB database backend for persistence.
 
 The bot writes state updates after each cycle, and the UI reads

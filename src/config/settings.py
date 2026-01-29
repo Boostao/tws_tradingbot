@@ -34,6 +34,8 @@ class AppConfig:
     log_level: str = "INFO"
     strategies_dir: str = "strategies"
     active_strategy_path: str = "config/active_strategy.json"
+    watchlist_path: str = "config/watchlist.txt"
+    symbol_cache_path: str = "data/symbol_cache.json"
     data_dir: str = "data"
     logs_dir: str = "logs"
 
@@ -59,7 +61,7 @@ class RiskConfig:
 
 @dataclass
 class UIConfig:
-    """Streamlit UI configuration."""
+    """UI configuration."""
     port: int = 8501
     host: str = "0.0.0.0"
     refresh_interval: int = 5
@@ -155,10 +157,15 @@ class ConfigLoader:
     """Loads and manages configuration from multiple sources."""
 
     def __init__(self, config_dir: Optional[Path] = None):
-        self.config_dir = config_dir or Path(__file__).parent.parent.parent / "config"
+        env_config_dir = os.getenv("TRADERBOT_CONFIG_DIR")
+        default_dir = Path(__file__).parent.parent.parent / "config"
+        self.config_dir = Path(env_config_dir) if env_config_dir else (config_dir or default_dir)
         self.project_root = Path(__file__).parent.parent.parent
 
         # Load environment variables
+        dotenv_path = os.getenv("TRADERBOT_DOTENV_PATH")
+        if dotenv_path:
+            load_dotenv(dotenv_path=dotenv_path)
         load_dotenv(dotenv_path=self.project_root / ".env")
         load_dotenv()
 
@@ -209,6 +216,9 @@ class ConfigLoader:
             "IB_ACCOUNT": ("ib", "account"),
             "IB_TRADING_MODE": ("ib", "trading_mode"),
             "LOG_LEVEL": ("app", "log_level"),
+            "APP_ACTIVE_STRATEGY_PATH": ("app", "active_strategy_path"),
+            "APP_WATCHLIST_PATH": ("app", "watchlist_path"),
+            "APP_SYMBOL_CACHE_PATH": ("app", "symbol_cache_path"),
             "BACKTEST_CAPITAL": ("backtest", "default_capital"),
             "AUTH_ENABLED": ("auth", "enabled"),
             "AUTH_USERNAME": ("auth", "username"),
@@ -275,6 +285,8 @@ class ConfigLoader:
                 log_level=app_cfg.get("log_level", "INFO"),
                 strategies_dir=app_cfg.get("strategies_dir", "strategies"),
                 active_strategy_path=app_cfg.get("active_strategy_path", "config/active_strategy.json"),
+                watchlist_path=app_cfg.get("watchlist_path", "config/watchlist.txt"),
+                symbol_cache_path=app_cfg.get("symbol_cache_path", "data/symbol_cache.json"),
                 data_dir=app_cfg.get("data_dir", "data"),
                 logs_dir=app_cfg.get("logs_dir", "logs"),
             ),

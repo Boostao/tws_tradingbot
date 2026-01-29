@@ -14,6 +14,8 @@ app:
   log_level: "INFO"
   strategies_dir: "strategies"
   active_strategy_path: "config/active_strategy.json"
+  watchlist_path: "config/watchlist.txt"
+  symbol_cache_path: "data/symbol_cache.json"
   data_dir: "data"
   logs_dir: "logs"
 

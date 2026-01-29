@@ -28,11 +28,13 @@ try:
     from ibapi.common import BarData, TickerId, TickAttrib
     from ibapi.order import Order
     from ibapi.scanner import ScannerSubscription
+    from ibapi.execution import ExecutionFilter
     IBAPI_AVAILABLE = True
 except ImportError:
     IBAPI_AVAILABLE = False
     EClient = object
     EWrapper = object
+    ExecutionFilter = object
 
 from src.config.settings import get_settings
 
@@ -150,11 +152,24 @@ class TWSDataWrapper(EWrapper):
         self._market_data_events: Dict[int, threading.Event] = {}
         self._market_data_symbols: Dict[int, str] = {}
         self._market_data_lock = threading.Lock()
+        self._market_data_permission_errors: set[str] = set()
 
         # Order tracking
         self._orders: Dict[int, Dict[str, Any]] = {}
         self._order_events: Dict[int, threading.Event] = {}
         self._order_lock = threading.Lock()
+        self._open_orders_event = threading.Event()
+        self._positions_event = threading.Event()
+
+        # Account updates / portfolio
+        self._portfolio_positions: List[Dict[str, Any]] = []
+        self._portfolio_positions_by_symbol: Dict[str, Dict[str, Any]] = {}
+        self._position_entry_times: Dict[str, str] = {}
+        self._account_update_event = threading.Event()
+
+        # Executions
+        self._executions: List[Dict[str, Any]] = []
+        self._executions_event = threading.Event()
         
         # Event queues for synchronization
         self._connection_event = threading.Event()
@@ -193,6 +208,22 @@ class TWSDataWrapper(EWrapper):
         # Some error codes are informational
         if errorCode in (2104, 2106, 2158, 2119):  # Market data/connection info
             logger.debug(f"TWS Info [{errorCode}]: {errorString}")
+        elif errorCode == 2100:  # Account update unsubscribed (noisy)
+            logger.debug(f"TWS Info [{errorCode}] reqId={reqId}: {errorString}")
+            return
+        elif errorCode == 10089:  # Market data subscription required
+            symbol = self._market_data_symbols.get(reqId)
+            if symbol:
+                self._market_data_permission_errors.add(symbol.upper())
+            if reqId in self._market_data_events:
+                self._market_data_events[reqId].set()
+            logger.warning(f"TWS Error [{errorCode}] reqId={reqId}: {errorString}")
+            return
+        elif errorCode == 300:  # Can't find EId with tickerId
+            if reqId in self._market_data_events:
+                self._market_data_events[reqId].set()
+            logger.warning(f"TWS Error [{errorCode}] reqId={reqId}: {errorString}")
+            return
         elif errorCode == 200:  # No security definition found
             logger.warning(f"Contract not found for reqId {reqId}: {errorString}")
             self._errors[reqId] = errorString
@@ -322,6 +353,7 @@ class TWSDataWrapper(EWrapper):
     def positionEnd(self):
         """Position updates complete."""
         logger.debug("Position updates complete")
+        self._positions_event.set()
     
     # Account Callbacks
     
@@ -340,11 +372,78 @@ class TWSDataWrapper(EWrapper):
         if reqId in self._data_events:
             self._data_events[reqId].set()
 
+    def updatePortfolio(
+        self,
+        contract: Contract,
+        position: float,
+        marketPrice: float,
+        marketValue: float,
+        averageCost: float,
+        unrealizedPNL: float,
+        realizedPNL: float,
+        accountName: str,
+    ):
+        """Receive portfolio updates from TWS account updates."""
+        symbol = (contract.symbol or "").upper()
+        if not symbol:
+            return
+
+        if position == 0:
+            self._portfolio_positions_by_symbol.pop(symbol, None)
+            self._position_entry_times.pop(symbol, None)
+            return
+
+        entry_time = self._position_entry_times.get(symbol)
+        if not entry_time:
+            entry_time = datetime.utcnow().isoformat()
+            self._position_entry_times[symbol] = entry_time
+
+        self._portfolio_positions_by_symbol[symbol] = {
+            "account": accountName,
+            "symbol": symbol,
+            "sec_type": contract.secType,
+            "position": position,
+            "avg_cost": averageCost,
+            "market_price": marketPrice,
+            "market_value": marketValue,
+            "unrealized_pnl": unrealizedPNL,
+            "realized_pnl": realizedPNL,
+            "entry_time": entry_time,
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+
+    def accountDownloadEnd(self, accountName: str):
+        """Account update snapshot complete."""
+        self._account_update_event.set()
+
+    def execDetails(self, reqId: int, contract: Contract, execution):
+        """Receive execution details."""
+        try:
+            exec_time = getattr(execution, "time", None)
+            self._executions.append(
+                {
+                    "symbol": contract.symbol,
+                    "sec_type": contract.secType,
+                    "side": getattr(execution, "side", None),
+                    "shares": getattr(execution, "shares", None),
+                    "price": getattr(execution, "price", None),
+                    "exec_id": getattr(execution, "execId", None),
+                    "time": exec_time,
+                }
+            )
+        except Exception:
+            logger.exception("Failed to capture execution details")
+
+    def execDetailsEnd(self, reqId: int):
+        """Executions snapshot complete."""
+        self._executions_event.set()
+
     # Order Callbacks
 
     def openOrder(self, orderId: int, contract: Contract, order: Order, orderState):
         """Handle open order info."""
         with self._order_lock:
+            existing = self._orders.get(orderId, {})
             self._orders.setdefault(orderId, {})
             self._orders[orderId].update(
                 {
@@ -353,9 +452,16 @@ class TWSDataWrapper(EWrapper):
                     "action": order.action,
                     "quantity": getattr(order, "totalQuantity", None),
                     "order_type": getattr(order, "orderType", None),
+                    "price": getattr(order, "lmtPrice", None),
                     "status": getattr(orderState, "status", None),
+                    "submitted_time": existing.get("submitted_time")
+                    or datetime.now().astimezone().isoformat(),
                 }
             )
+
+    def openOrderEnd(self):
+        """Signal completion of open orders snapshot."""
+        self._open_orders_event.set()
 
     def orderStatus(
         self,
@@ -384,6 +490,8 @@ class TWSDataWrapper(EWrapper):
                     "timestamp": datetime.utcnow(),
                 }
             )
+            if status in {"Submitted", "PreSubmitted"} and not data.get("submitted_time"):
+                data["submitted_time"] = datetime.now().astimezone().isoformat()
         if orderId in self._order_events:
             self._order_events[orderId].set()
 
@@ -511,6 +619,7 @@ class TWSDataClient(TWSDataWrapper, EClient):
             # Wait for connection confirmation
             if self._connection_event.wait(timeout=timeout):
                 logger.info("Successfully connected to TWS")
+                self._market_data_permission_errors.clear()
                 return True
             else:
                 logger.error("Connection timeout - is TWS running with API enabled?")
@@ -604,6 +713,11 @@ class TWSDataProvider:
                 pass
             self._client.disconnect_client()
             self._client = None
+
+    def reconnect(self, timeout: float = 10.0) -> bool:
+        """Recycle the connection to TWS."""
+        self.disconnect()
+        return self.connect(timeout=timeout)
     
     def is_connected(self) -> bool:
         """
@@ -721,6 +835,9 @@ class TWSDataProvider:
             logger.error("Not connected to TWS")
             return None
 
+        if snapshot and symbol.upper() in self._client._market_data_permission_errors:
+            return None
+
         if quantity <= 0:
             logger.error("Order quantity must be positive")
             return None
@@ -778,6 +895,28 @@ class TWSDataProvider:
         with self._client._order_lock:
             return self._client._orders.get(order_id)
 
+    def get_open_orders(self, timeout: float = 5.0) -> List[Dict[str, Any]]:
+        """Fetch open orders snapshot from TWS."""
+        if not self._ensure_connected():
+            return []
+
+        with self._client._order_lock:
+            prior_orders = self._client._orders.copy()
+            self._client._orders = {}
+
+        self._client._open_orders_event.clear()
+        self._client.reqAllOpenOrders()
+
+        self._client._open_orders_event.wait(timeout=timeout)
+
+        with self._client._order_lock:
+            for order_id, order in self._client._orders.items():
+                if not order.get("submitted_time"):
+                    prev = prior_orders.get(order_id)
+                    if prev and prev.get("submitted_time"):
+                        order["submitted_time"] = prev.get("submitted_time")
+            return list(self._client._orders.values())
+
     def subscribe_market_data(
         self,
         symbol: str,
@@ -785,6 +924,7 @@ class TWSDataProvider:
         exchange: str = "SMART",
         currency: str = "USD",
         timeout: float = 5.0,
+        market_data_type: Optional[int] = None,
     ) -> Optional[Dict[str, Any]]:
         """
         Subscribe to market data for a symbol.
@@ -812,6 +952,12 @@ class TWSDataProvider:
         if snapshot:
             self._client._market_data_events[req_id] = threading.Event()
 
+        if market_data_type is not None:
+            try:
+                self._client.reqMarketDataType(int(market_data_type))
+            except Exception as exc:
+                logger.debug(f"Failed to set market data type {market_data_type}: {exc}")
+
         self._client.reqMktData(
             reqId=req_id,
             contract=contract,
@@ -825,10 +971,20 @@ class TWSDataProvider:
             if not self._client._market_data_events[req_id].wait(timeout=timeout):
                 logger.warning(f"Snapshot timeout for {symbol}")
             self._client.cancelMktData(req_id)
+            if market_data_type is not None and market_data_type != 1:
+                try:
+                    self._client.reqMarketDataType(1)
+                except Exception as exc:
+                    logger.debug(f"Failed to reset market data type: {exc}")
             return self._client._market_data.get(req_id)
 
         self._market_data_subscriptions[symbol] = req_id
         return None
+
+    def has_market_data_permission_error(self, symbol: str) -> bool:
+        if not self._client:
+            return False
+        return symbol.upper() in self._client._market_data_permission_errors
 
     def unsubscribe_market_data(self, symbol: str) -> bool:
         """Unsubscribe from streaming market data for a symbol."""
@@ -856,6 +1012,7 @@ class TWSDataProvider:
         exchange: str = "SMART",
         currency: str = "USD",
         timeout: float = 5.0,
+        market_data_type: Optional[int] = None,
     ) -> Optional[Dict[str, Any]]:
         """Fetch a one-time market data snapshot for a symbol."""
         return self.subscribe_market_data(
@@ -864,6 +1021,7 @@ class TWSDataProvider:
             exchange=exchange,
             currency=currency,
             timeout=timeout,
+            market_data_type=market_data_type,
         )
     
     def get_historical_data(
@@ -1112,6 +1270,88 @@ class TWSDataProvider:
             del self._client._data_events[req_id]
         
         return results
+
+    def get_portfolio_positions(self, timeout: float = 10.0, account: str = "") -> List[Dict]:
+        """
+        Get portfolio positions with market price and unrealized PnL from TWS account updates.
+
+        Args:
+            timeout: Request timeout
+            account: Account ID (empty for default/first managed account)
+
+        Returns:
+            List of portfolio position dicts
+        """
+        if not self._ensure_connected() or self._client is None:
+            return []
+
+        if not account:
+            managed = self._client._managed_accounts
+            account = managed[0] if managed else ""
+
+        self._client._portfolio_positions = []
+        self._client._portfolio_positions_by_symbol = {}
+        self._client._account_update_event.clear()
+
+        try:
+            self._client.reqAccountUpdates(True, account)
+        except Exception as exc:
+            logger.warning(f"Failed to request account updates: {exc}")
+            return []
+
+        self._client._account_update_event.wait(timeout=timeout)
+
+        try:
+            self._client.reqAccountUpdates(False, account)
+        except Exception:
+            pass
+
+        positions = list(self._client._portfolio_positions_by_symbol.values())
+        self._client._portfolio_positions = positions
+        return positions
+
+    def get_executions(
+        self,
+        timeout: float = 10.0,
+        account: str = "",
+        since: Optional[datetime] = None,
+    ) -> List[Dict]:
+        """
+        Get recent executions for entry time mapping.
+
+        Args:
+            timeout: Request timeout
+            account: Account ID (empty for default/first managed account)
+            since: Optional lower-bound time for executions
+
+        Returns:
+            List of execution dicts
+        """
+        if not self._ensure_connected() or self._client is None:
+            return []
+
+        if not account:
+            managed = self._client._managed_accounts
+            account = managed[0] if managed else ""
+
+        self._client._executions = []
+        self._client._executions_event.clear()
+
+        filt = ExecutionFilter()
+        if account:
+            filt.acctCode = account
+        if since:
+            filt.time = since.strftime("%Y%m%d-%H:%M:%S")
+
+        req_id = self._client._get_next_req_id()
+        try:
+            self._client.reqExecutions(req_id, filt)
+        except Exception as exc:
+            logger.warning(f"Failed to request executions: {exc}")
+            return []
+
+        self._client._executions_event.wait(timeout=timeout)
+        return self._client._executions.copy()
     
     def get_positions(self, timeout: float = 10.0) -> List[Dict]:
         """
@@ -1124,11 +1364,15 @@ class TWSDataProvider:
             return []
         
         self._client._positions = []
+        self._client._positions_event.clear()
         self._client.reqPositions()
-        
-        # Wait a moment for positions to arrive
-        time.sleep(min(timeout, 2.0))
-        
+
+        self._client._positions_event.wait(timeout=timeout)
+        try:
+            self._client.cancelPositions()
+        except Exception:
+            pass
+
         return self._client._positions.copy()
     
     def get_account_summary(
@@ -1202,7 +1446,9 @@ class TWSDataProvider:
                     for line in f:
                         line = line.strip()
                         if line and not line.startswith("#"):
-                            symbols.add(line.upper())
+                            ticker = line.split(":", 1)[0].strip()
+                            if ticker:
+                                symbols.add(ticker.upper())
                 logger.debug(f"Loaded watchlist from {watchlist_file}")
             except Exception as e:
                 logger.warning(f"Error loading watchlist file: {e}")

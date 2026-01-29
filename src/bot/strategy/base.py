@@ -58,6 +58,7 @@ from src.bot.state import (
     get_state_logger,
 )
 from src.utils.logger import get_log_buffer
+from src.bot.tws_data_provider import TWSDataProvider
 
 
 logger = logging.getLogger(__name__)
@@ -253,6 +254,7 @@ class DynamicRuleStrategy:
         self._is_running: bool = False
         self._last_evaluation_time: Optional[datetime] = None
         self._tws_connected: bool = False
+        self._tws_provider: Optional[TWSDataProvider] = None
 
         # Order handlers (for Nautilus integration)
         self._submit_buy_handler: Optional[Any] = None
@@ -762,32 +764,123 @@ class DynamicRuleStrategy:
             status: Optional status override
         """
         try:
-            # Build positions list
+            def _coerce_float(value: Optional[str]) -> Optional[float]:
+                if value is None:
+                    return None
+                try:
+                    return float(str(value).replace(",", ""))
+                except (TypeError, ValueError):
+                    return None
+
+            def _extract_price(snapshot: dict | None, fallback: float) -> float:
+                if not snapshot:
+                    return fallback
+                for key in ("last", "close", "bid", "ask"):
+                    value = snapshot.get(key)
+                    if value is not None:
+                        try:
+                            return float(value)
+                        except (TypeError, ValueError):
+                            continue
+                bid = snapshot.get("bid")
+                ask = snapshot.get("ask")
+                if bid is not None and ask is not None:
+                    try:
+                        return (float(bid) + float(ask)) / 2
+                    except (TypeError, ValueError):
+                        return fallback
+                return fallback
+
             positions = []
-            for instrument_id, qty in self._positions.items():
-                if qty != 0:
-                    entry_price = self._entry_prices.get(instrument_id, 0)
-                    current_price = 0.0
-                    if instrument_id in self._bar_buffers and len(self._bar_buffers[instrument_id]) > 0:
-                        current_price = self._bar_buffers[instrument_id].closes[-1]
-                    
-                    unrealized_pnl = (current_price - entry_price) * qty if entry_price > 0 else 0
-                    
-                    positions.append(StatePosition(
-                        symbol=instrument_id.split(".")[0],
-                        quantity=qty,
-                        entry_price=entry_price,
-                        current_price=current_price,
-                        unrealized_pnl=unrealized_pnl,
-                        entry_time=datetime.now().isoformat(),
-                    ))
-            
-            # Build orders list
+            equity_override: Optional[float] = None
+            daily_pnl_override: Optional[float] = None
+            total_pnl_override: Optional[float] = None
+            tws_connected = self._tws_connected
             orders = list(self._pending_orders.values())
+
+            if self._tws_provider and self._tws_provider.is_connected():
+                tws_connected = True
+                tws_positions = self._tws_provider.get_positions(timeout=3.0)
+                for pos in tws_positions:
+                    qty = float(pos.get("position", 0) or 0)
+                    if qty == 0:
+                        continue
+                    avg_cost = _coerce_float(pos.get("avg_cost")) or 0.0
+                    symbol = (pos.get("symbol") or "").upper()
+                    snapshot = self._tws_provider.get_market_data_snapshot(symbol, timeout=3.0)
+                    current_price = _extract_price(snapshot, avg_cost)
+                    unrealized = (current_price - avg_cost) * qty if avg_cost else 0.0
+                    positions.append(
+                        StatePosition(
+                            symbol=symbol,
+                            quantity=qty,
+                            entry_price=avg_cost,
+                            current_price=current_price,
+                            unrealized_pnl=unrealized,
+                            entry_time=None,
+                        )
+                    )
+
+                tws_orders = self._tws_provider.get_open_orders(timeout=3.0)
+                orders = [
+                    StateOrder(
+                        order_id=str(order.get("order_id")),
+                        symbol=order.get("symbol") or "",
+                        side=(order.get("action") or "").upper(),
+                        quantity=float(order.get("quantity") or 0),
+                        price=order.get("price"),
+                        status=order.get("status") or "PENDING",
+                        order_type=order.get("order_type") or "MARKET",
+                        submitted_time=None,
+                        filled_quantity=float(order.get("filled") or 0),
+                    )
+                    for order in tws_orders
+                ]
+
+                summary = self._tws_provider.get_account_summary(
+                    tags="NetLiquidation,TotalCashValue,GrossPositionValue,UnrealizedPnL,RealizedPnL,DailyPnL"
+                )
+
+                def _find_tag(tag: str) -> Optional[float]:
+                    for item in summary.values():
+                        if item.get("tag") == tag:
+                            return _coerce_float(item.get("value"))
+                    return None
+
+                net_liquidation = _find_tag("NetLiquidation")
+                realized = _find_tag("RealizedPnL")
+                unrealized = _find_tag("UnrealizedPnL")
+                daily_pnl = _find_tag("DailyPnL")
+
+                if net_liquidation is not None:
+                    equity_override = net_liquidation
+                if daily_pnl is not None:
+                    daily_pnl_override = daily_pnl
+                if realized is not None or unrealized is not None:
+                    total_pnl_override = (realized or 0.0) + (unrealized or 0.0)
+            else:
+                for instrument_id, qty in self._positions.items():
+                    if qty != 0:
+                        entry_price = self._entry_prices.get(instrument_id, 0)
+                        current_price = 0.0
+                        if instrument_id in self._bar_buffers and len(self._bar_buffers[instrument_id]) > 0:
+                            current_price = self._bar_buffers[instrument_id].closes[-1]
+                        
+                        unrealized_pnl = (current_price - entry_price) * qty if entry_price > 0 else 0
+                        
+                        positions.append(StatePosition(
+                            symbol=instrument_id.split(".")[0],
+                            quantity=qty,
+                            entry_price=entry_price,
+                            current_price=current_price,
+                            unrealized_pnl=unrealized_pnl,
+                            entry_time=datetime.now().isoformat(),
+                        ))
             
-            # Calculate equity (initial + total_pnl + unrealized)
             unrealized_total = sum(p.unrealized_pnl for p in positions)
-            current_equity = self._initial_equity + self._total_pnl + unrealized_total
+            current_equity = equity_override if equity_override is not None else (
+                self._initial_equity + self._total_pnl + unrealized_total
+            )
             
             # Calculate win rate
             win_rate = (self._wins_today / self._trades_today * 100) if self._trades_today > 0 else 0.0
@@ -796,15 +889,18 @@ class DynamicRuleStrategy:
             recent_logs = get_log_buffer()
             
             # Build state
+            daily_pnl = daily_pnl_override if daily_pnl_override is not None else self._daily_pnl
+            total_pnl = total_pnl_override if total_pnl_override is not None else self._total_pnl
+
             state = BotState(
                 status=status.value if status else (BotStatus.RUNNING.value if self._is_running else BotStatus.STOPPED.value),
-                tws_connected=self._tws_connected,
+                tws_connected=tws_connected,
                 positions=positions,
                 orders=orders,
                 equity=current_equity,
-                daily_pnl=self._daily_pnl,
-                daily_pnl_percent=(self._daily_pnl / self._initial_equity * 100) if self._initial_equity > 0 else 0,
-                total_pnl=self._total_pnl,
+                daily_pnl=daily_pnl,
+                daily_pnl_percent=(daily_pnl / current_equity * 100) if current_equity else 0,
+                total_pnl=total_pnl,
                 recent_logs=recent_logs[-50:],
                 active_strategy=self.strategy_model.name if self.strategy_model else "",
                 trades_today=self._trades_today,
@@ -862,6 +958,10 @@ class DynamicRuleStrategy:
         else:
             logger.warning("TWS disconnected")
         self._update_bot_state()
+
+    def set_tws_provider(self, provider: Optional[TWSDataProvider]) -> None:
+        """Attach TWS provider for state updates."""
+        self._tws_provider = provider
 
 
 # =============================================================================

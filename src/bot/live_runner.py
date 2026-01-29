@@ -395,6 +395,7 @@ class LiveTradingRunner:
                     submit_sell=self._submit_sell_order,
                     cancel_order=self._cancel_order,
                 )
+                self.strategy.set_tws_provider(self._tws_provider)
             
             logger.info(f"Strategy created: {strategy_config.strategy_id}")
             logger.info(f"Trading instruments: {formatted_instruments}")

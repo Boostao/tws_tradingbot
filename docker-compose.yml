@@ -12,7 +12,7 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
-  ui:
+  api:
     build: .
     depends_on:
       - postgres
@@ -22,7 +22,18 @@ services:
       IB_HOST: 127.0.0.1
       IB_PORT: 7497
     ports:
-      - "8501:8501"
+      - "8000:8000"
+    command: ["bash", "./run_api.sh"]
+
+  web:
+    build:
+      context: ./web
+    depends_on:
+      - api
+    environment:
+      VITE_API_URL: http://api:8000
+    ports:
+      - "5173:5173"
 
   bot:
     build: .

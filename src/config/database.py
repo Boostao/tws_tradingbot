@@ -137,10 +137,26 @@ class DatabaseManager:
                     message TEXT NOT NULL
                 )
             """)
+
+            # Notifications table
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS notifications (
+                    id INTEGER PRIMARY KEY,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    level VARCHAR NOT NULL,
+                    message TEXT NOT NULL,
+                    channel VARCHAR
+                )
+            """)
             
             # Create sequence for logs if not exists
             conn.execute("""
                 CREATE SEQUENCE IF NOT EXISTS logs_seq START 1
+            """)
+
+            # Create sequence for notifications if not exists
+            conn.execute("""
+                CREATE SEQUENCE IF NOT EXISTS notifications_seq START 1
             """)
             
             # Bot commands table
@@ -200,10 +216,15 @@ class DatabaseManager:
             value: Value to store (will be JSON serialized)
         """
         with self.get_connection() as conn:
-            conn.execute("""
-                INSERT OR REPLACE INTO config (section, key, value, updated_at)
-                VALUES (?, ?, ?::JSON, CURRENT_TIMESTAMP)
-            """, [section, key, json.dumps(value)])
+            conn.execute(
+                """
+                INSERT INTO config (section, key, value, updated_at)
+                VALUES (?, ?, ?::JSON, ?)
+                ON CONFLICT (section, key)
+                DO UPDATE SET value = EXCLUDED.value, updated_at = EXCLUDED.updated_at
+                """,
+                [section, key, json.dumps(value), datetime.utcnow()],
+            )
     
     def get_config(self, section: str, key: str, default: Any = None) -> Any:
         """
@@ -252,15 +273,17 @@ class DatabaseManager:
             config: Dictionary of key-value pairs to store
         """
         with self.get_connection() as conn:
-            # Delete existing section config
-            conn.execute("DELETE FROM config WHERE section = ?", [section])
-            
-            # Insert new values
+            updated_at = datetime.utcnow()
             for key, value in config.items():
-                conn.execute("""
+                conn.execute(
+                    """
                     INSERT INTO config (section, key, value, updated_at)
-                    VALUES (?, ?, ?::JSON, CURRENT_TIMESTAMP)
-                """, [section, key, json.dumps(value)])
+                    VALUES (?, ?, ?::JSON, ?)
+                    ON CONFLICT (section, key)
+                    DO UPDATE SET value = EXCLUDED.value, updated_at = EXCLUDED.updated_at
+                    """,
+                    [section, key, json.dumps(value), updated_at],
+                )
     
     def get_all_config(self) -> Dict[str, Dict[str, Any]]:
         """
@@ -688,6 +711,62 @@ class DatabaseManager:
         """Clear all logs."""
         with self.get_connection() as conn:
             conn.execute("DELETE FROM logs")
+
+    # =========================================================================
+    # Notifications Methods
+    # =========================================================================
+
+    def add_notification(self, level: str, message: str, channel: Optional[str] = None) -> None:
+        """Add a notification entry."""
+        with self.get_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO notifications (id, level, message, channel, created_at)
+                VALUES (nextval('notifications_seq'), ?, ?, ?, CURRENT_TIMESTAMP)
+                """,
+                [level, message, channel],
+            )
+
+            conn.execute(
+                """
+                DELETE FROM notifications WHERE id NOT IN (
+                    SELECT id FROM notifications ORDER BY created_at DESC LIMIT 500
+                )
+                """
+            )
+
+    def get_notifications(self, limit: int = 200, offset: int = 0) -> List[Dict[str, Any]]:
+        """Get recent notification entries."""
+        with self.get_connection() as conn:
+            results = conn.execute(
+                """
+                SELECT id, created_at, level, message, channel
+                FROM notifications ORDER BY created_at DESC LIMIT ? OFFSET ?
+                """,
+                [limit, offset],
+            ).fetchall()
+
+            return [
+                {
+                    "id": row[0],
+                    "created_at": row[1].isoformat() if row[1] else None,
+                    "level": row[2],
+                    "message": row[3],
+                    "channel": row[4],
+                }
+                for row in reversed(results)
+            ]
+
+    def clear_notifications(self) -> None:
+        """Clear all notifications."""
+        with self.get_connection() as conn:
+            conn.execute("DELETE FROM notifications")
+
+    def count_notifications(self) -> int:
+        """Count total notifications."""
+        with self.get_connection() as conn:
+            result = conn.execute("SELECT COUNT(*) FROM notifications").fetchone()
+            return int(result[0]) if result else 0
     
     # =========================================================================
     # Bot Commands Methods
@@ -935,6 +1014,17 @@ class PostgresDatabaseManager:
                         timestamp TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
                         level TEXT NOT NULL,
                         message TEXT NOT NULL
+                    )
+                    """
+                )
+                cur.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS notifications (
+                        id BIGSERIAL PRIMARY KEY,
+                        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+                        level TEXT NOT NULL,
+                        message TEXT NOT NULL,
+                        channel TEXT
                     )
                     """
                 )
@@ -1341,6 +1431,54 @@ class PostgresDatabaseManager:
         with self.get_connection() as conn:
             with conn.cursor() as cur:
                 cur.execute("DELETE FROM logs")
+
+    # Notifications
+    def add_notification(self, level: str, message: str, channel: Optional[str] = None) -> None:
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "INSERT INTO notifications (level, message, channel) VALUES (%s, %s, %s)",
+                    [level, message, channel],
+                )
+
+                cur.execute(
+                    """
+                    DELETE FROM notifications WHERE id NOT IN (
+                        SELECT id FROM notifications ORDER BY created_at DESC LIMIT 500
+                    )
+                    """
+                )
+
+    def get_notifications(self, limit: int = 200, offset: int = 0) -> List[Dict[str, Any]]:
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT id, created_at, level, message, channel FROM notifications ORDER BY created_at DESC LIMIT %s OFFSET %s",
+                    [limit, offset],
+                )
+                rows = cur.fetchall()
+                return [
+                    {
+                        "id": row[0],
+                        "created_at": row[1].isoformat() if row[1] else None,
+                        "level": row[2],
+                        "message": row[3],
+                        "channel": row[4],
+                    }
+                    for row in reversed(rows)
+                ]
+
+    def clear_notifications(self) -> None:
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM notifications")
+
+    def count_notifications(self) -> int:
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT COUNT(*) FROM notifications")
+                row = cur.fetchone()
+                return int(row[0]) if row else 0
 
     # Commands
     def add_command(self, command: str, payload: Optional[Dict[str, Any]] = None) -> int:

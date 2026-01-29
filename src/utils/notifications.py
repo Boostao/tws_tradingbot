@@ -12,6 +12,8 @@ from typing import Callable, Optional
 import requests
 
 from src.config.settings import Settings
+from src.config.settings import get_settings
+from src.config.database import get_database
 
 
 logger = logging.getLogger(__name__)
@@ -34,16 +36,23 @@ class NotificationManager:
 
         self._send_telegram(message)
         self._send_discord(message)
+        self._record_event(message, level="info")
 
     def notify_status(self, status: str, mode: str) -> None:
-        self.notify(f"{status} | Mode: {mode}")
+        message = f"{status} | Mode: {mode}"
+        self.notify(message)
 
     def notify_order(self, side: str, symbol: str, quantity: int, order_id: Optional[int]) -> None:
         order_part = f" (Order ID: {order_id})" if order_id is not None else ""
         self.notify(f"{side} {symbol} x{quantity}{order_part}")
 
     def notify_error(self, message: str) -> None:
-        self.notify(f"❌ Error: {message}")
+        formatted = f"❌ Error: {message}"
+        if not self.enabled:
+            return
+        self._send_telegram(formatted)
+        self._send_discord(formatted)
+        self._record_event(formatted, level="error")
 
     def start_command_listener(self, handler: Callable[[str], str]) -> None:
         cfg = self._settings.notifications.telegram
@@ -96,6 +105,16 @@ class NotificationManager:
                 logger.warning("Discord notification failed: %s", response.text)
         except Exception as exc:
             logger.warning("Discord notification error: %s", exc)
+
+    def _record_event(self, message: str, level: str = "info") -> None:
+        try:
+            settings = get_settings(force_reload=True)
+            if not settings.database.enabled:
+                return
+            db = get_database()
+            db.add_notification(level=level, message=message, channel=None)
+        except Exception as exc:
+            logger.debug("Notification persistence failed: %s", exc)
 
 
 class TelegramCommandListener:
