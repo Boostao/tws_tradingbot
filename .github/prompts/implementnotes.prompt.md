@@ -1,0 +1,1 @@
+Read `docs/project_ideas.md`, list pending ideas, ask the user to select one, and then proceed to plan and implement it using the appropriate persona.

@@ -13,7 +13,7 @@ import logging
 import threading
 import time
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, date
+from datetime import datetime, timedelta, date, timezone
 from enum import Enum
 from pathlib import Path
 from queue import Queue, Empty
@@ -206,8 +206,11 @@ class TWSDataWrapper(EWrapper):
             advancedOrderRejectJson: Advanced order rejection details (JSON)
         """
         # Some error codes are informational
-        if errorCode in (2104, 2106, 2158, 2119):  # Market data/connection info
-            logger.debug(f"TWS Info [{errorCode}]: {errorString}")
+        if errorCode in (2104, 2106, 2158, 2119, 2174):  # Market data/connection info
+            if errorCode == 2174:
+                 logger.warning(f"TWS Warning [{errorCode}]: {errorString}")
+            else:
+                 logger.debug(f"TWS Info [{errorCode}]: {errorString}")
         elif errorCode == 2100:  # Account update unsubscribed (noisy)
             logger.debug(f"TWS Info [{errorCode}] reqId={reqId}: {errorString}")
             return
@@ -1063,8 +1066,14 @@ class TWSDataProvider:
         
         # Format end datetime
         if end_datetime is None:
-            end_datetime = datetime.now()
-        end_str = end_datetime.strftime("%Y%m%d %H:%M:%S")
+            end_datetime = datetime.now(timezone.utc)
+        elif end_datetime.tzinfo is None:
+            # Assume local if naive, convert to UTC
+            end_datetime = end_datetime.astimezone(timezone.utc)
+        else:
+            end_datetime = end_datetime.astimezone(timezone.utc)
+            
+        end_str = end_datetime.strftime("%Y%m%d-%H:%M:%S")
         
         # Create request tracking
         request = HistoricalDataRequest(
@@ -1114,18 +1123,26 @@ class TWSDataProvider:
         
         df = pd.DataFrame(bars)
         
-        # Parse timestamp with explicit format to avoid warnings
+        # Parse timestamp with flexible handling for IB formats
         ts = df["timestamp"]
+        parsed = None
+        
         if ts.dtype.kind in {"i", "u", "f"}:
             parsed = pd.to_datetime(ts, unit="s", errors="coerce")
         else:
-            parsed = pd.to_datetime(ts, format="%Y%m%d %H:%M:%S", errors="coerce")
+            # Handle IB format like "20260128 09:30:00 US/Eastern"
+            # We slice the first 17 chars (YYYYMMDD HH:MM:SS) to ignore timezone for parsing
+            # This avoids issues with non-standard zone names
+            clean_ts = ts.astype(str).str.slice(0, 17)
+            parsed = pd.to_datetime(clean_ts, format="%Y%m%d %H:%M:%S", errors="coerce")
+            
             if parsed.isna().any():
-                parsed_alt = pd.to_datetime(ts, format="%Y-%m-%d %H:%M:%S", errors="coerce")
-                parsed = parsed.fillna(parsed_alt)
+                # Fallback to simple parsing (e.g. for "20260203" daily bars)
+                parsed = parsed.fillna(pd.to_datetime(ts, errors="coerce"))
 
         if parsed.isna().any():
-            logger.warning("Some timestamps could not be parsed for %s", symbol)
+            logger.warning("Some timestamps could not be parsed for %s. Sample: %s", 
+                         symbol, ts.iloc[0] if not ts.empty else "N/A")
 
         df["timestamp"] = parsed
         df = df.sort_values("timestamp").reset_index(drop=True)

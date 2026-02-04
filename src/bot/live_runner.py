@@ -199,14 +199,14 @@ class LiveTradingRunner:
                 self.strategy.on_stop()
             
             # Create new strategy config
-            instruments = self.settings.get("app.default_tickers", ["SPY", "QQQ"])
             strategy_model = None
             try:
                 strategy_model = load_strategy(strategy_path)
-                if strategy_model.tickers:
-                    instruments = strategy_model.tickers
             except Exception as e:
                 logger.warning(f"Failed to load strategy tickers: {e}")
+            
+            instruments = self._get_target_instruments(strategy_model)
+            
             formatted_instruments = []
             for ticker in instruments:
                 if "." not in ticker:
@@ -264,6 +264,41 @@ class LiveTradingRunner:
             logger.error(f"Strategy reload failed: {e}", exc_info=True)
             return False
     
+    def _get_target_instruments(self, strategy_model) -> List[str]:
+        """
+        Determine which instruments to trade.
+        Priority:
+        1. Strategy-specific tickers (if defined)
+        2. Watchlist file (config/watchlist.txt)
+        3. Default tickers from settings
+        """
+        # 1. Strategy tickers
+        if strategy_model and strategy_model.tickers:
+            return strategy_model.tickers
+            
+        # 2. Watchlist
+        watchlist_path = Path(__file__).parent.parent.parent / "config" / "watchlist.txt"
+        if watchlist_path.exists():
+            try:
+                tickers = []
+                with open(watchlist_path, "r") as f:
+                    for line in f:
+                        line = line.strip()
+                        if not line: continue
+                        # Parse TICKER:MARKET format
+                        if ":" in line:
+                            tickers.append(line.split(":")[0])
+                        else:
+                            tickers.append(line)
+                if tickers:
+                    logger.info(f"Using {len(tickers)} instruments from watchlist")
+                    return tickers
+            except Exception as e:
+                logger.warning(f"Failed to read watchlist: {e}")
+                
+        # 3. Default
+        return self.settings.get("app.default_tickers", ["SPY", "QQQ"])
+
     def check_prerequisites(self) -> bool:
         """
         Check all prerequisites before starting.
@@ -326,15 +361,14 @@ class LiveTradingRunner:
             # Create IB adapter
             self.adapter = IBAdapter(self.settings)
             
-            # Determine instruments from strategy or settings
-            instruments = self.settings.get("app.default_tickers", ["SPY", "QQQ"])
+            # Determine instruments from strategy, watchlist or settings
             strategy_model = None
             try:
                 strategy_model = load_strategy(Path(self.strategy_path))
-                if strategy_model.tickers:
-                    instruments = strategy_model.tickers
             except Exception as e:
                 logger.warning(f"Failed to load strategy tickers: {e}")
+            
+            instruments = self._get_target_instruments(strategy_model)
             
             # Format instruments for IB (add venue)
             formatted_instruments = []
@@ -446,17 +480,8 @@ class LiveTradingRunner:
             if NAUTILUS_AVAILABLE and NAUTILUS_IB_AVAILABLE and self.adapter:
                 # Full Nautilus Trader mode with IB
                 logger.info("Starting Nautilus Trader node...")
-                self.node = self.adapter.create_trading_node(
-                    strategy=self.strategy,
-                    instruments=self.strategy.config.instruments,
-                )
-                
-                if self.node:
-                    # Run the node (blocking)
-                    self.node.run()
-                else:
-                    logger.error("Failed to create trading node")
-                    return 1
+                self._start_reload_watcher()
+                self._run_nautilus_mode()
             else:
                 # Simulation mode (for development/testing or when IB adapter unavailable)
                 logger.info("Running in SIMULATION mode")
@@ -527,6 +552,47 @@ class LiveTradingRunner:
         
         # Stop the strategy
         self.strategy.on_stop()
+    
+    def _run_nautilus_mode(self) -> None:
+        """
+        Run in Nautilus Trader mode with hot-reload support.
+        """
+        import threading
+        
+        while not self._shutdown_requested:
+            # Create and start node
+            self.node = self.adapter.create_trading_node(
+                strategy=self.strategy,
+                instruments=self.strategy.config.instruments,
+            )
+            
+            if not self.node:
+                logger.error("Failed to create trading node")
+                break
+            
+            # Run node in a separate thread
+            node_thread = threading.Thread(target=self.node.run, name="NautilusNode")
+            node_thread.start()
+            
+            # Wait for node to finish or reload
+            while node_thread.is_alive() and not self._shutdown_requested:
+                # Check for reload
+                if self._check_and_handle_reload():
+                    logger.info("Reload detected, stopping current node...")
+                    # Stop the node (assuming it has a stop method)
+                    try:
+                        self.node.dispose()
+                    except Exception as e:
+                        logger.warning(f"Error disposing node: {e}")
+                    break
+                time.sleep(1.0)
+            
+            # Wait for thread to finish
+            node_thread.join(timeout=5.0)
+            if node_thread.is_alive():
+                logger.warning("Node thread did not stop gracefully")
+        
+        logger.info("Nautilus mode stopped")
     
     def shutdown(self) -> None:
         """Gracefully shutdown all components."""

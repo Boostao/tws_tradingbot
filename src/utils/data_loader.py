@@ -12,6 +12,8 @@ from datetime import datetime, timedelta
 from enum import Enum
 from pathlib import Path
 import pandas as pd
+import asyncio
+from src.bot.tws_data_provider import TWSDataProvider
 
 
 class Timeframe(Enum):
@@ -136,33 +138,89 @@ class DataLoader:
         limit: int = 1000
     ) -> BarSeries:
         """
-        Fetch historical OHLCV bars for a symbol.
-        
-        Args:
-            symbol: Ticker symbol (e.g., "AAPL", "SPY")
-            timeframe: Bar timeframe
-            start: Start datetime (optional)
-            end: End datetime (optional, defaults to now)
-            limit: Maximum number of bars to return
-            
-        Returns:
-            BarSeries with historical data
-            
-        Note:
-            This is a stub implementation that returns empty data.
-            Real implementation will use Nautilus Trader data providers.
+        Fetch historical OHLCV bars for a symbol from TWS.
         """
-        # Stub: Return empty BarSeries
-        # TODO: Integrate with Nautilus Trader data providers
+        # 1. Map Timeframe to TWS bar size
+        tf_map = {
+            Timeframe.SECOND_1: "1 secs",
+            Timeframe.SECOND_5: "5 secs",
+            Timeframe.SECOND_15: "15 secs",
+            Timeframe.SECOND_30: "30 secs",
+            Timeframe.MINUTE_1: "1 min",
+            Timeframe.MINUTE_5: "5 mins",
+            Timeframe.MINUTE_15: "15 mins",
+            Timeframe.MINUTE_30: "30 mins",
+            Timeframe.HOUR_1: "1 hour",
+            Timeframe.HOUR_4: "4 hours",
+            Timeframe.DAY_1: "1 day",
+            Timeframe.WEEK_1: "1 week",
+            Timeframe.MONTH_1: "1 month",
+        }
+        bar_size = tf_map.get(timeframe, "1 min")
+
+        # 2. Determine Duration
+        if start:
+            delta = (end or datetime.now()) - start
+            if delta.days > 0:
+                duration_str = f"{delta.days + 2} D" # Add buffer
+            else:
+                duration_str = f"{int(delta.total_seconds()) + 600} S"
+        else:
+            # Fallback estimation
+            if timeframe == Timeframe.MINUTE_1:
+                duration_str = "2 D"
+            elif timeframe == Timeframe.MINUTE_5:
+                duration_str = "5 D"
+            elif timeframe == Timeframe.HOUR_1:
+                duration_str = "1 M"
+            else:
+                duration_str = "1 W"
+
+        # 3. Fetch Data in thread
+        def _fetch():
+            provider = TWSDataProvider(client_id=88)
+            if not provider.connect():
+                return pd.DataFrame()
+            try:
+                df = provider.get_historical_data(
+                    symbol=symbol,
+                    duration=duration_str,
+                    bar_size=bar_size,
+                    what_to_show="TRADES",
+                    use_rth=True,
+                    timeout=20.0
+                )
+                return df
+            finally:
+                provider.disconnect()
+
+        try:
+            df = await asyncio.to_thread(_fetch)
+        except Exception:
+            df = pd.DataFrame()
+
+        # 4. Return BarSeries
+        if df.empty:
+            return BarSeries(
+                symbol=symbol,
+                timeframe=timeframe,
+                timestamps=np.array([], dtype="datetime64[ns]"),
+                opens=np.array([], dtype=np.float64),
+                highs=np.array([], dtype=np.float64),
+                lows=np.array([], dtype=np.float64),
+                closes=np.array([], dtype=np.float64),
+                volumes=np.array([], dtype=np.int64)
+            )
+
         return BarSeries(
             symbol=symbol,
             timeframe=timeframe,
-            timestamps=np.array([], dtype="datetime64[ns]"),
-            opens=np.array([], dtype=np.float64),
-            highs=np.array([], dtype=np.float64),
-            lows=np.array([], dtype=np.float64),
-            closes=np.array([], dtype=np.float64),
-            volumes=np.array([], dtype=np.int64)
+            timestamps=pd.to_datetime(df["timestamp"]).values.astype("datetime64[ns]"),
+            opens=df["open"].values.astype(np.float64),
+            highs=df["high"].values.astype(np.float64),
+            lows=df["low"].values.astype(np.float64),
+            closes=df["close"].values.astype(np.float64),
+            volumes=df["volume"].values.astype(np.int64)
         )
     
     async def fetch_latest_bar(
@@ -182,61 +240,6 @@ class DataLoader:
         """
         bars = await self.fetch_historical_bars(symbol, timeframe, limit=1)
         return bars.last_bar
-    
-    async def fetch_vix(self) -> Optional[float]:
-        """
-        Fetch the current VIX value.
-        
-        Returns:
-            Current VIX value or None if unavailable
-            
-        Note:
-            Stub implementation. Real implementation will fetch from market data.
-        """
-        try:
-            from src.bot.tws_data_provider import get_tws_provider
-            import asyncio
-
-            def _fetch_latest_vix() -> Optional[float]:
-                provider = get_tws_provider()
-                if not provider or not provider.connect():
-                    return None
-                df = provider.get_historical_data(
-                    symbol="VIX",
-                    duration="1 D",
-                    bar_size="5 mins",
-                    what_to_show="TRADES",
-                    use_rth=True,
-                    timeout=15.0,
-                )
-                if df is None or df.empty:
-                    return None
-                return float(df.iloc[-1]["close"])
-
-            value = await asyncio.to_thread(_fetch_latest_vix)
-            if value is not None:
-                return value
-        except Exception:
-            pass
-
-        # Fallback: sample CSV
-        try:
-            project_root = Path(__file__).resolve().parents[2]
-            sample_path = project_root / "data" / "sample" / "VIX_5min.csv"
-            if not sample_path.exists():
-                return None
-            df = pd.read_csv(sample_path, on_bad_lines="skip")
-            if "timestamp" in df.columns:
-                df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
-                df = df.dropna(subset=["timestamp"])
-            if "close" in df.columns:
-                df["close"] = pd.to_numeric(df["close"], errors="coerce")
-                df = df.dropna(subset=["close"])
-            if df.empty:
-                return None
-            return float(df.iloc[-1]["close"])
-        except Exception:
-            return None
     
     def clear_cache(self) -> None:
         """Clear the data cache."""

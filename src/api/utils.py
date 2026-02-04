@@ -13,6 +13,18 @@ from src.config.settings import get_settings
 import requests
 
 
+def _reload_signal_path() -> Path:
+    return Path(__file__).parent.parent.parent / "config" / ".reload_signal"
+
+
+def _create_reload_signal() -> None:
+    """Create reload signal file to trigger hot-reload in the bot."""
+    signal_path = _reload_signal_path()
+    signal_path.parent.mkdir(parents=True, exist_ok=True)
+    signal_path.touch()
+    # Note: The bot will remove this file after detecting it
+
+
 _PROJECT_ROOT = Path(__file__).parent.parent.parent
 
 
@@ -56,6 +68,7 @@ def save_watchlist(symbols: List[str]) -> None:
         for symbol in symbols:
             if symbol.strip():
                 f.write(f"{symbol.upper()}\n")
+    _create_reload_signal()
 
 
 def load_strategy() -> Strategy:
@@ -79,6 +92,7 @@ def save_strategy(strategy: Strategy) -> None:
     strategy_path.parent.mkdir(parents=True, exist_ok=True)
     with open(strategy_path, "w") as f:
         json.dump(strategy.model_dump(mode="json"), f, indent=2, default=str)
+    _create_reload_signal()
 
 
 def _read_symbol_cache_file() -> Tuple[List[Dict[str, Any]], Optional[str], Optional[str]]:

@@ -11,6 +11,7 @@
 		setCacheTtl,
 		validateStrategy,
 		importStrategy,
+		importStrategyFile,
 		exportStrategy
 	} from '$lib/api';
 	import { t, language } from '$lib/i18n';
@@ -31,6 +32,7 @@
 		length?: number | null;
 		timeframe: string;
 		source: string;
+		symbol?: string | null;
 		params: Record<string, any>;
 		component?: string | null;
 	};
@@ -88,6 +90,8 @@
 	let restValidateMs: number | null = null;
 	let restLastError: string | null = null;
 
+	let importFile: File | null = null;
+
 	let ruleName = '';
 	let ruleScope = 'per_ticker';
 	let conditionType = 'crosses_above';
@@ -139,8 +143,10 @@
 		const type = indicator.type;
 		const tf = indicator.timeframe;
 		const component = indicator.component ? `[${indicator.component}]` : '';
+		const sym = indicator.symbol ? `${indicator.symbol}:` : '';
+		
 		if (type === 'price') {
-			return `Price(${indicator.source})${component}`;
+			return `${sym}Price(${indicator.source})${component}`;
 		}
 		if (type === 'vix') {
 			return `VIX(${tf})${component}`;
@@ -149,12 +155,12 @@
 			return `Time${component}`;
 		}
 		if (type === 'ml_signal') {
-			return `ML Signal${component}`;
+			return `${sym}ML Signal${component}`;
 		}
 		if (indicator.length) {
-			return `${type.toUpperCase()}(${indicator.length}, ${tf})${component}`;
+			return `${sym}${type.toUpperCase()}(${indicator.length}, ${tf})${component}`;
 		}
-		return `${type.toUpperCase()}(${tf})${component}`;
+		return `${sym}${type.toUpperCase()}(${tf})${component}`;
 	};
 
 	const formatRulePreview = (rule: Rule) => {
@@ -200,6 +206,7 @@
 			length: type === 'ema' || type === 'sma' || type === 'rsi' ? 9 : null,
 			timeframe: '5m',
 			source: 'close',
+			symbol: null,
 			params: {},
 			component: null
 		};
@@ -340,9 +347,14 @@
 	async function handleExport() {
 		message = '';
 		try {
-			const data = await exportStrategy();
-			updateStrategy(data as Strategy);
-			showJson = true;
+			// Trigger file download
+			const link = document.createElement('a');
+			link.href = `${API_BASE}/api/v1/strategy/export`;
+			link.download = '';
+			document.body.appendChild(link);
+			link.click();
+			document.body.removeChild(link);
+			status = 'exported';
 		} catch (err) {
 			message = formatApiError(err);
 		} finally {
@@ -357,6 +369,24 @@
 			const data = await importStrategy(parsed);
 			updateStrategy(data as Strategy);
 			status = 'imported';
+		} catch (err) {
+			message = formatApiError(err);
+		} finally {
+			updateRestBadges();
+		}
+	}
+
+	async function handleImportFile() {
+		if (!importFile) {
+			message = 'Please select a file to import';
+			return;
+		}
+		message = '';
+		try {
+			const data = await importStrategyFile(importFile);
+			updateStrategy(data as Strategy);
+			status = 'imported from file';
+			importFile = null; // Reset
 		} catch (err) {
 			message = formatApiError(err);
 		} finally {
@@ -536,6 +566,10 @@
 					{/each}
 				</select>
 			</label>
+			<label>
+				{t('symbol')}
+				<input type="text" bind:value={indicatorA.symbol} placeholder="Default (Current)" />
+			</label>
 			{#if ['ema', 'sma', 'rsi'].includes(indicatorA.type)}
 				<label>
 					{t('length')}
@@ -711,6 +745,10 @@
 							<option value={src}>{src}</option>
 						{/each}
 					</select>
+				</label>
+				<label>
+					{t('symbol')}
+					<input type="text" bind:value={indicatorB.symbol} placeholder="Default (Current)" />
 				</label>
 				{#if ['ema', 'sma', 'rsi'].includes(indicatorB.type)}
 					<label>
@@ -925,6 +963,13 @@
 	{#if showJson}
 		<div class="card">
 			<h2>{t('strategy_json')}</h2>
+			<div style="margin-bottom: 12px;">
+				<label>
+					{t('import_from_file')}
+					<input type="file" accept=".json" on:change={(e) => importFile = (e.target as HTMLInputElement).files?.[0] || null} />
+				</label>
+				<button on:click={handleImportFile} disabled={!importFile}>{t('import_file')}</button>
+			</div>
 			<textarea rows="16" style="width: 100%;" bind:value={json}></textarea>
 			<div style="margin-top: 12px; display: flex; gap: 8px;">
 				<button on:click={handleImport}>{t('import_strategy')}</button>

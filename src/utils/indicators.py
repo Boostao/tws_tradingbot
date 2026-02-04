@@ -6,6 +6,7 @@ These functions are designed to work with numpy arrays for efficient computation
 """
 
 import numpy as np
+import pandas as pd
 from typing import Optional, Tuple, Union
 from numpy.typing import NDArray
 
@@ -513,22 +514,5 @@ def williams_alligator(
 
 
 
-# Legacy functions for backward compatibility
-def calculate_vix_ema(current_vix: float, period: int = 20) -> float:
-    """Legacy function - use ema() instead."""
-    return current_vix * 0.95  # Simplified placeholder
 
 
-def calculate_sma(prices: list, period: int) -> Optional[float]:
-    """Legacy function - use sma() instead."""
-    if len(prices) < period:
-        return None
-    return sum(prices[-period:]) / period
-
-
-def calculate_ema(prices: list, period: int) -> Optional[float]:
-    """Legacy function - use ema() instead."""
-    if len(prices) < period:
-        return None
-    result = ema(np.array(prices), period)
-    return float(result[-1]) if not np.isnan(result[-1]) else None
