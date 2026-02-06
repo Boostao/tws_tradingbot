@@ -4,18 +4,26 @@ from fastapi import APIRouter, HTTPException, UploadFile, File
 from fastapi.responses import FileResponse
 import json
 import os
+import traceback
 
 from src.api.utils import load_strategy, save_strategy
 from src.bot.strategy.rules.models import Strategy
 from src.bot.strategy.validator import validate_strategy
+from src.utils.logger import get_logger
 
 
 router = APIRouter(tags=["strategy"])
+logger = get_logger(__name__)
 
 
 @router.get("/strategy", response_model=Strategy)
 def get_strategy() -> Strategy:
-    return load_strategy()
+    try:
+        return load_strategy()
+    except Exception as e:
+        logger.error(f"Error loading strategy: {e}")
+        logger.error(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"Internal Server Error: {str(e)}")
 
 
 @router.put("/strategy", response_model=Strategy)
