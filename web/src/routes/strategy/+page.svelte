@@ -16,7 +16,6 @@
 	} from '$lib/api';
 	import { t, language } from '$lib/i18n';
 	import { botState } from '$lib/stores/botState';
-	import SymbolMultiSelect from '$lib/components/SymbolMultiSelect.svelte';
 	import {
 		GitBranch,
 		Settings,
@@ -24,7 +23,8 @@
 		PlusCircle,
 		Sliders,
 		Filter,
-		Zap
+		Zap,
+		Pencil
 	} from 'lucide-svelte';
 
 	type Indicator = {
@@ -63,7 +63,7 @@
 		name: string;
 		version: string;
 		description?: string | null;
-		tickers: string[];
+		tickers?: string[];
 		rules: Rule[];
 		initial_capital: number;
 		max_positions: number;
@@ -92,6 +92,7 @@
 
 	let importFile: File | null = null;
 
+	let editingRuleId: string | null = null;
 	let ruleName = '';
 	let ruleScope = 'per_ticker';
 	let conditionType = 'crosses_above';
@@ -394,22 +395,103 @@
 		}
 	}
 
-	function addRule() {
+	function resetForm() {
+		editingRuleId = null;
+		ruleName = '';
+		ruleScope = 'per_ticker';
+		conditionType = 'crosses_above';
+		actionType = 'buy';
+		priority = 0;
+		lookbackPeriods = 1;
+		compareMode = 'indicator';
+		thresholdValue = 0;
+		rangeStart = '09:30';
+		rangeEnd = '16:00';
+		indicatorA = createIndicator('ema');
+		indicatorB = createIndicator('ema');
+	}
+
+	function editRule(rule: Rule) {
+		editingRuleId = rule.id;
+		ruleName = rule.name;
+		ruleScope = rule.scope;
+		actionType = rule.action;
+		priority = rule.priority;
+		conditionType = rule.condition.type;
+		lookbackPeriods = rule.condition.lookback_periods;
+		
+		if (rule.condition.threshold !== null && rule.condition.threshold !== undefined) {
+			thresholdValue = rule.condition.threshold;
+		}
+		
+		if (rule.condition.range_start) rangeStart = rule.condition.range_start;
+		if (rule.condition.range_end) rangeEnd = rule.condition.range_end;
+		
+		// Deep copy to avoid reference issues
+		indicatorA = JSON.parse(JSON.stringify(rule.condition.indicator_a));
+		// Ensure params object exists
+		if (!indicatorA.params) indicatorA.params = {};
+		
+		if (rule.condition.indicator_b) {
+			indicatorB = JSON.parse(JSON.stringify(rule.condition.indicator_b));
+			if (!indicatorB.params) indicatorB.params = {};
+			compareMode = 'indicator';
+		} else {
+			// If B is missing but condition supports it, it might be threshold mode
+			// Or just reset B to default
+			indicatorB = createIndicator('ema');
+			if (['greater_than', 'less_than', 'slope_above', 'slope_below'].includes(conditionType)) {
+				compareMode = 'threshold';
+			}
+		}
+		
+		// Determine likely compare mode if ambiguous
+		if (['greater_than', 'less_than'].includes(conditionType)) {
+			compareMode = rule.condition.indicator_b ? 'indicator' : 'threshold';
+		}
+
+		// Scroll to form (optional but nice)
+		const formEl = document.getElementById('rule-builder-form');
+		if (formEl) formEl.scrollIntoView({ behavior: 'smooth' });
+	}
+
+	function saveRule() {
 		if (!strategy) return;
 		if (!ruleName.trim()) {
 			message = t('rule_name_required');
 			return;
 		}
 		const newRule = buildNewRule();
-		const next = { ...strategy, rules: [...strategy.rules, newRule] };
-		updateStrategy(next);
-		message = t('rule_added_success', { name: newRule.name });
-		ruleName = '';
+		
+		if (editingRuleId) {
+			// Update existing rule
+			newRule.id = editingRuleId;
+			
+			// Preserve enabled state
+			const existing = strategy.rules.find(r => r.id === editingRuleId);
+			if (existing) {
+				newRule.enabled = existing.enabled;
+			}
+
+			const next = {
+				...strategy,
+				rules: strategy.rules.map(r => r.id === editingRuleId ? newRule : r)
+			};
+			updateStrategy(next);
+			message = t('rule_updated_success', { name: newRule.name });
+		} else {
+			// Add new rule
+			const next = { ...strategy, rules: [...strategy.rules, newRule] };
+			updateStrategy(next);
+			message = t('rule_added_success', { name: newRule.name });
+		}
+		
+		resetForm();
 	}
 
-	function updateTickers(next: string[]) {
-		if (!strategy) return;
-		updateStrategy({ ...strategy, tickers: next });
+	// Wrapper for backward compat if needed or just replace usage
+	function addRule() {
+		saveRule();
 	}
 
 	function removeRule(id: string) {
@@ -437,7 +519,22 @@
 	);
 	$: needsRange = conditionType === 'within_range';
 
-	$: previewRule = buildNewRule();
+	// Explicit dependencies to ensure live preview updates when form fields change
+	$: previewRule = (
+		actionType,
+		compareMode,
+		conditionType,
+		indicatorA,
+		indicatorB,
+		lookbackPeriods,
+		priority,
+		rangeEnd,
+		rangeStart,
+		ruleName,
+		ruleScope,
+		thresholdValue,
+		buildNewRule()
+	);
 </script>
 
 <h1 class="heading"><span class="heading-icon"><GitBranch size={20} strokeWidth={1.6} /></span>{t('strategy_builder')}</h1>
@@ -462,16 +559,6 @@
 				{t('version')}
 				<input bind:value={strategy.version} />
 			</label>
-		</div>
-		<div style="margin-top: 12px;">
-			<span class="muted" style="display: block; margin-bottom: 6px;">
-				{t('select_tickers').replaceAll('**', '')}
-			</span>
-			<SymbolMultiSelect
-				selected={strategy.tickers}
-				statusTone={$botState.tws_connected ? 'online' : 'offline'}
-				on:change={(event) => updateTickers(event.detail)}
-			/>
 		</div>
 		<p class="muted" style="margin-top: 8px;">
 			{t('rules')}: {strategy.rules.length} • {t('scope_global')}:
@@ -502,6 +589,9 @@
 								<span class="toggle-slider"></span>
 								<span class="toggle-label">{t('enabled')}</span>
 							</label>
+							<button class="secondary" style="padding: 6px;" on:click={() => editRule(rule)} title={t('edit_rule')}>
+								<Pencil size={16} />
+							</button>
 							<button class="secondary" on:click={() => removeRule(rule.id)}>{t('delete_rule')}</button>
 						</div>
 					</div>
@@ -510,8 +600,8 @@
 		{/if}
 	</div>
 
-	<div class="card">
-		<h2 class="heading"><span class="heading-icon"><PlusCircle size={18} strokeWidth={1.6} /></span>{t('add_new_rule')}</h2>
+	<div class="card" id="rule-builder-form">
+		<h2 class="heading"><span class="heading-icon"><PlusCircle size={18} strokeWidth={1.6} /></span>{editingRuleId ? t('edit_rule') : t('add_new_rule')}</h2>
 		<div style="display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));">
 			<label>
 				{t('rule_name')}
@@ -896,7 +986,12 @@
 
 		<div style="margin-top: 16px;">
 			<p class="muted">{t('preview')} {formatRulePreview(previewRule)}</p>
-			<button on:click={addRule}>{t('add_rule')}</button>
+			<div style="display: flex; gap: 8px;">
+				<button on:click={saveRule}>{editingRuleId ? t('update_rule') : t('add_rule')}</button>
+				{#if editingRuleId}
+					<button class="secondary" on:click={resetForm}>{t('cancel_edit')}</button>
+				{/if}
+			</div>
 		</div>
 	</div>
 

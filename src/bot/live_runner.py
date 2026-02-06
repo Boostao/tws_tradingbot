@@ -268,15 +268,10 @@ class LiveTradingRunner:
         """
         Determine which instruments to trade.
         Priority:
-        1. Strategy-specific tickers (if defined)
-        2. Watchlist file (config/watchlist.txt)
-        3. Default tickers from settings
+        1. Watchlist file (config/watchlist.txt)
+        2. Empty list (no tickers)
         """
-        # 1. Strategy tickers
-        if strategy_model and strategy_model.tickers:
-            return strategy_model.tickers
-            
-        # 2. Watchlist
+        # 1. Watchlist
         watchlist_path = Path(__file__).parent.parent.parent / "config" / "watchlist.txt"
         if watchlist_path.exists():
             try:
@@ -296,8 +291,8 @@ class LiveTradingRunner:
             except Exception as e:
                 logger.warning(f"Failed to read watchlist: {e}")
                 
-        # 3. Default
-        return self.settings.get("app.default_tickers", ["SPY", "QQQ"])
+        # 2. Default to empty (bot will sit idle until watchlist is populated)
+        return []
 
     def check_prerequisites(self) -> bool:
         """

@@ -316,9 +316,9 @@
 		<table class="table">
 			<thead>
 				<tr>
-					<th>Ticker</th>
+					<th style="width: 25%;">Ticker</th>
 					<th>Description</th>
-					<th>Market</th>
+					<th style="width: 15%;">Market</th>
 					<th style="width: 44px;"></th>
 				</tr>
 			</thead>

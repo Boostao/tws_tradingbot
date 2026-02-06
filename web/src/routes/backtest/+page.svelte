@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onDestroy } from 'svelte';
+	import { onDestroy, onMount } from 'svelte';
 	import {
 		clearCacheByPrefix,
 		formatApiError,
@@ -38,6 +38,28 @@
 	};
 
 	let tickers: string[] = ['SPY', 'QQQ'];
+	const TICKERS_STORAGE_KEY = 'backtest_tickers';
+	let loaded = false;
+
+	onMount(() => {
+		const saved = localStorage.getItem(TICKERS_STORAGE_KEY);
+		if (saved) {
+			try {
+				const parsed = JSON.parse(saved);
+				if (Array.isArray(parsed)) {
+					tickers = parsed;
+				}
+			} catch (e) {
+				console.warn('Failed to parse saved backtest tickers', e);
+			}
+		}
+		loaded = true;
+	});
+
+	$: if (loaded && typeof localStorage !== 'undefined') {
+		localStorage.setItem(TICKERS_STORAGE_KEY, JSON.stringify(tickers));
+	}
+
 	let startDate = new Date(Date.now() - 1000 * 60 * 60 * 24 * 90).toISOString().slice(0, 10);
 	let endDate = new Date().toISOString().slice(0, 10);
 	let timeframe = '5m';

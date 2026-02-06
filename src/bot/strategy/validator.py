@@ -98,13 +98,11 @@ def validate_strategy(strategy: Strategy) -> List[str]:
     consistency_errors = check_strategy_consistency(strategy)
     errors.extend(consistency_errors)
     
-    # 6. Validate tickers
-    if strategy.tickers:
-        ticker_errors = validate_tickers(strategy.tickers)
-        errors.extend(ticker_errors)
-    else:
-        # Warning: no tickers defined
-        pass  # This is okay - can be set later
+    # 6. Validate tickers - DEPRECATED/IGNORED
+    # Strategy is now ticker-agnostic.
+    # if strategy.tickers:
+    #     ticker_errors = validate_tickers(strategy.tickers)
+    #     errors.extend(ticker_errors)
     
     # 7. Validate position settings
     if strategy.initial_capital <= 0:
