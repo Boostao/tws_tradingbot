@@ -118,6 +118,12 @@ Or use the convenience script:
 ./run_web.sh
 ```
 
+### UI Quick Start (Recommended)
+1. Open **Watchlist** and add a few symbols.
+2. Go to **Strategy** and create a simple buy rule.
+3. Run **Backtest** to validate performance before deploying.
+4. Use **Monitoring** to confirm bot state and live updates.
+
 ## 🐳 Docker / Compose
 
 Run API, SvelteKit web app, bot, and PostgreSQL together:

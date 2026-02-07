@@ -1,14 +1,17 @@
-# Environment variables
+### Environment variables
 .env
 .env.*
 !.env.example
+config/environment/.env
+config/environment/.env.*
+!config/environment/.env.example
 
-# Logs
+### Logs
 logs/*.log
 logs/*.log.*
 !logs/.gitkeep
 
-# Python - Byte-compiled / optimized / DLL files
+### Python bytecode
 __pycache__/
 *.py[cod]
 *$py.class
@@ -17,7 +20,7 @@ __pycache__/
 *.pyd
 .Python
 
-# Python - Virtual environments
+### Python virtual environments
 env/
 venv/
 .venv/
@@ -25,14 +28,13 @@ ENV/
 env.bak/
 venv.bak/
 
-# Python - Build and distribution
+### Python build artifacts
 build/
 develop-eggs/
 dist/
 downloads/
 eggs/
 .eggs/
-lib/
 lib64/
 parts/
 sdist/
@@ -43,7 +45,7 @@ wheels/
 *.egg
 MANIFEST
 
-# Python - Testing
+### Python tests & coverage
 .tox/
 .nox/
 .coverage
@@ -57,20 +59,33 @@ coverage.xml
 *.py,cover
 .hypothesis/
 
-# Python - Package managers
+### Python package managers
 pip-log.txt
 pip-delete-this-directory.txt
 Pipfile.lock
 poetry.lock
 
-# Python - Type checking
+### Python type checking
 .mypy_cache/
 .dmypy.json
 dmypy.json
 .pyre/
 .pytype/
 
-# IDE / Editors
+### Node / SvelteKit / Vite
+node_modules/
+web/node_modules/
+web/.svelte-kit/
+web/build/
+web/.vite/
+web/.turbo/
+web/.cache/
+.pnpm-store/
+.npm/
+.yarn/
+.yarn-cache/
+
+### IDE / Editors
 .vscode/
 .idea/
 *.code-workspace
@@ -78,7 +93,7 @@ dmypy.json
 .spyproject
 .ropeproject
 
-# OS generated files
+### OS generated files
 .DS_Store
 .DS_Store?
 ._*
@@ -87,47 +102,42 @@ dmypy.json
 ehthumbs.db
 Thumbs.db
 
-# Project specific - Data files (keep sample data)
+### Project data files (keep sample data)
 data/**/*.csv
 data/**/*.parquet
 !data/sample/*.csv
 !data/sample/*.parquet
 
-# Project specific - State files (bot communication)
+### Bot state files
 .state/
 *.state
 .reload_signal
 .stop_signal
 .emergency_stop
 
-# Project specific - Strategy files (user-specific)
+### Strategy files (user-specific)
 strategies/*.json
 !strategies/example_strategy.json
 
-# Project specific - Config environment files
-config/environment/.env
-config/environment/.env.*
-!config/environment/.env.example
-
-# Secrets
+### Secrets
 secrets/
 *.pem
 *.key
 
-# Temporary files
+### Temporary files
 *.tmp
 *.temp
 *.bak
 *.swp
 *~
 
-# Nautilus Trader cache
+### Nautilus Trader cache
 .nautilus/
 
-# Database files
+### Database files
 *.db
 *.sqlite
-
-# Jupyter Notebook
-.ipynb_checkpoints
 *.duckdb
+
+### Jupyter Notebook
+.ipynb_checkpoints

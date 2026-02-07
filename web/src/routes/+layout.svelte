@@ -24,9 +24,7 @@
 </svelte:head>
 
 <div class="app-shell">
-	{#key $language}
-		<Sidebar />
-	{/key}
+	<Sidebar />
 	<main class="app-main">
 		{#key $language}
 			<slot />

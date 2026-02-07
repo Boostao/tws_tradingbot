@@ -546,6 +546,21 @@
 
 {#if strategy}
 	<div class="card">
+		<h2 class="heading"><span class="heading-icon"><Zap size={18} strokeWidth={1.6} /></span>{t('strategy_quickstart_title')}</h2>
+		<p class="muted" style="margin: 6px 0 0 0;">{t('strategy_quickstart_subtitle')}</p>
+		<ol class="quickstart-steps">
+			<li>{t('strategy_quickstart_step_watchlist')}</li>
+			<li>{t('strategy_quickstart_step_rules')}</li>
+			<li>{t('strategy_quickstart_step_backtest')}</li>
+		</ol>
+		<div class="quickstart-actions">
+			<a class="button-link secondary" href="/watchlist">{t('strategy_quickstart_watchlist_cta')}</a>
+			<a class="button-link secondary" href="/backtest">{t('strategy_quickstart_backtest_cta')}</a>
+			<a class="button-link secondary" href="/monitoring">{t('strategy_quickstart_monitoring_cta')}</a>
+		</div>
+	</div>
+
+	<div class="card">
 		<h2 class="heading"><span class="heading-icon"><Settings size={18} strokeWidth={1.6} /></span>{t('configuration')}</h2>
 		<div style="display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));">
 			<label>
