@@ -845,7 +845,7 @@ class BacktestEngine:
             provider = get_tws_provider()
             
             # Try to connect
-            if not provider.connect(timeout=5.0):
+            if not provider.connect(timeout=3.0):
                 logger.warning("Could not connect to TWS for historical data")
                 return None
             

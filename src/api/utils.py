@@ -175,6 +175,24 @@ def _fetch_symbols_from_tradingview() -> List[Dict[str, Any]]:
         {"left": "exchange", "operation": "in_range", "right": ["NYSE", "NASDAQ", "AMEX", "TSX", "TSXV"]},
         {"left": "is_primary", "operation": "equal", "right": True},
     ]
+    canada_stock_filters = [
+        {"left": "type", "operation": "in_range", "right": ["stock", "dr", "fund"]},
+        {
+            "left": "subtype",
+            "operation": "in_range",
+            "right": [
+                "common",
+                "foreign-issuer",
+                "",
+                "etf",
+                "etf,odd",
+                "etf,otc",
+                "etf,cfd",
+            ],
+        },
+        {"left": "exchange", "operation": "in_range", "right": ["TSX", "TSXV"]},
+        {"left": "is_primary", "operation": "equal", "right": True},
+    ]
     crypto_filters = [
         {"left": "type", "operation": "equal", "right": "crypto"},
     ]
@@ -188,6 +206,13 @@ def _fetch_symbols_from_tradingview() -> List[Dict[str, Any]]:
             "https://scanner.tradingview.com/america/scan",
             stock_filters,
             36000,
+        )
+    )
+    symbols.extend(
+        _fetch_tradingview_scan(
+            "https://scanner.tradingview.com/canada/scan",
+            canada_stock_filters,
+            12000,
         )
     )
     symbols.extend(

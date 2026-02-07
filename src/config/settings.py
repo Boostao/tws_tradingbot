@@ -20,7 +20,7 @@ class IBConfig:
     port: int = 7497  # 7497 for paper, 7496 for live
     client_id: int = 1
     account: str = ""
-    timeout: int = 30
+    timeout: int = 5
     trading_mode: str = "paper"  # paper | live
 
     @property

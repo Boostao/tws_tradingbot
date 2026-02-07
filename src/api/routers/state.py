@@ -15,6 +15,7 @@ from src.bot.state import (
 from src.bot.tws_data_provider import get_tws_provider, reset_tws_provider
 from src.api.schemas import TWSConnectionRequest
 from src.api.utils import load_strategy
+from src.config.settings import update_setting
 
 
 router = APIRouter(tags=["state"])
@@ -86,7 +87,10 @@ def get_state():
         return fallback
 
     provider = get_tws_provider()
-    if provider.is_connected():
+    tws_connected = bool(provider.is_connected())
+    state["tws_connected"] = tws_connected
+
+    if tws_connected:
         executions = provider.get_executions(
             timeout=3.0,
             since=datetime.now() - timedelta(days=7),
@@ -244,7 +248,6 @@ def get_state():
         pct_base = prev_day_equity or equity
         if pct_base:
             state["daily_pnl_percent"] = (state.get("daily_pnl", 0.0) / pct_base) * 100
-        state["tws_connected"] = True
 
         if total_cash is not None:
             state["positions"].append(
@@ -343,18 +346,43 @@ def emergency_stop():
 
 @router.post("/tws/connect")
 def connect_tws(payload: TWSConnectionRequest):
-    provider = get_tws_provider()
+    try:
+        provider = get_tws_provider()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
     if payload.host:
         provider.host = payload.host
+        update_setting("ib", "host", payload.host)
     if payload.port:
         provider.port = int(payload.port)
+        update_setting("ib", "port", int(payload.port))
     if payload.client_id:
         provider.client_id = int(payload.client_id)
-    connected = provider.connect(timeout=10.0)
+        update_setting("ib", "client_id", int(payload.client_id))
+
+    connected = False
+    try:
+        connected = provider.connect(timeout=3.0)
+    except Exception as exc:
+        state = read_state()
+        state.tws_connected = False
+        update_state(state)
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    if not connected:
+        state = read_state()
+        state.tws_connected = False
+        update_state(state)
+        raise HTTPException(
+            status_code=503,
+            detail="Unable to connect to TWS. Is TWS running with API enabled?",
+        )
+
     state = read_state()
-    state.tws_connected = bool(connected)
+    state.tws_connected = True
     update_state(state)
-    return {"connected": connected}
+    return {"connected": True}
 
 
 @router.post("/tws/disconnect")
@@ -370,9 +398,30 @@ def disconnect_tws():
 
 @router.post("/tws/reconnect")
 def reconnect_tws():
-    provider = get_tws_provider()
-    connected = provider.reconnect(timeout=10.0)
+    try:
+        provider = get_tws_provider()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    connected = False
+    try:
+        connected = provider.reconnect(timeout=10.0)
+    except Exception as exc:
+        state = read_state()
+        state.tws_connected = False
+        update_state(state)
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    if not connected:
+        state = read_state()
+        state.tws_connected = False
+        update_state(state)
+        raise HTTPException(
+            status_code=503,
+            detail="Unable to reconnect to TWS. Is TWS running with API enabled?",
+        )
+
     state = read_state()
-    state.tws_connected = bool(connected)
+    state.tws_connected = True
     update_state(state)
-    return {"connected": connected}
+    return {"connected": True}

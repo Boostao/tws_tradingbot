@@ -185,17 +185,11 @@
 
 {#if state && stateConnected && state.runner_active === false}
 	<div class="banner warning">
-		<strong>Bot Runner Disconnected</strong>
-		<p>The background bot process is not running. Controls are disabled. Please run <code>./run_bot.sh</code> in a terminal to enable trading.</p>
-	</div>
-{/if}
-
-{#if state && stateConnected && !state.runner_active}
-	<div style="background-color: #fee2e2; border: 1px solid #f87171; color: #b91c1c; padding: 12px; border-radius: 6px; margin-bottom: 20px;">
-		<strong>⚠️ Bot Runner Process is Stopped</strong>
-		<p style="margin: 4px 0 0;">
-			The background trading process is not running. Please restart it via terminal:
-			<code style="background: rgba(0,0,0,0.05); padding: 2px 4px; border-radius: 4px;">./run_bot.sh</code>
+		<strong>{t('monitoring_bot_runner_disconnected_title')}</strong>
+		<p>
+			{t('monitoring_bot_runner_disconnected_prefix')}
+			<code>{t('run_bot_command')}</code>
+			{t('monitoring_bot_runner_disconnected_suffix')}
 		</p>
 	</div>
 {/if}

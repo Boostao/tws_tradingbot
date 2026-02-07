@@ -219,7 +219,8 @@
 			<SymbolMultiSelect
 				selected={tickers}
 				statusTone={$botState.tws_connected ? 'online' : 'offline'}
-				on:change={(event) => (tickers = event.detail)}
+				includeNonStocks={true}
+				onChange={(next) => (tickers = next)}
 			/>
 		</div>
 		<label>

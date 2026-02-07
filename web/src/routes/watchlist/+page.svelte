@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { formatApiError, getSymbols, getWatchlist, replaceWatchlist } from '$lib/api';
+	import type { SymbolRecord } from '$lib/api';
 	import { t, language } from '$lib/i18n';
 	import { botState } from '$lib/stores/botState';
 	import SymbolSearch from '$lib/components/SymbolSearch.svelte';
@@ -259,8 +260,7 @@
 		}
 	}
 
-	function handleSelect(index: number, event: CustomEvent<{ symbol: string; name?: string; exchange?: string }>) {
-		const item = event.detail;
+	function handleSelect(index: number, item: SymbolRecord) {
 		const nextSymbol = item.symbol.toUpperCase();
 		const nextMarket = (item.exchange ?? '').toUpperCase();
 		const nextKey = entryToString({ ticker: nextSymbol, market: nextMarket });
@@ -333,8 +333,8 @@
 									includeNonStocks={true}
 									autoFocus={true}
 									initialValue={row.ticker}
-									on:select={(event) => handleSelect(index, event)}
-									on:cancel={() => handleCancel(index)}
+									onSelect={(item) => handleSelect(index, item)}
+									onCancel={() => handleCancel(index)}
 								/>
 							{:else}
 								<button
