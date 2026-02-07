@@ -162,7 +162,6 @@ SvelteKit UI does not currently enforce an i18n layer. Keep UI text consistent a
 ## 🧠 Strategy System Notes
 - **Condition operators:** `crosses_above`, `crosses_below`, `greater_than`, `less_than`, `equals`, `slope_above`, `slope_below`, `within_range`.
 - **Cross-symbol indicators:** `indicator.symbol` can reference another symbol (e.g., `VIX`) and uses that symbol’s bars when available.
-- **Tickers:** Strategy `tickers` are saved from UI selection and used by the live runner when present.
 - **Position sizing:** Live runner uses `risk.max_position_size` if set; otherwise `strategy.initial_capital * risk.max_position_pct`.
 
 ## ✅ Working Standards
