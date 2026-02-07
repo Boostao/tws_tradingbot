@@ -83,8 +83,6 @@ class DatabaseConfig:
     path: str = "data/traderbot.duckdb"
     sync_on_start: bool = True  # Sync YAML config to DB on startup
     use_db_for_state: bool = True  # Use DB for bot state instead of JSON files
-    backend: str = "duckdb"  # duckdb | postgres
-    dsn: str = ""  # Postgres DSN
 
 
 @dataclass
@@ -223,8 +221,6 @@ class ConfigLoader:
             "AUTH_ENABLED": ("auth", "enabled"),
             "AUTH_USERNAME": ("auth", "username"),
             "AUTH_PASSWORD": ("auth", "password"),
-            "DATABASE_BACKEND": ("database", "backend"),
-            "DATABASE_DSN": ("database", "dsn"),
             "NOTIFICATIONS_ENABLED": ("notifications", "enabled"),
             "TELEGRAM_ENABLED": ("notifications", "telegram", "enabled"),
             "TELEGRAM_BOT_TOKEN": ("notifications", "telegram", "bot_token"),
@@ -319,8 +315,6 @@ class ConfigLoader:
                 path=database_cfg.get("path", "data/traderbot.duckdb"),
                 sync_on_start=database_cfg.get("sync_on_start", True),
                 use_db_for_state=database_cfg.get("use_db_for_state", True),
-                backend=database_cfg.get("backend", "duckdb"),
-                dsn=database_cfg.get("dsn", ""),
             ),
             logging=LoggingConfig(
                 level=logging_cfg.get("level", "INFO"),
@@ -376,8 +370,6 @@ def load_config(config_dir: Optional[Path] = None, sync_to_db: bool = True) -> S
             
             db = get_database(
                 db_path,
-                backend=settings.database.backend,
-                dsn=settings.database.dsn,
             )
             
             # Sync each configuration section to database

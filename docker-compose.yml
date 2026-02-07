@@ -1,24 +1,9 @@
 version: "3.9"
 
 services:
-  postgres:
-    image: postgres:16
-    environment:
-      POSTGRES_USER: traderbot
-      POSTGRES_PASSWORD: traderbot
-      POSTGRES_DB: traderbot
-    ports:
-      - "5432:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-
   api:
     build: .
-    depends_on:
-      - postgres
     environment:
-      DATABASE_BACKEND: postgres
-      DATABASE_DSN: postgresql://traderbot:traderbot@postgres:5432/traderbot
       IB_HOST: 127.0.0.1
       IB_PORT: 7497
     ports:
@@ -37,14 +22,7 @@ services:
 
   bot:
     build: .
-    depends_on:
-      - postgres
     environment:
-      DATABASE_BACKEND: postgres
-      DATABASE_DSN: postgresql://traderbot:traderbot@postgres:5432/traderbot
       IB_HOST: 127.0.0.1
       IB_PORT: 7497
     command: ["bash", "./run_bot.sh"]
-
-volumes:
-  postgres_data:

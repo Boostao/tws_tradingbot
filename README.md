@@ -126,13 +126,13 @@ Or use the convenience script:
 
 ## 🐳 Docker / Compose
 
-Run API, SvelteKit web app, bot, and PostgreSQL together:
+Run API, SvelteKit web app, and bot together:
 
 ```bash
 docker compose up --build
 ```
 
-This uses `DATABASE_BACKEND=postgres` and the Postgres service defined in docker-compose.yml.
+This uses the local DuckDB file in `data/traderbot.duckdb` by default.
 
 ## 🧪 Strategy Optimization (Optuna)
 
@@ -368,8 +368,6 @@ notifications:
 | `APP_ACTIVE_STRATEGY_PATH` | Strategy JSON path | config/active_strategy.json |
 | `APP_WATCHLIST_PATH` | Watchlist path | config/watchlist.txt |
 | `APP_SYMBOL_CACHE_PATH` | Symbol cache path | data/symbol_cache.json |
-| `DATABASE_BACKEND` | Database backend (`duckdb` or `postgres`) | duckdb |
-| `DATABASE_DSN` | Postgres DSN | - |
 | `NOTIFICATIONS_ENABLED` | Enable notifications | false |
 | `TELEGRAM_ENABLED` | Enable Telegram notifications | false |
 | `TELEGRAM_BOT_TOKEN` | Telegram bot token | - |

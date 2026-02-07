@@ -32,7 +32,6 @@ graph TD
 
     P --> S[Database]
     S --> T[DuckDB]
-    S --> U[Postgres]
 
     D --> V[Data Providers]
     V --> W[TWS Data Provider]
@@ -65,7 +64,6 @@ graph TD
 
     subgraph "Data Storage"
         T
-        U
     end
 
     subgraph "Configuration"

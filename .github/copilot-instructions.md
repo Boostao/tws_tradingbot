@@ -99,7 +99,7 @@ Build and maintain a rule‑based trading bot with a SvelteKit UI and FastAPI ba
 - **Optuna optimizer** CLI added (`src/bot/optimizer.py`).
 - **Notifications**: Telegram/Discord alerts + Telegram command polling.
 - **ML signal indicator** with model loader support (ONNX/joblib).
-- **Database**: Postgres backend option added; DuckDB remains default.
+- **Database**: DuckDB backend used for local state and config.
 - **Docker**: `Dockerfile` uses Python 3.14-slim with `uv`; `docker-compose.yml` added.
 - **Tests**: Shutdown/hanging test cleanup via session teardown.
 
