@@ -14,6 +14,7 @@ Usage:
 
 import argparse
 import logging
+from datetime import datetime, timezone
 import signal
 import sys
 import time
@@ -34,7 +35,17 @@ from src.bot.strategy.rules.serialization import load_strategy
 from src.bot.tws_data_provider import TWSDataProvider
 from src.utils.logger import setup_logging
 from src.utils.notifications import NotificationManager
-from src.bot.state import read_state, write_stop_signal, write_emergency_stop
+from src.bot.state import (
+    read_state,
+    write_stop_signal,
+    write_emergency_stop,
+    check_start_command,
+    clear_start_command,
+    check_stop_signal,
+    clear_stop_signals,
+    BotStatus,
+    update_state as update_bot_state_file,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -436,6 +447,19 @@ class LiveTradingRunner:
             logger.error(f"Setup failed: {e}")
             return False
     
+    def _update_heartbeat(self):
+        """Update the last_heartbeat timestamp in the state file."""
+        try:
+            state = read_state()
+            state.last_heartbeat = datetime.now(timezone.utc).isoformat()
+            if state.status == BotStatus.STOPPED.value:
+                # Also update last_update if stopped, so the UI knows we're alive
+                # but not necessarily processing market data
+                state.last_update = state.last_heartbeat
+            update_bot_state_file(state)
+        except Exception:
+            pass
+
     def run(self) -> int:
         """
         Run the live trading bot.
@@ -444,7 +468,7 @@ class LiveTradingRunner:
             Exit code (0 for success, non-zero for errors)
         """
         logger.info("=" * 60)
-        logger.info("STARTING LIVE TRADING BOT")
+        logger.info("STARTING LIVE TRADING BOT (IDLE MODE)")
         logger.info("=" * 60)
         
         # Log configuration
@@ -453,46 +477,106 @@ class LiveTradingRunner:
         logger.info(f"IB Connection: {ib_config.host}:{ib_config.port}")
         logger.info(f"Account: {ib_config.account or 'Default'}")
 
-        self._notifier.notify_status("✅ Bot started", ib_config.trading_mode.upper())
+        self._notifier.notify_status("⏸️ Bot waiting for start", ib_config.trading_mode.upper())
         self._notifier.start_command_listener(self._handle_command)
         
-        # Check prerequisites
-        if not self.check_prerequisites():
-            logger.error("Prerequisites check failed")
-            self._notifier.notify_error("Prerequisites check failed")
-            return 1
-        
-        # Setup components
-        if not self.setup():
-            logger.error("Setup failed")
-            self._notifier.notify_error("Setup failed")
-            return 1
-        
-        # Start trading
-        self._running = True
+        # Initially update status to STOPPED
+        try:
+            state = read_state()
+            state.status = BotStatus.STOPPED.value
+            update_bot_state_file(state)
+        except Exception:
+            pass
+
+        # Main Control Loop
+        exit_code = 0
+        self._running = False
         
         try:
-            if NAUTILUS_AVAILABLE and NAUTILUS_IB_AVAILABLE and self.adapter:
-                # Full Nautilus Trader mode with IB
-                logger.info("Starting Nautilus Trader node...")
-                self._start_reload_watcher()
-                self._run_nautilus_mode()
-            else:
-                # Simulation mode (for development/testing or when IB adapter unavailable)
-                logger.info("Running in SIMULATION mode")
-                self._run_simulation_mode()
+            while not self._shutdown_requested:
+                # 1. IDLE STATE: Wait for START command
+                if not self._running:
+                    if check_start_command():
+                        logger.info("🟢 Start command received")
+                        clear_stop_signals() # Clear any residual stops
+                        clear_start_command()
+                        
+                        # Check prerequisites before starting
+                        if not self.check_prerequisites():
+                            logger.error("Prerequisites check failed - falling back to STOPPED")
+                            self._notifier.notify_error("Prerequisites check failed")
+                            # Update state back to stopped
+                            try:
+                                state = read_state()
+                                state.status = BotStatus.STOPPED.value
+                                update_bot_state_file(state)
+                            except: pass
+                            time.sleep(1) # prevent busy loop
+                            continue
+                            
+                        # Setup components
+                        if not self.setup():
+                            logger.error("Setup failed - falling back to STOPPED")
+                            self._notifier.notify_error("Setup failed")
+                            time.sleep(1)
+                            continue
+                            
+                        # ENTER RUNNING STATE
+                        self._running = True
+                        self._notifier.notify_status("✅ Bot started", ib_config.trading_mode.upper())
+                        
+                    else:
+                        # Still idling
+                        # Periodically update state to indicate liveness
+                        self._update_heartbeat()
+                        
+                        time.sleep(1.0)
+                        continue
+
+                # 2. RUNNING STATE
+                # If we are here, self._running is True
+                try:
+                    if NAUTILUS_AVAILABLE and NAUTILUS_IB_AVAILABLE and self.adapter:
+                        # Full Nautilus Trader mode with IB
+                        logger.info("Starting Nautilus Trader node...")
+                        self._start_reload_watcher()
+                        self._run_nautilus_mode()
+                    else:
+                        # Simulation mode (for development/testing or when IB adapter unavailable)
+                        logger.info("Running in SIMULATION mode")
+                        self._run_simulation_mode()
+                    
+                    # If execution returns here, it means we stopped (gracefully or due to error)
+                    # We should return to IDLE unless shutdown requested
+                    logger.info("Trading session ended, returning to IDLE state")
+                    self._running = False
+                    
+                    # Update status to STOPPED
+                    try:
+                        state = read_state()
+                        state.status = BotStatus.STOPPED.value
+                        update_bot_state_file(state)
+                    except Exception:
+                        pass
+                    
+                    self._notifier.notify_status("🛑 Bot stopped", self.settings.ib.trading_mode.upper())
+
+                except Exception as e:
+                    logger.error(f"Error during trading execution: {e}", exc_info=True)
+                    self._notifier.notify_error(str(e))
+                    self._running = False # Force stop
+                    time.sleep(5.0) # Backoff before allowing restart
             
         except KeyboardInterrupt:
             logger.info("Keyboard interrupt received")
         except Exception as e:
-            logger.error(f"Error during execution: {e}", exc_info=True)
-            self._notifier.notify_error(str(e))
-            return 1
+            logger.error(f"Error during main loop: {e}", exc_info=True)
+            exit_code = 1
         finally:
             self._notifier.stop_command_listener()
             self.shutdown()
         
-        return 0
+        return exit_code
     
     def _run_simulation_mode(self) -> None:
         """
@@ -519,9 +603,16 @@ class LiveTradingRunner:
         
         base_price = 450.0  # Simulated SPY price
         
+        # We check check_stop_signal from LiveRunner explicitly
+        # In case the strategy's self-check doesn't propagate up quickly enough
         while not self._shutdown_requested:
             # Check for strategy reload
             self._check_and_handle_reload()
+            
+            # Check for manual stop signal
+            if check_stop_signal():
+                logger.info("STOP signal received in simulation loop")
+                break
             
             # Generate simulated bar data
             for instrument_id in self.strategy.config.instruments:
@@ -541,6 +632,9 @@ class LiveTradingRunner:
                 
                 self.strategy.on_bar(simulated_bar)
                 base_price = current_price
+            
+            # Update heartbeat during simulation
+            self._update_heartbeat()
             
             # Sleep between iterations
             time.sleep(1.0)
@@ -580,12 +674,42 @@ class LiveTradingRunner:
                     except Exception as e:
                         logger.warning(f"Error disposing node: {e}")
                     break
+                
+                # Check for STOP signal
+                if check_stop_signal():
+                    logger.info("STOP signal received in Nautilus node loop")
+                    try:
+                        self.node.dispose()
+                    except Exception as e:
+                        logger.warning(f"Error disposing node: {e}")
+                    # We break the inner loop, which will exit the node thread
+                # Update heartbeat
+                self._update_heartbeat()
+
+                    # Then the outer loop will see node is finished or we break it explicitly
+                    break
+
                 time.sleep(1.0)
             
             # Wait for thread to finish
             node_thread.join(timeout=5.0)
             if node_thread.is_alive():
                 logger.warning("Node thread did not stop gracefully")
+            
+            # If we received a stop signal, we should break the outer loop too
+            # check_stop_signal might still return true if we didn't clear it (but we didn't clear it inside here)
+            # However, run() loop clears it when entering START.
+            # Here we just want to exit the function.
+            if check_stop_signal():
+                break
+
+            # If stopped due to shutdown request, break
+            if self._shutdown_requested:
+                break
+                
+            # If node stopped for other reasons (e.g. error, or finished backtest logic?), break
+            # Unless we want auto-restart logic here?
+            break
         
         logger.info("Nautilus mode stopped")
     

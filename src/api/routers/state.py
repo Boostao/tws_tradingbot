@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from fastapi import APIRouter
 from datetime import datetime, timezone, timedelta
+from fastapi import APIRouter, HTTPException
 
 from src.bot.state import (
     read_state,
@@ -10,9 +10,11 @@ from src.bot.state import (
     write_stop_signal,
     write_emergency_stop,
     clear_stop_signals,
+    BotStatus,
 )
 from src.bot.tws_data_provider import get_tws_provider, reset_tws_provider
 from src.api.schemas import TWSConnectionRequest
+from src.api.utils import load_strategy
 
 
 router = APIRouter(tags=["state"])
@@ -21,6 +23,34 @@ router = APIRouter(tags=["state"])
 @router.get("/state")
 def get_state():
     state = read_state().to_dict()
+    
+    # Check if runner is active based on last_heartbeat freshness
+    # We use last_heartbeat to track the runner process separately from data updates
+    runner_active = False
+    last_heartbeat = state.get("last_heartbeat")
+    
+    if last_heartbeat:
+        try:
+            # Handle ISO formats with or without Z/offset
+            last_dt = datetime.fromisoformat(last_heartbeat.replace("Z", "+00:00"))
+            if last_dt.tzinfo is None:
+                last_dt = last_dt.replace(tzinfo=timezone.utc)
+            
+            # Check if updated within last 15 seconds
+            age = (datetime.now(timezone.utc) - last_dt).total_seconds()
+            runner_active = age < 15
+        except (ValueError, TypeError):
+            pass
+            
+    state["runner_active"] = runner_active
+
+    if not state.get("active_strategy"):
+        try:
+            strategy = load_strategy()
+            if strategy and strategy.name:
+                state["active_strategy"] = strategy.name
+        except Exception:
+            pass
 
     def _coerce_float(value: str | None) -> float | None:
         if value is None:
@@ -244,14 +274,64 @@ def get_logs():
 
 @router.post("/bot/start")
 def start_bot():
+    # Check if runner is active before allowing start
+    state = read_state()
+    last_update = state.last_update
+    runner_active = False
+    if last_update:
+        try:
+            last_dt = datetime.fromisoformat(last_update.replace("Z", "+00:00"))
+            if last_dt.tzinfo is None:
+                last_dt = last_dt.replace(tzinfo=timezone.utc)
+            age = (datetime.now(timezone.utc) - last_dt).total_seconds()
+            runner_active = age < 15
+        except Exception:
+            pass
+            
+    if not runner_active:
+        raise HTTPException(
+            status_code=503, 
+            detail="Bot runner process is not connected. Please run './run_bot.sh' in a terminal."
+        )
+
     clear_stop_signals()
     write_start_command()
+    try:
+        state.status = BotStatus.STARTING.value
+        update_state(state)
+    except Exception:
+        pass
     return {"status": "starting"}
 
 
 @router.post("/bot/stop")
 def stop_bot():
+    # Only allow stop if runner is active
+    state = read_state()
+    last_update = state.last_update
+    runner_active = False
+    if last_update:
+        try:
+            last_dt = datetime.fromisoformat(last_update.replace("Z", "+00:00"))
+            if last_dt.tzinfo is None:
+                last_dt = last_dt.replace(tzinfo=timezone.utc)
+            age = (datetime.now(timezone.utc) - last_dt).total_seconds()
+            runner_active = age < 15
+        except Exception:
+            pass
+            
+    if not runner_active:
+        raise HTTPException(
+            status_code=503, 
+            detail="Bot runner process is not connected. Please run './run_bot.sh' in a terminal."
+        )
+
     write_stop_signal()
+    try:
+        state.status = BotStatus.STOPPING.value
+        update_state(state)
+    except Exception:
+        pass
     return {"status": "stopping"}
 
 

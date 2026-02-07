@@ -157,6 +157,7 @@ class BotState:
     daily_pnl_percent: float = 0.0
     total_pnl: float = 0.0
     last_update: Optional[str] = None
+    last_heartbeat: Optional[str] = None  # Timestamp of last bot runner loop
     recent_logs: List[str] = field(default_factory=list)
     active_strategy: str = ""
     error_message: str = ""
@@ -183,6 +184,7 @@ class BotState:
             "daily_pnl": self.daily_pnl,
             "daily_pnl_percent": self.daily_pnl_percent,
             "total_pnl": self.total_pnl,
+            "last_heartbeat": self.last_heartbeat,
             "last_update": self.last_update,
             "recent_logs": self.recent_logs[-50:],  # Keep only last 50 logs
             "active_strategy": self.active_strategy,
@@ -562,6 +564,49 @@ def write_start_command() -> bool:
         return False
 
 
+def check_start_command() -> bool:
+    """
+    Check if start command exists.
+    
+    Returns:
+        True if start command is present
+    """
+    # Check database first if enabled
+    if _use_database():
+        try:
+            db = _get_database()
+            commands = db.get_pending_commands()
+            for cmd in commands:
+                if cmd["command"] == "START":
+                    # Mark as processed handled by caller or db logic?
+                    # For now just return True, caller might need to acknowledge
+                    return True
+        except Exception:
+            pass
+    
+    # Check file
+    if COMMAND_FILE.exists():
+        return True
+        
+    return False
+
+
+def clear_start_command() -> None:
+    """Clear the start command."""
+    if _use_database():
+        try:
+            db = _get_database()
+            db.mark_command_processed("START")
+        except Exception:
+            pass
+            
+    if COMMAND_FILE.exists():
+        try:
+            COMMAND_FILE.unlink()
+        except OSError:
+            pass
+
+
 def write_stop_signal() -> bool:
     """
     Write stop signal for the bot.
@@ -642,6 +687,29 @@ def check_stop_signal() -> bool:
             pass
     
     return STOP_SIGNAL_FILE.exists()
+
+
+def clear_stop_signals() -> None:
+    """Clear all stop signals."""
+    if _use_database():
+        try:
+            db = _get_database()
+            db.mark_command_processed("STOP")
+            db.mark_command_processed("EMERGENCY_STOP")
+        except Exception:
+            pass
+            
+    if STOP_SIGNAL_FILE.exists():
+        try:
+            STOP_SIGNAL_FILE.unlink()
+        except OSError:
+            pass
+            
+    if EMERGENCY_STOP_FILE.exists():
+        try:
+            EMERGENCY_STOP_FILE.unlink()
+        except OSError:
+            pass
 
 
 def check_emergency_stop() -> Optional[Dict[str, Any]]:

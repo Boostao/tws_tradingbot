@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onDestroy, onMount } from 'svelte';
 	import { createReconnectingWebSocket } from '$lib/ws';
-	import { emergencyStop, formatApiError, getHealth, getRestMetric, startBot, stopBot } from '$lib/api';
+	import { emergencyStop, formatApiError, getHealth, startBot, stopBot } from '$lib/api';
 	import { t, language } from '$lib/i18n';
 	import {
 		Activity,
@@ -12,7 +12,6 @@
 		ClipboardList,
 		Code2,
 		FileText,
-		Server,
 		SquareChevronDown,
 		SquareChevronRight
 	} from 'lucide-svelte';
@@ -55,6 +54,7 @@
 		positions?: Position[];
 		orders?: Order[];
 		recent_logs?: string[];
+		runner_active?: boolean;
 	};
 
 	let state: BotState | null = null;
@@ -62,16 +62,6 @@
 	let error = '';
 	let commandStatus = '';
 	let stateConnected = false;
-	let logsConnected = false;
-	let lastStateAt: number | null = null;
-	let lastLogsAt: number | null = null;
-	let stateReconnects = 0;
-	let logsReconnects = 0;
-	let stateCloseInfo: string | null = null;
-	let logsCloseInfo: string | null = null;
-	let lastErrorAt: number | null = null;
-	let restLastMs: number | null = null;
-	let restLastAt: number | null = null;
 	let apiStatus = 'checking';
 	let apiError = '';
 	$: _lang = $language;
@@ -83,20 +73,16 @@
 		stateConnection = createReconnectingWebSocket('/ws/state', {
 			onMessage: (event) => {
 				state = JSON.parse(event.data) as BotState;
-				lastStateAt = Date.now();
 			},
 			onOpen: () => {
 				stateConnected = true;
 				error = '';
 			},
-			onClose: (event) => {
+			onClose: () => {
 				stateConnected = false;
-				stateReconnects += 1;
-				stateCloseInfo = formatClose(event);
 			},
 			onError: () => {
 				error = 'State stream error';
-				lastErrorAt = Date.now();
 			}
 		});
 
@@ -104,20 +90,13 @@
 			onMessage: (event) => {
 				const payload = JSON.parse(event.data) as { logs?: string[] };
 				logs = payload.logs ?? [];
-				lastLogsAt = Date.now();
 			},
 			onOpen: () => {
-				logsConnected = true;
 				error = '';
 			},
-			onClose: (event) => {
-				logsConnected = false;
-				logsReconnects += 1;
-				logsCloseInfo = formatClose(event);
-			},
+			onClose: () => {},
 			onError: () => {
 				error = 'Logs stream error';
-				lastErrorAt = Date.now();
 			}
 		});
 	}
@@ -127,15 +106,6 @@
 
 	const formatNumber = (value?: number) =>
 		typeof value === 'number' ? value.toFixed(2) : '--';
-
-	const formatLatency = (timestamp: number | null) => {
-		if (!timestamp) return '--';
-		const delta = Math.max(0, Date.now() - timestamp);
-		return `${Math.round(delta / 1000)}s`; // seconds since last message
-	};
-
-	const formatMs = (value: number | null) =>
-		value === null || Number.isNaN(value) ? '--' : `${Math.round(value)}ms`;
 
 	const formatTimestamp = (value?: string | null) => {
 		if (!value) return '--';
@@ -149,19 +119,6 @@
 			minute: '2-digit',
 			second: '2-digit'
 		}).format(date);
-	};
-
-	const captureRestMetric = (key: string) => {
-		const metric = getRestMetric(key);
-		if (!metric) return;
-		restLastMs = metric.lastMs;
-		restLastAt = metric.lastAt;
-	};
-
-	const formatClose = (event?: CloseEvent) => {
-		if (!event) return '--';
-		const reason = event.reason ? ` - ${event.reason}` : '';
-		return `${event.code}${reason}`;
 	};
 
 	const refreshApiStatus = async () => {
@@ -182,8 +139,6 @@
 			commandStatus = result.status;
 		} catch (err) {
 			commandStatus = formatApiError(err);
-		} finally {
-			captureRestMetric('bot.start');
 		}
 	}
 
@@ -194,8 +149,6 @@
 			commandStatus = result.status;
 		} catch (err) {
 			commandStatus = formatApiError(err);
-		} finally {
-			captureRestMetric('bot.stop');
 		}
 	}
 
@@ -206,8 +159,6 @@
 			commandStatus = result.status;
 		} catch (err) {
 			commandStatus = formatApiError(err);
-		} finally {
-			captureRestMetric('bot.emergency_stop');
 		}
 	}
 
@@ -232,58 +183,45 @@
 	<p style="color: #f87171;">{state.error_message}</p>
 {/if}
 
-<div class="card">
-	<h2 class="heading"><span class="heading-icon"><Server size={18} strokeWidth={1.6} /></span>{t('api_status')}</h2>
-	<span class="badge">
-		<span class={`status-dot ${apiStatus === 'online' ? '' : 'offline'}`}></span>
-		{apiStatus}
-	</span>
-	{#if apiError}
-		<p style="color: #f87171; margin-top: 12px;">{apiError}</p>
-	{/if}
-</div>
-
-<div class="card">
-	<h2 class="heading"><span class="heading-icon"><Gamepad2 size={18} strokeWidth={1.6} /></span>{t('bot_controls')}</h2>
-	<div style="display: flex; flex-wrap: wrap; gap: 10px;">
-		<button on:click={handleStart}>{t('start_bot')}</button>
-		<button class="secondary" on:click={handleStop}>{t('stop_bot')}</button>
-		<button class="danger" on:click={handleEmergencyStop}>{t('emergency_stop')}</button>
+{#if state && stateConnected && state.runner_active === false}
+	<div class="banner warning">
+		<strong>Bot Runner Disconnected</strong>
+		<p>The background bot process is not running. Controls are disabled. Please run <code>./run_bot.sh</code> in a terminal to enable trading.</p>
 	</div>
-	{#if commandStatus}
-		<p class="muted" style="margin-top: 8px;">{commandStatus}</p>
-	{/if}
-</div>
+{/if}
+
+{#if state && stateConnected && !state.runner_active}
+	<div style="background-color: #fee2e2; border: 1px solid #f87171; color: #b91c1c; padding: 12px; border-radius: 6px; margin-bottom: 20px;">
+		<strong>⚠️ Bot Runner Process is Stopped</strong>
+		<p style="margin: 4px 0 0;">
+			The background trading process is not running. Please restart it via terminal:
+			<code style="background: rgba(0,0,0,0.05); padding: 2px 4px; border-radius: 4px;">./run_bot.sh</code>
+		</p>
+	</div>
+{/if}
 
 <div class="card">
-	<h2 class="heading"><span class="heading-icon"><ShieldCheck size={18} strokeWidth={1.6} /></span>Status</h2>
+	<h2 class="heading"><span class="heading-icon"><ShieldCheck size={18} strokeWidth={1.6} /></span>{t('status_label')}</h2>
 	<div style="display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px;">
 		<span class="badge">
-			<span class={`status-dot ${stateConnected ? '' : 'offline'}`}></span>
-			State {stateConnected ? 'connected' : 'disconnected'}
+			<span
+				class={`status-dot ${state?.status === 'running' ? '' : 'offline'}`}
+			></span>
+			{t('status_bot')}: {state?.status ?? 'unknown'}
 		</span>
 		<span class="badge">
-			<span class={`status-dot ${logsConnected ? '' : 'offline'}`}></span>
-			Logs {logsConnected ? 'connected' : 'disconnected'}
+			<span class={`status-dot ${apiStatus === 'online' ? '' : 'offline'}`}></span>
+			{t('status_api')}: {apiStatus}
 		</span>
-		<span class="badge">State lag: {formatLatency(lastStateAt)}</span>
-		<span class="badge">Logs lag: {formatLatency(lastLogsAt)}</span>
-		<span class="badge">Reconnects: {stateReconnects + logsReconnects}</span>
-		<span class="badge">State close: {stateCloseInfo ?? '--'}</span>
-		<span class="badge">Logs close: {logsCloseInfo ?? '--'}</span>
-		<span class="badge">Last error: {formatLatency(lastErrorAt)}</span>
-		<span class="badge">REST last: {formatMs(restLastMs)}</span>
-		<span class="badge">REST age: {formatLatency(restLastAt)}</span>
+		<span class="badge">
+			<span class={`status-dot ${state?.tws_connected ? '' : 'offline'}`}></span>
+			{t('status_tws')}: {state?.tws_connected ? 'connected' : 'disconnected'}
+		</span>
 	</div>
+	{#if apiError}
+		<p style="color: #f87171; margin-bottom: 12px;">{apiError}</p>
+	{/if}
 	<div class="metric-grid">
-		<div>
-			<p>Status</p>
-			<strong>{state?.status ?? 'unknown'}</strong>
-		</div>
-		<div>
-			<p>TWS</p>
-			<strong>{state?.tws_connected ? 'connected' : 'disconnected'}</strong>
-		</div>
 		<div>
 			<p>Active Strategy</p>
 			<strong>{state?.active_strategy || 'none'}</strong>
@@ -293,6 +231,18 @@
 			<strong>{formatTimestamp(state?.last_update)}</strong>
 		</div>
 	</div>
+</div>
+
+<div class="card">
+	<h2 class="heading"><span class="heading-icon"><Gamepad2 size={18} strokeWidth={1.6} /></span>{t('bot_controls')}</h2>
+	<div style="display: flex; flex-wrap: wrap; gap: 10px;">
+		<button on:click={handleStart} disabled={!state?.runner_active}>{t('start_bot')}</button>
+		<button class="secondary" on:click={handleStop} disabled={!state?.runner_active}>{t('stop_bot')}</button>
+		<button class="danger" on:click={handleEmergencyStop} disabled={!state?.runner_active}>{t('emergency_stop')}</button>
+	</div>
+	{#if commandStatus}
+		<p class="muted" style="margin-top: 8px;">{commandStatus}</p>
+	{/if}
 </div>
 
 <div class="card">
@@ -467,5 +417,36 @@
 
 	.raw-state[open] .raw-toggle-closed {
 		display: none;
+	}
+
+	.banner {
+		padding: 12px 16px;
+		border-radius: 8px;
+		margin-bottom: 20px;
+		border: 1px solid transparent;
+	}
+
+	.banner.warning {
+		background: #451a03;
+		border-color: #78350f;
+		color: #fcd34d;
+	}
+	
+	.banner strong {
+		display: block;
+		margin-bottom: 4px;
+	}
+	
+	.banner p {
+		margin: 0;
+		font-size: 0.9em;
+		opacity: 0.9;
+	}
+	
+	.banner code {
+		background: rgba(0,0,0,0.2);
+		padding: 2px 4px;
+		border-radius: 4px;
+		font-family: monospace;
 	}
 </style>

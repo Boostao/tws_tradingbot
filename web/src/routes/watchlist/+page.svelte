@@ -4,7 +4,7 @@
 	import { t, language } from '$lib/i18n';
 	import { botState } from '$lib/stores/botState';
 	import SymbolSearch from '$lib/components/SymbolSearch.svelte';
-	import { List, X } from 'lucide-svelte';
+	import { List, Trash2 } from 'lucide-svelte';
 
 	type WatchlistRow = {
 		ticker: string;
@@ -356,9 +356,9 @@
 								on:click={() => handleRemove(index)}
 								aria-label={t('remove_row')}
 								title={t('remove_row')}
-								style="padding: 6px; display: inline-flex; align-items: center; justify-content: center;"
+								style="padding: 6px; display: inline-flex; align-items: center; justify-content: center; color: #ef4444;"
 							>
-								<X size={16} strokeWidth={1.6} />
+								<Trash2 size={16} strokeWidth={1.6} />
 							</button>
 						</td>
 					</tr>

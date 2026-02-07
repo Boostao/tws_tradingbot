@@ -24,7 +24,8 @@
 		Sliders,
 		Filter,
 		Zap,
-		Pencil
+		Pencil,
+		Trash2
 	} from 'lucide-svelte';
 
 	type Indicator = {
@@ -572,30 +573,39 @@
 		{#if strategy.rules.length === 0}
 			<p class="muted">{t('no_rules_defined')}</p>
 		{:else}
-			{#each strategy.rules as rule}
-				<div style="border: 1px solid #1f2937; border-radius: 10px; padding: 12px; margin-bottom: 10px;">
-					<div style="display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap;">
-						<div>
-							<strong>{rule.name}</strong>
-							<p class="muted" style="margin: 4px 0;">
-								{rule.scope === 'global' ? t('scope_badge_global') : t('scope_badge_per_ticker')} •
-								{rule.action.toUpperCase()}
-							</p>
-							<p class="muted" style="margin: 0;">{formatRulePreview(rule)}</p>
+			{#each ['filter', 'buy', 'sell'] as groupType}
+				{@const groupRules = strategy.rules.filter(r => r.action === groupType)}
+				{#if groupRules.length > 0}
+					<h3 class="muted" style="margin: 16px 0 8px 0; font-size: 14px; text-transform: uppercase; letter-spacing: 0.05em;">
+						{groupType === 'filter' ? t('action_filter') : groupType === 'buy' ? t('action_buy') : t('action_sell')}
+					</h3>
+					{#each groupRules as rule}
+						<div style="border: 1px solid #1f2937; border-radius: 10px; padding: 12px; margin-bottom: 10px;">
+							<div style="display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap;">
+								<div>
+									<strong>{rule.name}</strong>
+									<p class="muted" style="margin: 4px 0;">
+										{rule.scope === 'global' ? t('scope_badge_global') : t('scope_badge_per_ticker')}
+									</p>
+									<p class="muted" style="margin: 0;">{formatRulePreview(rule)}</p>
+								</div>
+								<div style="display: flex; gap: 8px; align-items: center;">
+									<label class="toggle">
+										<input type="checkbox" checked={rule.enabled} on:change={() => toggleRule(rule.id)} />
+										<span class="toggle-slider"></span>
+										<span class="toggle-label">{t('enabled')}</span>
+									</label>
+									<button class="secondary" style="padding: 6px;" on:click={() => editRule(rule)} title={t('edit_rule')}>
+										<Pencil size={16} />
+									</button>
+									<button class="secondary" style="padding: 6px; color: #ef4444;" on:click={() => removeRule(rule.id)} title={t('delete_rule')}>
+										<Trash2 size={16} />
+									</button>
+								</div>
+							</div>
 						</div>
-						<div style="display: flex; gap: 8px; align-items: center;">
-							<label class="toggle">
-								<input type="checkbox" checked={rule.enabled} on:change={() => toggleRule(rule.id)} />
-								<span class="toggle-slider"></span>
-								<span class="toggle-label">{t('enabled')}</span>
-							</label>
-							<button class="secondary" style="padding: 6px;" on:click={() => editRule(rule)} title={t('edit_rule')}>
-								<Pencil size={16} />
-							</button>
-							<button class="secondary" on:click={() => removeRule(rule.id)}>{t('delete_rule')}</button>
-						</div>
-					</div>
-				</div>
+					{/each}
+				{/if}
 			{/each}
 		{/if}
 	</div>
