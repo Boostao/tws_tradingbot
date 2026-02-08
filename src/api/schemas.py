@@ -53,6 +53,21 @@ class TWSConnectionRequest(BaseModel):
     client_id: Optional[int] = None
 
 
+class BotStateIngestRequest(BaseModel):
+    state: Dict[str, Any]
+
+
+class BotCommand(BaseModel):
+    id: int
+    command: str
+    payload: Optional[Dict[str, Any]] = None
+    created_at: Optional[str] = None
+
+
+class BotCommandResponse(BaseModel):
+    commands: List[BotCommand]
+
+
 class NotificationTestRequest(BaseModel):
     message: str = Field(..., min_length=1)
     channel: Optional[str] = Field(None, description="Optional channel: telegram or discord")

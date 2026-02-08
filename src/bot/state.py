@@ -22,6 +22,69 @@ from typing import List, Optional, Dict, Any
 
 logger = logging.getLogger(__name__)
 
+BOT_API_URL = os.getenv("BOT_API_URL") or os.getenv("STATE_API_URL")
+BOT_API_TIMEOUT = float(os.getenv("BOT_API_TIMEOUT", "3"))
+
+
+def _use_api_backend() -> bool:
+    return bool(BOT_API_URL)
+
+
+def _api_url(path: str) -> str:
+    base = (BOT_API_URL or "").rstrip("/")
+    if not path.startswith("/"):
+        path = f"/{path}"
+    return f"{base}{path}"
+
+
+def _api_request(method: str, path: str, **kwargs):
+    if not _use_api_backend():
+        return None
+    import requests
+
+    timeout = kwargs.pop("timeout", BOT_API_TIMEOUT)
+    try:
+        return requests.request(method, _api_url(path), timeout=timeout, **kwargs)
+    except Exception as exc:
+        logger.warning("API request failed: %s %s (%s)", method, path, exc)
+        return None
+
+
+def _fetch_state_from_api() -> Optional["BotState"]:
+    resp = _api_request("GET", "/state/raw")
+    if resp is None or not resp.ok:
+        return None
+    try:
+        return BotState.from_dict(resp.json())
+    except Exception as exc:
+        logger.warning("Failed to parse API state response: %s", exc)
+        return None
+
+
+def _post_state_to_api(state: "BotState") -> bool:
+    payload = {"state": state.to_dict()}
+    resp = _api_request("POST", "/state/ingest", json=payload)
+    return bool(resp and resp.ok)
+
+
+def _consume_commands(command: Optional[str] = None) -> List[Dict[str, Any]]:
+    params: Dict[str, Any] = {"consume": True}
+    if command:
+        params["command"] = command
+    resp = _api_request("GET", "/bot/commands", params=params)
+    if resp is None or not resp.ok:
+        return []
+    try:
+        data = resp.json()
+        return data.get("commands", [])
+    except Exception as exc:
+        logger.warning("Failed to parse API commands response: %s", exc)
+        return []
+
+
+def _clear_commands_via_api() -> None:
+    _api_request("POST", "/bot/commands/clear")
+
 
 # Default state file path
 DEFAULT_STATE_FILE = Path(__file__).parent.parent.parent / "config" / ".bot_state.json"
@@ -241,6 +304,8 @@ class BotState:
 def _use_database() -> bool:
     """Check if database backend should be used for state."""
     try:
+        if _use_api_backend():
+            return False
         from src.config.settings import get_settings
         settings = get_settings()
         return settings.database.enabled and settings.database.use_db_for_state
@@ -286,6 +351,7 @@ def update_state_db(state: BotState) -> bool:
             error_message=state.error_message,
             trades_today=state.trades_today,
             win_rate_today=state.win_rate_today,
+            last_heartbeat=datetime.fromisoformat(state.last_heartbeat) if state.last_heartbeat else None,
         )
         
         # Sync positions - clear and re-add
@@ -426,7 +492,13 @@ def update_state(state: BotState, state_file: Path = DEFAULT_STATE_FILE) -> bool
     Returns:
         True if update successful, False otherwise
     """
-    # Try database first if enabled
+    # Prefer API backend if configured
+    if _use_api_backend():
+        if _post_state_to_api(state):
+            return True
+        logger.warning("API state update failed, falling back to JSON file")
+
+    # Try database if enabled
     if _use_database():
         if update_state_db(state):
             return True
@@ -468,7 +540,14 @@ def read_state(state_file: Path = DEFAULT_STATE_FILE) -> BotState:
     Returns:
         Current bot state (or default state if file doesn't exist)
     """
-    # Try database first if enabled
+    # Prefer API backend if configured
+    if _use_api_backend():
+        state = _fetch_state_from_api()
+        if state:
+            return state
+        logger.warning("API state read failed, falling back to JSON file")
+
+    # Try database if enabled
     if _use_database():
         try:
             return read_state_db()
@@ -571,6 +650,9 @@ def check_start_command() -> bool:
     Returns:
         True if start command is present
     """
+    if _use_api_backend():
+        return bool(_consume_commands("START"))
+
     # Check database first if enabled
     if _use_database():
         try:
@@ -593,6 +675,10 @@ def check_start_command() -> bool:
 
 def clear_start_command() -> None:
     """Clear the start command."""
+    if _use_api_backend():
+        _clear_commands_via_api()
+        return
+
     if _use_database():
         try:
             db = _get_database()
@@ -675,6 +761,9 @@ def check_stop_signal() -> bool:
     Returns:
         True if stop signal is present
     """
+    if _use_api_backend():
+        return bool(_consume_commands("STOP"))
+
     # Check database first if enabled
     if _use_database():
         try:
@@ -691,6 +780,10 @@ def check_stop_signal() -> bool:
 
 def clear_stop_signals() -> None:
     """Clear all stop signals."""
+    if _use_api_backend():
+        _clear_commands_via_api()
+        return
+
     if _use_database():
         try:
             db = _get_database()
@@ -719,6 +812,15 @@ def check_emergency_stop() -> Optional[Dict[str, Any]]:
     Returns:
         Emergency stop data if present, None otherwise
     """
+    if _use_api_backend():
+        commands = _consume_commands("EMERGENCY_STOP")
+        if commands:
+            return commands[0].get("payload") or {
+                "cancel_orders": True,
+                "flatten_positions": True,
+            }
+        return None
+
     # Check database first if enabled
     if _use_database():
         try:
@@ -745,6 +847,10 @@ def check_emergency_stop() -> Optional[Dict[str, Any]]:
 
 def clear_stop_signals() -> None:
     """Clear all stop signal files and database commands."""
+    if _use_api_backend():
+        _clear_commands_via_api()
+        return
+
     # Clear database commands if enabled
     if _use_database():
         try:

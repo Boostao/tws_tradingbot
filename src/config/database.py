@@ -89,6 +89,9 @@ class DatabaseManager:
                 )
                 """
             )
+            conn.execute(
+                "ALTER TABLE bot_state ADD COLUMN IF NOT EXISTS last_heartbeat TIMESTAMP"
+            )
 
             # Positions table
             conn.execute(
@@ -339,6 +342,7 @@ class DatabaseManager:
         error_message: Optional[str] = None,
         trades_today: Optional[int] = None,
         win_rate_today: Optional[float] = None,
+        last_heartbeat: Optional[datetime] = None,
     ) -> None:
         """
         Update bot state with provided values.
@@ -378,6 +382,9 @@ class DatabaseManager:
         if win_rate_today is not None:
             updates.append("win_rate_today = ?")
             params.append(win_rate_today)
+        if last_heartbeat is not None:
+            updates.append("last_heartbeat = ?")
+            params.append(last_heartbeat)
 
         if updates:
             updates.append("last_update = CURRENT_TIMESTAMP")
@@ -400,7 +407,7 @@ class DatabaseManager:
                 SELECT
                     status, tws_connected, equity, daily_pnl, daily_pnl_percent,
                     total_pnl, active_strategy, error_message, trades_today,
-                    win_rate_today, last_update
+                    win_rate_today, last_update, last_heartbeat
                 FROM bot_state WHERE id = 1
                 """
             ).fetchone()
@@ -418,6 +425,7 @@ class DatabaseManager:
                     "trades_today": result[8],
                     "win_rate_today": result[9],
                     "last_update": result[10].isoformat() if result[10] else None,
+                    "last_heartbeat": result[11].isoformat() if result[11] else None,
                 }
             return {}
 
@@ -437,6 +445,7 @@ class DatabaseManager:
                     error_message = '',
                     trades_today = 0,
                     win_rate_today = 0.0,
+                    last_heartbeat = NULL,
                     last_update = CURRENT_TIMESTAMP
                 WHERE id = 1
                 """

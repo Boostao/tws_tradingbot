@@ -4,7 +4,7 @@ services:
     restart: unless-stopped
     environment:
       IB_HOST: host.docker.internal
-      IB_PORT: 7497
+      IB_PORT: 4002
       API_CORS_ORIGINS: https://cazpe.com
     volumes:
       - ./config:/app/config
@@ -28,7 +28,8 @@ services:
     restart: unless-stopped
     environment:
       IB_HOST: host.docker.internal
-      IB_PORT: 7497
+      IB_PORT: 4002
+      BOT_API_URL: http://api:8000/api/v1
     volumes:
       - ./config:/app/config
       - ./data:/app/data

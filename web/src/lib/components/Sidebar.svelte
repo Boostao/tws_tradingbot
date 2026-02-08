@@ -149,7 +149,7 @@
 					type="number"
 					min="1"
 					bind:value={twsPort}
-					placeholder="7497"
+					placeholder="4002"
 					on:blur={() => void persistIbConfig()}
 				/>
 			</label>

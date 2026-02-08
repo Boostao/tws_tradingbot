@@ -3,7 +3,7 @@
 # Interactive Brokers Connection Settings
 ib:
   host: "127.0.0.1"
-  port: 7497  # 7497 for paper trading, 7496 for live
+  port: 4002  # 4002 for IB Gateway paper, 7497 for TWS paper
   client_id: 1
   account: ""  # Leave empty to use default account
   timeout: 30  # seconds

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone, timedelta
-from fastapi import APIRouter, HTTPException
+from typing import Any, Dict, List, Optional
+
+from fastapi import APIRouter, HTTPException, Query
 
 from src.bot.state import (
     read_state,
@@ -13,12 +15,96 @@ from src.bot.state import (
     BotStatus,
 )
 from src.bot.tws_data_provider import get_tws_provider, reset_tws_provider
-from src.api.schemas import TWSConnectionRequest
+from src.api.schemas import BotStateIngestRequest, BotCommandResponse, TWSConnectionRequest
 from src.api.utils import load_strategy
+from src.config.database import get_database
 from src.config.settings import update_setting
 
 
 router = APIRouter(tags=["state"])
+
+
+def _parse_datetime(value: Optional[str]) -> Optional[datetime]:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def _read_state_from_db() -> Dict[str, Any]:
+    db = get_database()
+    state = db.get_bot_state() or {}
+    state["positions"] = db.get_positions()
+    state["orders"] = db.get_orders()
+    logs = db.get_recent_logs(50)
+    state["recent_logs"] = [
+        f"[{log['timestamp']}] [{log['level']}] {log['message']}"
+        for log in logs
+    ]
+    return state
+
+
+def _ingest_state_to_db(state: Dict[str, Any]) -> None:
+    db = get_database()
+
+    db.update_bot_state(
+        status=state.get("status"),
+        tws_connected=state.get("tws_connected"),
+        equity=state.get("equity"),
+        daily_pnl=state.get("daily_pnl"),
+        daily_pnl_percent=state.get("daily_pnl_percent"),
+        total_pnl=state.get("total_pnl"),
+        active_strategy=state.get("active_strategy"),
+        error_message=state.get("error_message"),
+        trades_today=state.get("trades_today"),
+        win_rate_today=state.get("win_rate_today"),
+        last_heartbeat=_parse_datetime(state.get("last_heartbeat")),
+    )
+
+    db.clear_positions()
+    for pos in state.get("positions", []) or []:
+        db.add_position(
+            symbol=pos.get("symbol", ""),
+            quantity=pos.get("quantity", 0.0),
+            entry_price=pos.get("entry_price", 0.0),
+            current_price=pos.get("current_price", 0.0),
+            unrealized_pnl=pos.get("unrealized_pnl", 0.0),
+            entry_time=_parse_datetime(pos.get("entry_time")),
+        )
+
+    db.clear_orders()
+    for order in state.get("orders", []) or []:
+        order_id = str(order.get("order_id", "") or "")
+        if not order_id:
+            continue
+        db.add_order(
+            order_id=order_id,
+            symbol=order.get("symbol", ""),
+            side=order.get("side", ""),
+            quantity=order.get("quantity", 0.0),
+            price=order.get("price"),
+            order_type=order.get("order_type", "MARKET"),
+            status=order.get("status", "PENDING"),
+            submitted_time=_parse_datetime(order.get("submitted_time")),
+        )
+        filled_qty = order.get("filled_quantity")
+        if filled_qty is not None:
+            db.update_order(order_id, filled_quantity=filled_qty)
+
+    recent_logs = state.get("recent_logs", []) or []
+    for entry in recent_logs[-10:]:
+        try:
+            parts = entry.split("] ", 2)
+            if len(parts) >= 2:
+                level = parts[1].strip("[")
+                message = parts[2] if len(parts) > 2 else ""
+                db.add_log(level, message)
+            else:
+                db.add_log("INFO", entry)
+        except Exception:
+            db.add_log("INFO", str(entry))
 
 
 @router.get("/state")
@@ -267,6 +353,39 @@ def get_state():
         state["last_update"] = datetime.now(timezone.utc).isoformat()
 
     return state
+
+
+@router.get("/state/raw")
+def get_state_raw():
+    return _read_state_from_db()
+
+
+@router.post("/state/ingest")
+def ingest_state(payload: BotStateIngestRequest):
+    _ingest_state_to_db(payload.state)
+    return {"status": "ok"}
+
+
+@router.get("/bot/commands", response_model=BotCommandResponse)
+def get_bot_commands(
+    command: Optional[str] = Query(default=None),
+    consume: bool = Query(default=False),
+):
+    db = get_database()
+    commands = db.get_pending_commands()
+    if command:
+        commands = [cmd for cmd in commands if cmd["command"] == command]
+    if consume:
+        for cmd in commands:
+            db.mark_command_processed(cmd["id"])
+    return {"commands": commands}
+
+
+@router.post("/bot/commands/clear")
+def clear_bot_commands():
+    db = get_database()
+    db.clear_commands()
+    return {"status": "cleared"}
 
 
 @router.get("/logs")

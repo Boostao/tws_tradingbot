@@ -17,7 +17,7 @@ from dotenv import load_dotenv
 class IBConfig:
     """Interactive Brokers connection configuration."""
     host: str = "127.0.0.1"
-    port: int = 7497  # 7497 for paper, 7496 for live
+    port: int = 4002  # 4002 for IB Gateway paper, 7497 for TWS paper
     client_id: int = 1
     account: str = ""
     timeout: int = 5
@@ -271,7 +271,7 @@ class ConfigLoader:
         return Settings(
             ib=IBConfig(
                 host=ib_cfg.get("host", "127.0.0.1"),
-                port=ib_cfg.get("port", 7497),
+                port=ib_cfg.get("port", 4002),
                 client_id=ib_cfg.get("client_id", 1),
                 account=ib_cfg.get("account", ""),
                 timeout=ib_cfg.get("timeout", 30),

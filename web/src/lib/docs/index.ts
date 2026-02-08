@@ -79,7 +79,7 @@ const docs: DocRecord[] = [
 				type: 'code',
 				language: 'text',
 				code:
-					'IB_HOST=127.0.0.1\nIB_PORT=7497\nIB_CLIENT_ID=1\nIB_ACCOUNT=your_account_id'
+					'IB_HOST=127.0.0.1\nIB_PORT=4002\nIB_CLIENT_ID=1\nIB_ACCOUNT=your_account_id'
 			},
 			{ type: 'heading', key: 'doc_configuration_scripts_title' },
 			{ type: 'list', keys: ['doc_configuration_script_1', 'doc_configuration_script_2', 'doc_configuration_script_3'] },
