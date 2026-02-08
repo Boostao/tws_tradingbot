@@ -279,6 +279,7 @@ class BotState:
             daily_pnl=data.get("daily_pnl", 0.0),
             daily_pnl_percent=data.get("daily_pnl_percent", 0.0),
             total_pnl=data.get("total_pnl", 0.0),
+            last_heartbeat=data.get("last_heartbeat"),
             last_update=data.get("last_update"),
             recent_logs=data.get("recent_logs", []),
             active_strategy=data.get("active_strategy", ""),
