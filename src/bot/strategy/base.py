@@ -13,6 +13,7 @@ This strategy:
 """
 
 import logging
+import threading
 from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
@@ -249,12 +250,17 @@ class DynamicRuleStrategy:
         self._bot_state: Optional[BotState] = None
         self._state_update_counter: int = 0
         self._state_update_interval: int = 5  # Update state every N bars
+        self._state_update_interval_seconds: int = 60
+        self._last_state_update_time: datetime = datetime.now()
+        self._state_refresh_stop = threading.Event()
+        self._state_refresh_thread: Optional[threading.Thread] = None
         
         # State
         self._is_running: bool = False
         self._last_evaluation_time: Optional[datetime] = None
         self._tws_connected: bool = False
         self._tws_provider: Optional[TWSDataProvider] = None
+        self._nautilus_strategy: Optional[Any] = None
 
         # Order handlers (for Nautilus integration)
         self._submit_buy_handler: Optional[Any] = None
@@ -320,6 +326,28 @@ class DynamicRuleStrategy:
                 self.reload_strategy()
         except Exception as e:
             logger.warning(f"Error checking reload signal: {e}")
+
+    def _start_state_refresh_thread(self) -> None:
+        if self._state_refresh_thread and self._state_refresh_thread.is_alive():
+            return
+
+        self._state_refresh_stop.clear()
+
+        def _run() -> None:
+            while not self._state_refresh_stop.wait(1.0):
+                if not self._is_running:
+                    continue
+                elapsed = (datetime.now() - self._last_state_update_time).total_seconds()
+                if elapsed >= self._state_update_interval_seconds:
+                    self._update_bot_state()
+
+        self._state_refresh_thread = threading.Thread(target=_run, daemon=True)
+        self._state_refresh_thread.start()
+
+    def _stop_state_refresh_thread(self) -> None:
+        self._state_refresh_stop.set()
+        if self._state_refresh_thread and self._state_refresh_thread.is_alive():
+            self._state_refresh_thread.join(timeout=2.0)
     
     # =========================================================================
     # Nautilus Trader Strategy Lifecycle Methods
@@ -338,6 +366,7 @@ class DynamicRuleStrategy:
         """
         logger.info(f"Strategy {self.strategy_id} starting...")
         self._is_running = True
+        self._start_state_refresh_thread()
         
         # Initialize bar buffers for each instrument
         for instrument_id in self.config.instruments:
@@ -376,6 +405,8 @@ class DynamicRuleStrategy:
         
         # Update bot state
         self._update_bot_state(BotStatus.STOPPED)
+
+        self._stop_state_refresh_thread()
         
         # Clear stop signals
         clear_stop_signals()
@@ -755,6 +786,7 @@ class DynamicRuleStrategy:
         if self._state_update_counter >= self._state_update_interval:
             self._state_update_counter = 0
             self._update_bot_state()
+            self._last_state_update_time = datetime.now()
     
     def _update_bot_state(self, status: Optional[BotStatus] = None) -> None:
         """
@@ -768,9 +800,12 @@ class DynamicRuleStrategy:
                 if value is None:
                     return None
                 try:
-                    return float(str(value).replace(",", ""))
+                    return float(value)
                 except (TypeError, ValueError):
-                    return None
+                    try:
+                        return float(str(value).replace(",", ""))
+                    except (TypeError, ValueError):
+                        return None
 
             def _extract_price(snapshot: dict | None, fallback: float) -> float:
                 if not snapshot:
@@ -797,8 +832,9 @@ class DynamicRuleStrategy:
             total_pnl_override: Optional[float] = None
             tws_connected = self._tws_connected
             orders = list(self._pending_orders.values())
+            use_nautilus_cache = False
 
-            if self._tws_provider and self._tws_provider.is_connected():
+            if self._tws_provider and (self._tws_provider.is_connected() or self._tws_provider.connect(timeout=3.0)):
                 tws_connected = True
                 tws_positions = self._tws_provider.get_positions(timeout=3.0)
                 for pos in tws_positions:
@@ -858,6 +894,88 @@ class DynamicRuleStrategy:
                     daily_pnl_override = daily_pnl
                 if realized is not None or unrealized is not None:
                     total_pnl_override = (realized or 0.0) + (unrealized or 0.0)
+                if not positions and self._nautilus_strategy:
+                    use_nautilus_cache = True
+            elif self._nautilus_strategy:
+                use_nautilus_cache = True
+
+            if use_nautilus_cache:
+                cache = self._nautilus_strategy.cache
+                positions = []
+                for pos in cache.positions_open():
+                    qty = _coerce_float(pos.signed_qty) or 0.0
+                    if qty == 0:
+                        continue
+                    instrument_id = str(pos.instrument_id)
+                    symbol = instrument_id.split(".")[0]
+                    entry_price = _coerce_float(pos.avg_px_open) or 0.0
+                    fallback_price = entry_price
+                    if instrument_id in self._bar_buffers and len(self._bar_buffers[instrument_id]) > 0:
+                        fallback_price = self._bar_buffers[instrument_id].closes[-1]
+                    current_price = fallback_price
+                    try:
+                        if cache.has_quote_ticks(pos.instrument_id):
+                            quote = cache.quote_tick(pos.instrument_id)
+                            bid = _coerce_float(quote.bid_price) if quote else None
+                            ask = _coerce_float(quote.ask_price) if quote else None
+                            if bid is not None and ask is not None:
+                                current_price = (bid + ask) / 2
+                            elif bid is not None:
+                                current_price = bid
+                            elif ask is not None:
+                                current_price = ask
+                        elif cache.has_trade_ticks(pos.instrument_id):
+                            trade = cache.trade_tick(pos.instrument_id)
+                            trade_price = _coerce_float(trade.price) if trade else None
+                            if trade_price is not None:
+                                current_price = trade_price
+                    except Exception:
+                        current_price = fallback_price
+
+                    try:
+                        unrealized = float(pos.unrealized_pnl(current_price))
+                    except Exception:
+                        unrealized = (current_price - entry_price) * qty if entry_price else 0.0
+
+                    positions.append(
+                        StatePosition(
+                            symbol=symbol,
+                            quantity=qty,
+                            entry_price=entry_price,
+                            current_price=current_price,
+                            unrealized_pnl=unrealized,
+                            entry_time=None,
+                        )
+                    )
+
+                orders = []
+                for order in cache.orders_open():
+                    instrument_id = str(order.instrument_id)
+                    orders.append(
+                        StateOrder(
+                            order_id=str(order.client_order_id),
+                            symbol=instrument_id.split(".")[0],
+                            side=(order.side_string or "").upper(),
+                            quantity=_coerce_float(order.quantity) or 0.0,
+                            price=None,
+                            status=order.status_string or "PENDING",
+                            order_type=order.type_string or "MARKET",
+                            submitted_time=None,
+                            filled_quantity=_coerce_float(order.filled_qty) or 0.0,
+                        )
+                    )
+
+                if equity_override is None:
+                    try:
+                        venue = None
+                        if self.config.instruments:
+                            venue_str = self.config.instruments[0].split(".")[-1]
+                            venue = Venue.from_str(venue_str)
+                        if venue is not None:
+                            account = self._nautilus_strategy.portfolio.account(venue)
+                            equity_override = _coerce_float(account.balance_total())
+                    except Exception:
+                        pass
             else:
                 for instrument_id, qty in self._positions.items():
                     if qty != 0:
@@ -908,6 +1026,7 @@ class DynamicRuleStrategy:
             )
             
             update_state(state)
+            self._last_state_update_time = datetime.now()
             
         except Exception as e:
             logger.error(f"Failed to update bot state: {e}")
@@ -963,6 +1082,10 @@ class DynamicRuleStrategy:
         """Attach TWS provider for state updates."""
         self._tws_provider = provider
 
+    def set_nautilus_strategy(self, strategy: Optional[Any]) -> None:
+        """Attach the Nautilus strategy for cache-backed state updates."""
+        self._nautilus_strategy = strategy
+
 
 # =============================================================================
 # Nautilus Trader Strategy Implementation
@@ -1017,6 +1140,7 @@ if NAUTILUS_AVAILABLE:
                 submit_sell=self._submit_sell,
                 cancel_order=self._cancel_order,
             )
+            self._strategy.set_nautilus_strategy(self)
         
         def on_start(self) -> None:
             """Handle strategy start."""
@@ -1065,6 +1189,10 @@ if NAUTILUS_AVAILABLE:
         def on_order_filled(self, event: OrderFilled) -> None:
             """Handle order filled event."""
             self._strategy.on_order_filled(event)
+
+        def set_tws_provider(self, provider: Optional[TWSDataProvider]) -> None:
+            """Attach TWS provider for state updates."""
+            self._strategy.set_tws_provider(provider)
 
         def _submit_buy(self, instrument_id: str, quantity: float) -> None:
             self._submit_market_order(instrument_id, OrderSide.BUY, quantity)

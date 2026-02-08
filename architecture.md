@@ -31,7 +31,7 @@ graph TD
     Q --> R[TWS API]
 
     P --> S[Database]
-    S --> T[DuckDB]
+    S --> T[PostgreSQL]
 
     D --> V[Data Providers]
     V --> W[TWS Data Provider]

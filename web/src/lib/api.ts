@@ -1,4 +1,8 @@
-export const API_BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:8000';
+const DEFAULT_API_BASE = 'http://localhost:8000';
+
+export const API_BASE =
+	import.meta.env.VITE_API_URL ??
+	(typeof window !== 'undefined' ? window.location.origin : DEFAULT_API_BASE);
 
 type RestMetric = {
 	lastMs: number;

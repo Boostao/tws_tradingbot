@@ -199,7 +199,13 @@
 	<div style="display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px;">
 		<span class="badge">
 			<span
-				class={`status-dot ${state?.status === 'running' ? '' : 'offline'}`}
+				class={`status-dot ${
+					state?.status === 'RUNNING'
+						? ''
+						: state?.status === 'STARTING'
+							? 'starting'
+							: 'offline'
+				}`}
 			></span>
 			{t('status_bot')}: {state?.status ?? 'unknown'}
 		</span>

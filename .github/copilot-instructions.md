@@ -90,7 +90,7 @@ Build and maintain a rule‑based trading bot with a SvelteKit UI and FastAPI ba
 - **Runtime:** Nautilus IB adapter supported; non‑Nautilus mode now supports live order execution via IB API.
 - **Real-time data:** TWS market data subscriptions/snapshots supported.
 - **Auth:** Optional UI login gate via `auth` config.
-- **State:** DuckDB backend enabled by default (JSON is fallback).
+- **State:** PostgreSQL backend enabled by default (JSON is fallback).
 - **Package manager:** `uv` with virtual env in `.venv/`.
 - **Tests:** `uv run pytest tests/ -v` should pass (count may vary).
 
@@ -99,7 +99,7 @@ Build and maintain a rule‑based trading bot with a SvelteKit UI and FastAPI ba
 - **Optuna optimizer** CLI added (`src/bot/optimizer.py`).
 - **Notifications**: Telegram/Discord alerts + Telegram command polling.
 - **ML signal indicator** with model loader support (ONNX/joblib).
-- **Database**: DuckDB backend used for local state and config.
+- **Database**: PostgreSQL backend used for local state and config.
 - **Docker**: `Dockerfile` uses Python 3.14-slim with `uv`; `docker-compose.yml` added.
 - **Tests**: Shutdown/hanging test cleanup via session teardown.
 
@@ -117,7 +117,7 @@ Build and maintain a rule‑based trading bot with a SvelteKit UI and FastAPI ba
 - **Strategy Validation:** `src/bot/strategy/validator.py`
 - **Bot Runtime:** `src/bot/live_runner.py`
 - **IB Adapter:** `src/bot/adapter.py`
-- **State:** `src/bot/state.py` (DuckDB in `data/traderbot.duckdb`, JSON fallback)
+- **State:** `src/bot/state.py` (PostgreSQL, JSON fallback)
 - **Config:** `config/default.yaml`
 - **Docs:** `docs/strategy_guide.md`
 - **Sample Data:** `data/sample/`
@@ -149,13 +149,17 @@ SvelteKit UI does not currently enforce an i18n layer. Keep UI text consistent a
 - Bot: `./run_bot.sh`
 - Tests: `uv run pytest tests/ -v`
 
+## 🧰 Tooling Preferences
+- Use `podman` and `podman-compose` instead of Docker commands.
+- When creating scripts for the VPS, write to a temporary local file and copy with `scp` rather than sending over `ssh` to avoid quoting issues.
+
 ### Test Dependencies
 - API/WebSocket integration tests require `httpx` (via FastAPI TestClient). Ensure it is installed in the dev environment before running tests.
 
 ## ⚠️ Known Notes
 - VIX data is loaded via TWS when available, else sample CSV.
 - VIX sample has a stray value; loader sanitizes it.
-- Nautilus IB adapter uses `nautilus_ibapi`, with fallback to native IB adapter.
+- Nautilus IB adapter uses the `nautilus-ibapi` package (module name `ibapi`), with fallback to native IB adapter.
 - UI launcher auto-picks a free port (8501–8510).
 - Auth is disabled by default; enable in `config/default.yaml` or `AUTH_*` env vars.
 

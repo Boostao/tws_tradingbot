@@ -361,3 +361,7 @@ a {
 .status-dot.offline {
 	background: #ef4444;
 }
+
+.status-dot.starting {
+	background: #f59e0b;
+}

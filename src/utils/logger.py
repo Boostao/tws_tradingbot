@@ -166,12 +166,19 @@ def unregister_log_callback(callback: Callable[[str], None]) -> None:
         _log_callbacks.remove(callback)
 
 
-# Global logger instance
-logger_instance = Logger()
+# Global logger instance (lazy init to avoid import-time side effects)
+logger_instance: Optional[Logger] = None
+
+
+def _get_logger_instance() -> Logger:
+    global logger_instance
+    if logger_instance is None:
+        logger_instance = Logger()
+    return logger_instance
 
 def get_logger(name: str) -> logging.Logger:
     """Convenience function to get a logger for a module."""
-    return logger_instance.get_logger(name)
+    return _get_logger_instance().get_logger(name)
 
 
 def setup_logging(

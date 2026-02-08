@@ -81,8 +81,7 @@ class LiveTradingRunner:
             strategy_path: Path to strategy JSON file (uses default if None)
         """
         # Load settings using ConfigLoader
-        use_api_backend = bool(os.getenv("BOT_API_URL") or os.getenv("STATE_API_URL"))
-        self.settings = load_config(sync_to_db=not use_api_backend)
+        self.settings = load_config(sync_to_db=True)
         
         # Strategy path
         default_strategy_path = self.settings.app.active_strategy_path
@@ -223,7 +222,7 @@ class LiveTradingRunner:
             formatted_instruments = []
             for ticker in instruments:
                 if "." not in ticker:
-                    formatted_instruments.append(f"{ticker}.ARCA")
+                    formatted_instruments.append(f"{ticker}.SMART")
                 else:
                     formatted_instruments.append(ticker)
 
@@ -233,7 +232,7 @@ class LiveTradingRunner:
                     if symbol == "VIX":
                         formatted_instruments.append("VIX.CBOE")
                     elif "." not in symbol:
-                        formatted_instruments.append(f"{symbol}.ARCA")
+                        formatted_instruments.append(f"{symbol}.SMART")
                     else:
                         formatted_instruments.append(symbol)
                 formatted_instruments = sorted(set(formatted_instruments))
@@ -383,7 +382,7 @@ class LiveTradingRunner:
             for ticker in instruments:
                 if "." not in ticker:
                     # Add default venue
-                    formatted_instruments.append(f"{ticker}.ARCA")
+                    formatted_instruments.append(f"{ticker}.SMART")
                 else:
                     formatted_instruments.append(ticker)
 
@@ -393,7 +392,7 @@ class LiveTradingRunner:
                     if symbol == "VIX":
                         formatted_instruments.append("VIX.CBOE")
                     elif "." not in symbol:
-                        formatted_instruments.append(f"{symbol}.ARCA")
+                        formatted_instruments.append(f"{symbol}.SMART")
                     else:
                         formatted_instruments.append(symbol)
                 formatted_instruments = sorted(set(formatted_instruments))
@@ -414,6 +413,16 @@ class LiveTradingRunner:
                     use_equal_allocation=True,
                 )
                 self.strategy = NautilusDynamicRuleStrategy(strategy_config)
+
+                self._tws_provider = TWSDataProvider(
+                    host=self.settings.ib.host,
+                    port=self.settings.ib.port,
+                    client_id=self.settings.ib.client_id + 2,
+                )
+                if self._tws_provider.connect(timeout=5.0):
+                    self.strategy.set_tws_provider(self._tws_provider)
+                else:
+                    logger.warning("Failed to connect TWS provider for state updates")
             else:
                 strategy_config = DynamicRuleStrategyConfig(
                     strategy_id="live_dynamic_strategy",
@@ -453,6 +462,8 @@ class LiveTradingRunner:
         """Update the last_heartbeat timestamp in the state file."""
         try:
             state = read_state()
+            if self._running and state.status != BotStatus.RUNNING.value:
+                state.status = BotStatus.RUNNING.value
             state.last_heartbeat = datetime.now(timezone.utc).isoformat()
             if state.status == BotStatus.STOPPED.value:
                 # Also update last_update if stopped, so the UI knows we're alive
@@ -525,6 +536,12 @@ class LiveTradingRunner:
                             
                         # ENTER RUNNING STATE
                         self._running = True
+                        try:
+                            state = read_state()
+                            state.status = BotStatus.RUNNING.value
+                            update_bot_state_file(state)
+                        except Exception:
+                            pass
                         self._notifier.notify_status("✅ Bot started", ib_config.trading_mode.upper())
                         
                     else:

@@ -3,7 +3,7 @@ Bot State Management Module
 
 Provides shared state mechanism for communication between the trading bot
 and the UI. Supports both JSON file-based state (legacy) and
-DuckDB database backend for persistence.
+PostgreSQL database backend for persistence.
 
 The bot writes state updates after each cycle, and the UI reads
 the state to display real-time information.
@@ -12,8 +12,7 @@ the state to display real-time information.
 import json
 import logging
 import fcntl
-import os
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
@@ -21,70 +20,6 @@ from typing import List, Optional, Dict, Any
 
 
 logger = logging.getLogger(__name__)
-
-BOT_API_URL = os.getenv("BOT_API_URL") or os.getenv("STATE_API_URL")
-BOT_API_TIMEOUT = float(os.getenv("BOT_API_TIMEOUT", "3"))
-
-
-def _use_api_backend() -> bool:
-    return bool(BOT_API_URL)
-
-
-def _api_url(path: str) -> str:
-    base = (BOT_API_URL or "").rstrip("/")
-    if not path.startswith("/"):
-        path = f"/{path}"
-    return f"{base}{path}"
-
-
-def _api_request(method: str, path: str, **kwargs):
-    if not _use_api_backend():
-        return None
-    import requests
-
-    timeout = kwargs.pop("timeout", BOT_API_TIMEOUT)
-    try:
-        return requests.request(method, _api_url(path), timeout=timeout, **kwargs)
-    except Exception as exc:
-        logger.warning("API request failed: %s %s (%s)", method, path, exc)
-        return None
-
-
-def _fetch_state_from_api() -> Optional["BotState"]:
-    resp = _api_request("GET", "/state/raw")
-    if resp is None or not resp.ok:
-        return None
-    try:
-        return BotState.from_dict(resp.json())
-    except Exception as exc:
-        logger.warning("Failed to parse API state response: %s", exc)
-        return None
-
-
-def _post_state_to_api(state: "BotState") -> bool:
-    payload = {"state": state.to_dict()}
-    resp = _api_request("POST", "/state/ingest", json=payload)
-    return bool(resp and resp.ok)
-
-
-def _consume_commands(command: Optional[str] = None) -> List[Dict[str, Any]]:
-    params: Dict[str, Any] = {"consume": True}
-    if command:
-        params["command"] = command
-    resp = _api_request("GET", "/bot/commands", params=params)
-    if resp is None or not resp.ok:
-        return []
-    try:
-        data = resp.json()
-        return data.get("commands", [])
-    except Exception as exc:
-        logger.warning("Failed to parse API commands response: %s", exc)
-        return []
-
-
-def _clear_commands_via_api() -> None:
-    _api_request("POST", "/bot/commands/clear")
-
 
 # Default state file path
 DEFAULT_STATE_FILE = Path(__file__).parent.parent.parent / "config" / ".bot_state.json"
@@ -128,14 +63,14 @@ class Position:
     current_price: float
     unrealized_pnl: float
     entry_time: Optional[str] = None
-    
+
     @property
     def pnl_percent(self) -> float:
         """Calculate PnL as percentage."""
         if self.entry_price == 0:
             return 0.0
         return ((self.current_price - self.entry_price) / self.entry_price) * 100
-    
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary."""
         return {
@@ -146,7 +81,7 @@ class Position:
             "unrealized_pnl": self.unrealized_pnl,
             "entry_time": self.entry_time,
         }
-    
+
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "Position":
         """Create from dictionary."""
@@ -172,7 +107,7 @@ class Order:
     order_type: str = "MARKET"  # MARKET, LIMIT, STOP
     submitted_time: Optional[str] = None
     filled_quantity: float = 0.0
-    
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary."""
         return {
@@ -186,7 +121,7 @@ class Order:
             "submitted_time": self.submitted_time,
             "filled_quantity": self.filled_quantity,
         }
-    
+
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "Order":
         """Create from dictionary."""
@@ -207,7 +142,7 @@ class Order:
 class BotState:
     """
     Complete bot state for UI communication.
-    
+
     This class holds all information that the UI needs to display
     the current state of the trading bot.
     """
@@ -224,18 +159,20 @@ class BotState:
     recent_logs: List[str] = field(default_factory=list)
     active_strategy: str = ""
     error_message: str = ""
-    
+
     # Additional metrics
     open_positions_count: int = 0
     pending_orders_count: int = 0
     trades_today: int = 0
     win_rate_today: float = 0.0
-    
+
     def __post_init__(self):
         """Update computed fields."""
         self.open_positions_count = len(self.positions)
-        self.pending_orders_count = len([o for o in self.orders if o.status in ("PENDING", "SUBMITTED")])
-    
+        self.pending_orders_count = len(
+            [o for o in self.orders if o.status in ("PENDING", "SUBMITTED")]
+        )
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
         return {
@@ -249,7 +186,7 @@ class BotState:
             "total_pnl": self.total_pnl,
             "last_heartbeat": self.last_heartbeat,
             "last_update": self.last_update,
-            "recent_logs": self.recent_logs[-50:],  # Keep only last 50 logs
+            "recent_logs": self.recent_logs[-50:],
             "active_strategy": self.active_strategy,
             "error_message": self.error_message,
             "open_positions_count": self.open_positions_count,
@@ -257,19 +194,19 @@ class BotState:
             "trades_today": self.trades_today,
             "win_rate_today": self.win_rate_today,
         }
-    
+
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "BotState":
         """Create from dictionary."""
         positions = [
-            Position.from_dict(p) if isinstance(p, dict) else p 
+            Position.from_dict(p) if isinstance(p, dict) else p
             for p in data.get("positions", [])
         ]
         orders = [
-            Order.from_dict(o) if isinstance(o, dict) else o 
+            Order.from_dict(o) if isinstance(o, dict) else o
             for o in data.get("orders", [])
         ]
-        
+
         return cls(
             status=data.get("status", BotStatus.STOPPED.value),
             tws_connected=data.get("tws_connected", False),
@@ -287,13 +224,12 @@ class BotState:
             trades_today=data.get("trades_today", 0),
             win_rate_today=data.get("win_rate_today", 0.0),
         )
-    
+
     def add_log(self, message: str, level: str = "INFO") -> None:
         """Add a log entry."""
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         log_entry = f"[{timestamp}] [{level}] {message}"
         self.recent_logs.append(log_entry)
-        # Keep only last 50 entries
         if len(self.recent_logs) > 50:
             self.recent_logs = self.recent_logs[-50:]
 
@@ -305,8 +241,6 @@ class BotState:
 def _use_database() -> bool:
     """Check if database backend should be used for state."""
     try:
-        if _use_api_backend():
-            return False
         from src.config.settings import get_settings
         settings = get_settings()
         return settings.database.enabled and settings.database.use_db_for_state
@@ -319,17 +253,21 @@ def _get_database():
     from src.config.database import get_database
     from src.config.settings import get_settings
     settings = get_settings()
-    
-    db_path = Path(settings.database.path)
-    if not db_path.is_absolute():
-        db_path = Path(__file__).parent.parent.parent / db_path
-    
-    return get_database(db_path)
+
+    return get_database(
+        db_url=settings.database.url,
+        schema=settings.database.schema,
+        min_pool_size=settings.database.min_pool_size,
+        max_pool_size=settings.database.max_pool_size,
+        connect_timeout=settings.database.connect_timeout,
+        application_name=settings.database.application_name,
+        sslmode=settings.database.sslmode,
+    )
 
 
 def update_state_db(state: BotState) -> bool:
     """
-    Update bot state in DuckDB database.
+    Update bot state in PostgreSQL database.
     
     Args:
         state: The current bot state
@@ -408,18 +346,16 @@ def update_state_db(state: BotState) -> bool:
 
 def read_state_db() -> BotState:
     """
-    Read bot state from DuckDB database.
+    Read bot state from PostgreSQL database.
     
     Returns:
         Current bot state (or default state if database unavailable)
     """
     try:
         db = _get_database()
-        
-        # Get main state
+
         state_dict = db.get_bot_state()
-        
-        # Get positions
+
         positions_data = db.get_positions()
         positions = [
             Position(
@@ -432,8 +368,7 @@ def read_state_db() -> BotState:
             )
             for p in positions_data
         ]
-        
-        # Get orders
+
         orders_data = db.get_orders()
         orders = [
             Order(
@@ -449,14 +384,13 @@ def read_state_db() -> BotState:
             )
             for o in orders_data
         ]
-        
-        # Get recent logs
+
         logs_data = db.get_recent_logs(50)
         recent_logs = [
             f"[{log['timestamp']}] [{log['level']}] {log['message']}"
             for log in logs_data
         ]
-        
+
         return BotState(
             status=state_dict.get("status", BotStatus.STOPPED.value),
             tws_connected=state_dict.get("tws_connected", False),
@@ -474,7 +408,7 @@ def read_state_db() -> BotState:
             trades_today=state_dict.get("trades_today", 0),
             win_rate_today=state_dict.get("win_rate_today", 0.0),
         )
-        
+
     except Exception as e:
         logger.error(f"Failed to read state from database: {e}")
         return BotState()
@@ -484,7 +418,7 @@ def update_state(state: BotState, state_file: Path = DEFAULT_STATE_FILE) -> bool
     """
     Update the bot state (called by bot).
     
-    Uses DuckDB database if enabled, otherwise falls back to JSON file
+    Uses PostgreSQL database if enabled, otherwise falls back to JSON file
     with file locking to prevent race conditions.
     
     Args:
@@ -494,36 +428,27 @@ def update_state(state: BotState, state_file: Path = DEFAULT_STATE_FILE) -> bool
     Returns:
         True if update successful, False otherwise
     """
-    # Prefer API backend if configured
-    if _use_api_backend():
-        if _post_state_to_api(state):
-            return True
-        logger.warning("API state update failed, falling back to JSON file")
-
     # Try database if enabled
     if _use_database():
         if update_state_db(state):
             return True
         logger.warning("Database update failed, falling back to JSON file")
-    
+
     # JSON file fallback
     try:
-        # Ensure directory exists
         state_file.parent.mkdir(parents=True, exist_ok=True)
-        
-        # Update timestamp
+
         state.last_update = datetime.now().isoformat()
-        
-        # Write with file locking
+
         with open(state_file, 'w') as f:
             fcntl.flock(f.fileno(), fcntl.LOCK_EX)
             try:
                 json.dump(state.to_dict(), f, indent=2)
             finally:
                 fcntl.flock(f.fileno(), fcntl.LOCK_UN)
-        
+
         return True
-        
+
     except Exception as e:
         logger.error(f"Failed to update state: {e}")
         return False
@@ -532,44 +457,37 @@ def update_state(state: BotState, state_file: Path = DEFAULT_STATE_FILE) -> bool
 def read_state(state_file: Path = DEFAULT_STATE_FILE) -> BotState:
     """
     Read the bot state (called by UI).
-    
-    Uses DuckDB database if enabled, otherwise falls back to JSON file
+
+    Uses PostgreSQL database if enabled, otherwise falls back to JSON file
     with file locking to prevent race conditions.
-    
+
     Args:
         state_file: Path to the state file (used for JSON fallback)
-        
+
     Returns:
         Current bot state (or default state if file doesn't exist)
     """
-    # Prefer API backend if configured
-    if _use_api_backend():
-        state = _fetch_state_from_api()
-        if state:
-            return state
-        logger.warning("API state read failed, falling back to JSON file")
-
     # Try database if enabled
     if _use_database():
         try:
             return read_state_db()
         except Exception as e:
             logger.warning(f"Database read failed, falling back to JSON file: {e}")
-    
+
     # JSON file fallback
     try:
         if not state_file.exists():
             return BotState()
-        
+
         with open(state_file, 'r') as f:
             fcntl.flock(f.fileno(), fcntl.LOCK_SH)
             try:
                 data = json.load(f)
             finally:
                 fcntl.flock(f.fileno(), fcntl.LOCK_UN)
-        
+
         return BotState.from_dict(data)
-        
+
     except json.JSONDecodeError as e:
         logger.warning(f"Invalid state file, returning default: {e}")
         return BotState()
@@ -652,9 +570,6 @@ def check_start_command() -> bool:
     Returns:
         True if start command is present
     """
-    if _use_api_backend():
-        return bool(_consume_commands("START"))
-
     # Check database first if enabled
     if _use_database():
         try:
@@ -662,8 +577,6 @@ def check_start_command() -> bool:
             commands = db.get_pending_commands()
             for cmd in commands:
                 if cmd["command"] == "START":
-                    # Mark as processed handled by caller or db logic?
-                    # For now just return True, caller might need to acknowledge
                     return True
         except Exception:
             pass
@@ -677,14 +590,12 @@ def check_start_command() -> bool:
 
 def clear_start_command() -> None:
     """Clear the start command."""
-    if _use_api_backend():
-        _clear_commands_via_api()
-        return
-
     if _use_database():
         try:
             db = _get_database()
-            db.mark_command_processed("START")
+            for cmd in db.get_pending_commands():
+                if cmd["command"] == "START":
+                    db.mark_command_processed(cmd["id"])
         except Exception:
             pass
             
@@ -739,7 +650,7 @@ def write_emergency_stop() -> bool:
             return True
         except Exception as e:
             logger.warning(f"Failed to write emergency stop to database: {e}")
-    
+
     # File-based fallback
     try:
         EMERGENCY_STOP_FILE.parent.mkdir(parents=True, exist_ok=True)
@@ -763,9 +674,6 @@ def check_stop_signal() -> bool:
     Returns:
         True if stop signal is present
     """
-    if _use_api_backend():
-        return bool(_consume_commands("STOP"))
-
     # Check database first if enabled
     if _use_database():
         try:
@@ -780,64 +688,26 @@ def check_stop_signal() -> bool:
     return STOP_SIGNAL_FILE.exists()
 
 
-def clear_stop_signals() -> None:
-    """Clear all stop signals."""
-    if _use_api_backend():
-        _clear_commands_via_api()
-        return
-
-    if _use_database():
-        try:
-            db = _get_database()
-            db.mark_command_processed("STOP")
-            db.mark_command_processed("EMERGENCY_STOP")
-        except Exception:
-            pass
-            
-    if STOP_SIGNAL_FILE.exists():
-        try:
-            STOP_SIGNAL_FILE.unlink()
-        except OSError:
-            pass
-            
-    if EMERGENCY_STOP_FILE.exists():
-        try:
-            EMERGENCY_STOP_FILE.unlink()
-        except OSError:
-            pass
-
-
 def check_emergency_stop() -> Optional[Dict[str, Any]]:
     """
     Check if emergency stop signal exists (called by bot).
-    
+
     Returns:
         Emergency stop data if present, None otherwise
     """
-    if _use_api_backend():
-        commands = _consume_commands("EMERGENCY_STOP")
-        if commands:
-            return commands[0].get("payload") or {
-                "cancel_orders": True,
-                "flatten_positions": True,
-            }
-        return None
-
-    # Check database first if enabled
     if _use_database():
         try:
             db = _get_database()
             commands = db.get_pending_commands()
             for cmd in commands:
                 if cmd["command"] == "EMERGENCY_STOP":
-                    return cmd.get("payload", {
-                        "cancel_orders": True,
-                        "flatten_positions": True,
-                    })
+                    return cmd.get(
+                        "payload",
+                        {"cancel_orders": True, "flatten_positions": True},
+                    )
         except Exception:
             pass
-    
-    # File-based fallback
+
     try:
         if EMERGENCY_STOP_FILE.exists():
             with open(EMERGENCY_STOP_FILE, 'r') as f:
@@ -849,21 +719,15 @@ def check_emergency_stop() -> Optional[Dict[str, Any]]:
 
 def clear_stop_signals() -> None:
     """Clear all stop signal files and database commands."""
-    if _use_api_backend():
-        _clear_commands_via_api()
-        return
-
-    # Clear database commands if enabled
     if _use_database():
         try:
             db = _get_database()
-            # Mark all pending commands as processed
             for cmd in db.get_pending_commands():
-                db.mark_command_processed(cmd["id"])
+                if cmd["command"] in {"START", "STOP", "EMERGENCY_STOP"}:
+                    db.mark_command_processed(cmd["id"])
         except Exception as e:
             logger.warning(f"Failed to clear database commands: {e}")
-    
-    # Clear files
+
     try:
         if STOP_SIGNAL_FILE.exists():
             STOP_SIGNAL_FILE.unlink()

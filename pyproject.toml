@@ -12,7 +12,7 @@ authors = [
 dependencies = [
     # Core Trading Engine
     "nautilus_trader>=1.180.0",
-    "nautilus_ibapi>=10.37.0",  # Repackaged ibapi for Nautilus compatibility
+    "nautilus_ibapi==10.30.1",  # Match Nautilus Trader IB adapter expectations
     # UI Framework
     "plotly>=5.18.0",
     # API Framework
@@ -31,7 +31,8 @@ dependencies = [
     "pytz>=2023.0",
     "requests>=2.31.0",
     # Database
-    "duckdb>=1.0.0",
+    "psycopg[binary]>=3.1.18",
+    "psycopg-pool>=3.2.0",
     "python-multipart>=0.0.22",
 ]
 

@@ -159,7 +159,7 @@
 					type="number"
 					min="0"
 					bind:value={twsClientId}
-					placeholder="1"
+					placeholder="67"
 					on:blur={() => void persistIbConfig()}
 				/>
 			</label>

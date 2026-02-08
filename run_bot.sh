@@ -52,6 +52,7 @@ echo "============================================================"
 echo "        TWS TRADERBOT - Live Trading Runner"
 echo "============================================================"
 echo ""
+log_info "Container runs: podman-compose -f docker-compose.prod.yml up -d bot"
 
 # Check if uv is installed
 if ! command -v uv &> /dev/null; then

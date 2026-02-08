@@ -47,10 +47,16 @@ auth:
   username: "admin"
   password: "change-me"
 
-# Database Configuration (DuckDB)
+# Database Configuration (PostgreSQL)
 database:
-  enabled: true                      # Enable DuckDB backend for config and state
-  path: "data/traderbot.duckdb"      # Path to database file (relative to project root)
+  enabled: true
+  url: "postgresql://traderbot:traderbot@localhost:5432/traderbot"
+  schema: "public"
+  connect_timeout: 5
+  min_pool_size: 1
+  max_pool_size: 5
+  sslmode: "prefer"
+  application_name: "tws_traderbot"
   sync_on_start: true                # Sync YAML config to database on startup
   use_db_for_state: true             # Use database for bot state instead of JSON files
 

@@ -1,11 +1,12 @@
 """
 Configuration management for the Trading Bot.
 
-Loads settings from YAML files, environment variables, and DuckDB database,
+Loads settings from YAML files, environment variables, and PostgreSQL database,
 providing typed dataclasses for easy access.
 """
 
 import os
+import sys
 import yaml
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
@@ -78,9 +79,15 @@ class AuthConfig:
 
 @dataclass
 class DatabaseConfig:
-    """DuckDB database configuration."""
+    """PostgreSQL database configuration."""
     enabled: bool = True
-    path: str = "data/traderbot.duckdb"
+    url: str = "postgresql://traderbot:traderbot@localhost:5432/traderbot"
+    schema: str = "public"
+    connect_timeout: int = 5
+    min_pool_size: int = 1
+    max_pool_size: int = 5
+    sslmode: str = "prefer"
+    application_name: str = "tws_traderbot"
     sync_on_start: bool = True  # Sync YAML config to DB on startup
     use_db_for_state: bool = True  # Use DB for bot state instead of JSON files
 
@@ -221,6 +228,14 @@ class ConfigLoader:
             "AUTH_ENABLED": ("auth", "enabled"),
             "AUTH_USERNAME": ("auth", "username"),
             "AUTH_PASSWORD": ("auth", "password"),
+            "DATABASE_URL": ("database", "url"),
+            "POSTGRES_URL": ("database", "url"),
+            "DB_SCHEMA": ("database", "schema"),
+            "DB_CONNECT_TIMEOUT": ("database", "connect_timeout"),
+            "DB_MIN_POOL_SIZE": ("database", "min_pool_size"),
+            "DB_MAX_POOL_SIZE": ("database", "max_pool_size"),
+            "DB_SSLMODE": ("database", "sslmode"),
+            "DB_APP_NAME": ("database", "application_name"),
             "NOTIFICATIONS_ENABLED": ("notifications", "enabled"),
             "TELEGRAM_ENABLED": ("notifications", "telegram", "enabled"),
             "TELEGRAM_BOT_TOKEN": ("notifications", "telegram", "bot_token"),
@@ -312,7 +327,16 @@ class ConfigLoader:
             ),
             database=DatabaseConfig(
                 enabled=database_cfg.get("enabled", True),
-                path=database_cfg.get("path", "data/traderbot.duckdb"),
+                url=database_cfg.get(
+                    "url",
+                    "postgresql://traderbot:traderbot@localhost:5432/traderbot",
+                ),
+                schema=database_cfg.get("schema", "public"),
+                connect_timeout=database_cfg.get("connect_timeout", 5),
+                min_pool_size=database_cfg.get("min_pool_size", 1),
+                max_pool_size=database_cfg.get("max_pool_size", 5),
+                sslmode=database_cfg.get("sslmode", "prefer"),
+                application_name=database_cfg.get("application_name", "tws_traderbot"),
                 sync_on_start=database_cfg.get("sync_on_start", True),
                 use_db_for_state=database_cfg.get("use_db_for_state", True),
             ),
@@ -348,11 +372,11 @@ def load_config(config_dir: Optional[Path] = None, sync_to_db: bool = True) -> S
     """Load configuration and return Settings object.
     
     This is the main entry point for loading configuration.
-    Configuration is loaded from YAML files first, then optionally synced to DuckDB.
+    Configuration is loaded from YAML files first, then optionally synced to PostgreSQL.
     
     Args:
         config_dir: Optional path to config directory. Defaults to project's config/ folder.
-        sync_to_db: Whether to sync configuration to DuckDB (default: True).
+        sync_to_db: Whether to sync configuration to PostgreSQL (default: True).
         
     Returns:
         Settings object with all configuration values.
@@ -364,12 +388,14 @@ def load_config(config_dir: Optional[Path] = None, sync_to_db: bool = True) -> S
     if sync_to_db and settings.database.enabled and settings.database.sync_on_start:
         try:
             from src.config.database import get_database
-            db_path = Path(settings.database.path)
-            if not db_path.is_absolute():
-                db_path = loader.project_root / db_path
-            
             db = get_database(
-                db_path,
+                db_url=settings.database.url,
+                schema=settings.database.schema,
+                min_pool_size=settings.database.min_pool_size,
+                max_pool_size=settings.database.max_pool_size,
+                connect_timeout=settings.database.connect_timeout,
+                application_name=settings.database.application_name,
+                sslmode=settings.database.sslmode,
             )
             
             # Sync each configuration section to database
@@ -390,26 +416,20 @@ def load_config(config_dir: Optional[Path] = None, sync_to_db: bool = True) -> S
     return settings
 
 
-def load_config_from_db(db_path: Optional[Path] = None) -> Optional[Settings]:
-    """Load configuration from DuckDB database.
-    
+def load_config_from_db(db_url: Optional[str] = None, schema: Optional[str] = None) -> Optional[Settings]:
+    """Load configuration from PostgreSQL database.
+
     Args:
-        db_path: Path to the database file.
-        
+        db_url: Database URL.
+        schema: Database schema name.
+
     Returns:
         Settings object if database exists and has config, None otherwise.
     """
     try:
         from src.config.database import get_database
         
-        if db_path is None:
-            # Try default location
-            db_path = Path(__file__).parent.parent.parent / "data" / "traderbot.duckdb"
-        
-        if not db_path.exists():
-            return None
-        
-        db = get_database(db_path)
+        db = get_database(db_url=db_url, schema=schema or "public")
         config = db.get_all_config()
         
         if not config:
@@ -462,7 +482,12 @@ def get_settings(force_reload: bool = False) -> Settings:
     """
     global _settings
     if _settings is None or force_reload:
-        _settings = load_config()
+        sync_to_db = "pytest" not in sys.modules
+        _settings = load_config(sync_to_db=sync_to_db)
+        if "pytest" in sys.modules:
+            _settings.database.enabled = False
+            _settings.database.use_db_for_state = False
+            _settings.database.sync_on_start = False
     return _settings
 
 
@@ -478,7 +503,7 @@ def update_setting(section: str, key: str, value: Any) -> None:
     if settings.database.enabled:
         try:
             from src.config.database import get_database
-            db = get_database()
+            db = get_database(db_url=settings.database.url, schema=settings.database.schema)
             db.set_config(section, key, value)
         except Exception as e:
             import logging

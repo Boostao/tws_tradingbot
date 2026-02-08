@@ -2,7 +2,7 @@
   auto_https off
 }
 
-http://cazpe.com {
+http://{$CADDY_HOSTS:localhost cazpe.com} {
   encode zstd gzip
 
   @api path /api/* /health /ws/*

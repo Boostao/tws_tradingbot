@@ -1,11 +1,9 @@
-"""
-Tests for the DuckDB database backend.
-"""
+"""Tests for the PostgreSQL database backend."""
 
 import pytest
-import tempfile
-from pathlib import Path
+import os
 from datetime import datetime
+from uuid import uuid4
 
 from src.config.database import DatabaseManager, get_database, reset_database_instance
 
@@ -13,12 +11,16 @@ from src.config.database import DatabaseManager, get_database, reset_database_in
 @pytest.fixture
 def temp_db():
     """Create a temporary database for testing."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        db_path = Path(tmpdir) / "test.duckdb"
-        reset_database_instance()  # Clear any cached instance
-        db = DatabaseManager(db_path)
-        yield db
-        reset_database_instance()
+    db_url = os.getenv("TEST_DATABASE_URL") or os.getenv("DATABASE_URL")
+    if not db_url:
+        pytest.skip("TEST_DATABASE_URL or DATABASE_URL not set")
+
+    schema = f"test_{uuid4().hex[:8]}"
+    reset_database_instance()
+    db = DatabaseManager(db_url=db_url, schema=schema)
+    yield db
+    db.drop_schema()
+    reset_database_instance()
 
 
 class TestDatabaseConfig:

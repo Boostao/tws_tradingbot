@@ -1,11 +1,25 @@
 version: "3.9"
 
 services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: traderbot
+      POSTGRES_PASSWORD: traderbot
+      POSTGRES_DB: traderbot
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
   api:
     build: .
+    depends_on:
+      - db
     environment:
       IB_HOST: 127.0.0.1
       IB_PORT: 4002
+      DATABASE_URL: postgresql://traderbot:traderbot@db:5432/traderbot
     ports:
       - "8000:8000"
     command: ["bash", "./run_api.sh"]
@@ -22,8 +36,13 @@ services:
 
   bot:
     build: .
+    depends_on:
+      - db
     environment:
       IB_HOST: 127.0.0.1
       IB_PORT: 4002
-      BOT_API_URL: http://api:8000/api/v1
+      DATABASE_URL: postgresql://traderbot:traderbot@db:5432/traderbot
     command: ["bash", "./run_bot.sh"]
+
+volumes:
+  postgres_data:

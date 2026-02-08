@@ -1,18 +1,33 @@
 services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: traderbot
+      POSTGRES_PASSWORD: traderbot
+      POSTGRES_DB: traderbot
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
   api:
     build: .
     restart: unless-stopped
+    depends_on:
+      - db
     environment:
       IB_HOST: host.docker.internal
-      IB_PORT: 4002
-      API_CORS_ORIGINS: https://cazpe.com
+      IB_PORT: 7497
+      IB_ACCOUNT: ${IB_ACCOUNT:-DUO185814}
+      TWS_ACCOUNT: ${IB_ACCOUNT:-DUO185814}
+      API_CORS_ORIGINS: ${API_CORS_ORIGINS:-http://localhost,https://cazpe.com}
+      DATABASE_URL: postgresql://traderbot:traderbot@db:5432/traderbot
     volumes:
-      - ./config:/app/config
-      - ./data:/app/data
-      - ./logs:/app/logs
+      - ./config:/app/config:z,U
+      - ./data:/app/data:z,U
+      - ./logs:/app/logs:z,U
     extra_hosts:
       - "host.docker.internal:host-gateway"
-    command: ["bash", "-lc", "uv run uvicorn src.api.main:app --host 0.0.0.0 --port 8000"]
+    command: ["bash", "-lc", "/app/.venv/bin/uvicorn src.api.main:app --host 0.0.0.0 --port 8000"]
 
   web:
     build:
@@ -21,22 +36,28 @@ services:
     depends_on:
       - api
     environment:
-      VITE_API_URL: https://cazpe.com
+      VITE_API_URL: ${VITE_API_URL:-http://localhost:8080}
+      HOST: 0.0.0.0
+      PORT: 5173
 
   bot:
     build: .
     restart: unless-stopped
+    depends_on:
+      - db
     environment:
       IB_HOST: host.docker.internal
-      IB_PORT: 4002
-      BOT_API_URL: http://api:8000/api/v1
+      IB_PORT: 7497
+      IB_ACCOUNT: ${IB_ACCOUNT:-DUO185814}
+      TWS_ACCOUNT: ${IB_ACCOUNT:-DUO185814}
+      DATABASE_URL: postgresql://traderbot:traderbot@db:5432/traderbot
     volumes:
-      - ./config:/app/config
-      - ./data:/app/data
-      - ./logs:/app/logs
+      - ./config:/app/config:z,U
+      - ./data:/app/data:z,U
+      - ./logs:/app/logs:z,U
     extra_hosts:
       - "host.docker.internal:host-gateway"
-    command: ["bash", "-lc", "uv run python -m src.bot.live_runner"]
+    command: ["bash", "-lc", "/app/.venv/bin/python -m src.bot.live_runner"]
 
   caddy:
     image: caddy:2
@@ -45,12 +66,15 @@ services:
       - web
       - api
     ports:
-      - "80:80"
+      - "8080:80"
     volumes:
-      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro,Z
       - caddy_data:/data
       - caddy_config:/config
+    environment:
+      CADDY_HOSTS: ${CADDY_HOSTS:-localhost cazpe.com}
 
 volumes:
   caddy_data:
   caddy_config:
+  postgres_data:

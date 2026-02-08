@@ -33,6 +33,29 @@ def _parse_datetime(value: Optional[str]) -> Optional[datetime]:
         return None
 
 
+def _is_runner_active(state: Dict[str, Any]) -> bool:
+    now = datetime.now(timezone.utc)
+    candidates: list[datetime] = []
+
+    for key in ("last_heartbeat", "last_update"):
+        value = state.get(key)
+        if not value:
+            continue
+        try:
+            parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=timezone.utc)
+            candidates.append(parsed)
+        except (ValueError, TypeError):
+            continue
+
+    if not candidates:
+        return False
+
+    age = (now - max(candidates)).total_seconds()
+    return age < 15
+
+
 def _read_state_from_db() -> Dict[str, Any]:
     db = get_database()
     state = db.get_bot_state() or {}
@@ -110,25 +133,9 @@ def _ingest_state_to_db(state: Dict[str, Any]) -> None:
 @router.get("/state")
 def get_state():
     state = read_state().to_dict()
-    
-    # Check if runner is active based on last_heartbeat freshness
-    # We use last_heartbeat to track the runner process separately from data updates
-    runner_active = False
-    last_heartbeat = state.get("last_heartbeat")
-    
-    if last_heartbeat:
-        try:
-            # Handle ISO formats with or without Z/offset
-            last_dt = datetime.fromisoformat(last_heartbeat.replace("Z", "+00:00"))
-            if last_dt.tzinfo is None:
-                last_dt = last_dt.replace(tzinfo=timezone.utc)
-            
-            # Check if updated within last 15 seconds
-            age = (datetime.now(timezone.utc) - last_dt).total_seconds()
-            runner_active = age < 15
-        except (ValueError, TypeError):
-            pass
-            
+
+    # Check runner activity based on the freshest heartbeat or state update.
+    runner_active = _is_runner_active(state)
     state["runner_active"] = runner_active
 
     if not state.get("active_strategy"):
@@ -400,22 +407,16 @@ def get_logs():
 def start_bot():
     # Check if runner is active before allowing start
     state = read_state()
-    last_update = state.last_update
-    runner_active = False
-    if last_update:
-        try:
-            last_dt = datetime.fromisoformat(last_update.replace("Z", "+00:00"))
-            if last_dt.tzinfo is None:
-                last_dt = last_dt.replace(tzinfo=timezone.utc)
-            age = (datetime.now(timezone.utc) - last_dt).total_seconds()
-            runner_active = age < 15
-        except Exception:
-            pass
+    runner_active = _is_runner_active(state.to_dict())
             
     if not runner_active:
         raise HTTPException(
-            status_code=503, 
-            detail="Bot runner process is not connected. Please run './run_bot.sh' in a terminal."
+            status_code=503,
+            detail=(
+                "Bot runner process is not connected. "
+                "Start the bot container (podman-compose -f docker-compose.prod.yml up -d bot) "
+                "or run ./run_bot.sh locally."
+            ),
         )
 
     clear_stop_signals()
@@ -432,22 +433,16 @@ def start_bot():
 def stop_bot():
     # Only allow stop if runner is active
     state = read_state()
-    last_update = state.last_update
-    runner_active = False
-    if last_update:
-        try:
-            last_dt = datetime.fromisoformat(last_update.replace("Z", "+00:00"))
-            if last_dt.tzinfo is None:
-                last_dt = last_dt.replace(tzinfo=timezone.utc)
-            age = (datetime.now(timezone.utc) - last_dt).total_seconds()
-            runner_active = age < 15
-        except Exception:
-            pass
+    runner_active = _is_runner_active(state.to_dict())
             
     if not runner_active:
         raise HTTPException(
-            status_code=503, 
-            detail="Bot runner process is not connected. Please run './run_bot.sh' in a terminal."
+            status_code=503,
+            detail=(
+                "Bot runner process is not connected. "
+                "Start the bot container (podman-compose -f docker-compose.prod.yml up -d bot) "
+                "or run ./run_bot.sh locally."
+            ),
         )
 
     write_stop_signal()

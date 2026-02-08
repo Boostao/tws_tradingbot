@@ -1,4 +1,3 @@
-# TWS Traderbot Watchlist
 TSLA:NASDAQ
 AAPL:NASDAQ
 MSFT:NASDAQ

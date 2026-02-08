@@ -81,6 +81,7 @@ IB_HOST=127.0.0.1
 IB_PORT=7497          # 7497 for paper, 7496 for live
 IB_CLIENT_ID=1
 IB_ACCOUNT=your_account_id
+DATABASE_URL=postgresql://traderbot:traderbot@localhost:5432/traderbot
 ```
 
 ## 🎯 Quick Start
@@ -126,13 +127,13 @@ Or use the convenience script:
 
 ## 🐳 Docker / Compose
 
-Run API, SvelteKit web app, and bot together:
+Run API, SvelteKit web app, bot, and PostgreSQL together:
 
 ```bash
 docker compose up --build
 ```
 
-This uses the local DuckDB file in `data/traderbot.duckdb` by default.
+This uses the bundled PostgreSQL service by default.
 
 ## 🌐 VPS Deployment (Docker + HTTPS)
 
@@ -154,6 +155,7 @@ Notes:
 - `docker-compose.prod.yml` expects TWS/IB Gateway on the VPS host. Containers connect via `host.docker.internal`.
 - Update the `IB_PORT` if you use live trading (7496).
 - If you change the domain, update `deploy/Caddyfile` and `VITE_API_URL` in `docker-compose.prod.yml`.
+ - Set `DATABASE_URL` if you want to point at an external PostgreSQL instance.
 
 ## 🧪 Strategy Optimization (Optuna)
 

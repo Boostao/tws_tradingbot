@@ -675,7 +675,9 @@ class TWSDataProvider:
             client_id: Client ID for this connection
         """
         if not IBAPI_AVAILABLE:
-            raise ImportError("ibapi not installed. Install with: pip install nautilus_ibapi")
+            raise ImportError(
+                "ibapi not installed (module name: ibapi). Install with: pip install nautilus-ibapi"
+            )
         
         settings = get_settings()
         self.host = host or settings.ib.host
@@ -1536,7 +1538,9 @@ def get_tws_provider() -> TWSDataProvider:
     """Get or create the global TWS data provider instance."""
     global _tws_provider
     if _tws_provider is None:
-        _tws_provider = TWSDataProvider()
+        settings = get_settings()
+        default_client_id = settings.ib.client_id + 10
+        _tws_provider = TWSDataProvider(client_id=default_client_id)
     return _tws_provider
 
 

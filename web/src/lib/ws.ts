@@ -1,4 +1,10 @@
-export const WS_BASE = (import.meta.env.VITE_API_URL ?? 'http://localhost:8000').replace(/^http/, 'ws');
+const DEFAULT_API_BASE = 'http://localhost:8000';
+
+const apiBase =
+	import.meta.env.VITE_API_URL ??
+	(typeof window !== 'undefined' ? window.location.origin : DEFAULT_API_BASE);
+
+export const WS_BASE = apiBase.replace(/^http/, 'ws');
 
 type WSHandlers = {
 	onMessage: (event: MessageEvent) => void;

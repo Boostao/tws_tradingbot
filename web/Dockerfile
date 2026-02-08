@@ -15,10 +15,9 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
 
-COPY --from=build /app/.svelte-kit /app/.svelte-kit
 COPY --from=build /app/build /app/build
 COPY --from=build /app/static /app/static
 
 EXPOSE 5173
 
-CMD ["npm", "run", "preview", "--", "--host", "0.0.0.0", "--port", "5173"]
+CMD ["node", "build"]

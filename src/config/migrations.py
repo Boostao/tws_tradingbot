@@ -2,7 +2,7 @@
 Database Migration and Management Utilities.
 
 Provides tools for migrating existing JSON-based state and config
-to the DuckDB backend, and general database management commands.
+to the PostgreSQL backend, and general database management commands.
 """
 
 import json
@@ -16,14 +16,16 @@ logger = logging.getLogger(__name__)
 
 def migrate_json_state_to_db(
     json_state_file: Optional[Path] = None,
-    db_path: Optional[Path] = None,
+    db_url: Optional[str] = None,
+    schema: Optional[str] = None,
 ) -> bool:
     """
-    Migrate existing JSON state file to DuckDB database.
+    Migrate existing JSON state file to PostgreSQL database.
     
     Args:
         json_state_file: Path to the JSON state file
-        db_path: Path to the DuckDB database
+        db_url: Database URL
+        schema: Database schema name
         
     Returns:
         True if migration successful
@@ -48,7 +50,7 @@ def migrate_json_state_to_db(
         state = BotState.from_dict(data)
         
         # Get database connection
-        db = get_database(db_path)
+        db = get_database(db_url=db_url, schema=schema or "public")
         
         # Migrate bot state
         db.update_bot_state(
@@ -113,14 +115,16 @@ def migrate_json_state_to_db(
 
 def export_db_to_json(
     output_file: Path,
-    db_path: Optional[Path] = None,
+    db_url: Optional[str] = None,
+    schema: Optional[str] = None,
 ) -> bool:
     """
     Export database state to JSON file.
     
     Args:
         output_file: Path to write JSON output
-        db_path: Path to the DuckDB database
+        db_url: Database URL
+        schema: Database schema name
         
     Returns:
         True if export successful
@@ -128,7 +132,7 @@ def export_db_to_json(
     from src.config.database import get_database
     
     try:
-        db = get_database(db_path)
+        db = get_database(db_url=db_url, schema=schema or "public")
         
         # Gather all data
         export_data = {
@@ -154,14 +158,19 @@ def export_db_to_json(
         return False
 
 
-def reset_database(db_path: Optional[Path] = None, confirm: bool = False) -> bool:
+def reset_database(
+    db_url: Optional[str] = None,
+    schema: Optional[str] = None,
+    confirm: bool = False,
+) -> bool:
     """
     Reset the database to initial state.
     
     WARNING: This will delete all data!
     
     Args:
-        db_path: Path to the DuckDB database
+        db_url: Database URL
+        schema: Database schema name
         confirm: Must be True to proceed
         
     Returns:
@@ -174,7 +183,7 @@ def reset_database(db_path: Optional[Path] = None, confirm: bool = False) -> boo
     from src.config.database import get_database, reset_database_instance
     
     try:
-        db = get_database(db_path)
+        db = get_database(db_url=db_url, schema=schema or "public")
         
         # Reset all tables
         db.reset_bot_state()
@@ -183,10 +192,13 @@ def reset_database(db_path: Optional[Path] = None, confirm: bool = False) -> boo
         db.clear_logs()
         db.clear_commands()
         
-        # Clear config (will be re-synced from YAML)
         with db.get_connection() as conn:
-            conn.execute("DELETE FROM config")
-            conn.execute("DELETE FROM trade_history")
+            conn.execute(
+                """
+                TRUNCATE config, positions, orders, logs, notifications,
+                         bot_commands, trade_history RESTART IDENTITY
+                """
+            )
         
         logger.info("Database reset successfully")
         return True
@@ -196,12 +208,13 @@ def reset_database(db_path: Optional[Path] = None, confirm: bool = False) -> boo
         return False
 
 
-def get_database_stats(db_path: Optional[Path] = None) -> dict:
+def get_database_stats(db_url: Optional[str] = None, schema: Optional[str] = None) -> dict:
     """
     Get statistics about the database.
     
     Args:
-        db_path: Path to the DuckDB database
+        db_url: Database URL
+        schema: Database schema name
         
     Returns:
         Dictionary with database statistics
@@ -209,7 +222,7 @@ def get_database_stats(db_path: Optional[Path] = None) -> dict:
     from src.config.database import get_database
     
     try:
-        db = get_database(db_path)
+        db = get_database(db_url=db_url, schema=schema or "public")
         
         with db.get_connection() as conn:
             stats = {
@@ -219,8 +232,11 @@ def get_database_stats(db_path: Optional[Path] = None) -> dict:
                 "logs": conn.execute("SELECT COUNT(*) FROM logs").fetchone()[0],
                 "pending_commands": conn.execute("SELECT COUNT(*) FROM bot_commands WHERE processed = FALSE").fetchone()[0],
                 "trades_total": conn.execute("SELECT COUNT(*) FROM trade_history").fetchone()[0],
-                "database_path": str(db.db_path),
-                "database_size_mb": db.db_path.stat().st_size / (1024 * 1024) if db.db_path.exists() else 0,
+                "database_name": conn.execute("SELECT current_database()").fetchone()[0],
+                "database_schema": db.schema,
+                "database_size_mb": conn.execute(
+                    "SELECT pg_database_size(current_database())"
+                ).fetchone()[0] / (1024 * 1024),
             }
             
             # Get bot state summary
@@ -235,12 +251,13 @@ def get_database_stats(db_path: Optional[Path] = None) -> dict:
         return {"error": str(e)}
 
 
-def verify_database_integrity(db_path: Optional[Path] = None) -> dict:
+def verify_database_integrity(db_url: Optional[str] = None, schema: Optional[str] = None) -> dict:
     """
     Verify database integrity and check for issues.
     
     Args:
-        db_path: Path to the DuckDB database
+        db_url: Database URL
+        schema: Database schema name
         
     Returns:
         Dictionary with integrity check results
@@ -255,18 +272,27 @@ def verify_database_integrity(db_path: Optional[Path] = None) -> dict:
     }
     
     try:
-        db = get_database(db_path)
+        db = get_database(db_url=db_url, schema=schema or "public")
         
         with db.get_connection() as conn:
             # Check all expected tables exist
             expected_tables = [
-                "config", "bot_state", "positions", "orders",
-                "logs", "bot_commands", "trade_history"
+                "config",
+                "bot_state",
+                "positions",
+                "orders",
+                "logs",
+                "notifications",
+                "bot_commands",
+                "trade_history",
             ]
             
             existing_tables = [
                 row[0] for row in 
-                conn.execute("SELECT table_name FROM information_schema.tables WHERE table_schema = 'main'").fetchall()
+                conn.execute(
+                    "SELECT table_name FROM information_schema.tables WHERE table_schema = %s",
+                    [db.schema],
+                ).fetchall()
             ]
             
             for table in expected_tables:
@@ -306,31 +332,32 @@ if __name__ == "__main__":
     
     parser = argparse.ArgumentParser(description="Database management utilities")
     parser.add_argument("command", choices=["migrate", "export", "reset", "stats", "verify"])
-    parser.add_argument("--db-path", type=Path, help="Path to DuckDB database")
+    parser.add_argument("--db-url", help="PostgreSQL URL")
+    parser.add_argument("--schema", help="Database schema name")
     parser.add_argument("--json-file", type=Path, help="JSON file path (for migrate/export)")
     parser.add_argument("--confirm", action="store_true", help="Confirm destructive operations")
     
     args = parser.parse_args()
     
     if args.command == "migrate":
-        success = migrate_json_state_to_db(args.json_file, args.db_path)
+        success = migrate_json_state_to_db(args.json_file, args.db_url, args.schema)
         sys.exit(0 if success else 1)
     
     elif args.command == "export":
         if not args.json_file:
             args.json_file = Path("data/db_export.json")
-        success = export_db_to_json(args.json_file, args.db_path)
+        success = export_db_to_json(args.json_file, args.db_url, args.schema)
         sys.exit(0 if success else 1)
     
     elif args.command == "reset":
-        success = reset_database(args.db_path, confirm=args.confirm)
+        success = reset_database(args.db_url, args.schema, confirm=args.confirm)
         sys.exit(0 if success else 1)
     
     elif args.command == "stats":
-        stats = get_database_stats(args.db_path)
+        stats = get_database_stats(args.db_url, args.schema)
         print(json.dumps(stats, indent=2, default=str))
     
     elif args.command == "verify":
-        results = verify_database_integrity(args.db_path)
+        results = verify_database_integrity(args.db_url, args.schema)
         print(json.dumps(results, indent=2))
         sys.exit(0 if results["status"] == "OK" else 1)

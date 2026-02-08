@@ -64,7 +64,6 @@ def save_watchlist(symbols: List[str]) -> None:
     watchlist_path = _watchlist_path()
     watchlist_path.parent.mkdir(parents=True, exist_ok=True)
     with open(watchlist_path, "w") as f:
-        f.write("# TWS Traderbot Watchlist\n")
         for symbol in symbols:
             if symbol.strip():
                 f.write(f"{symbol.upper()}\n")

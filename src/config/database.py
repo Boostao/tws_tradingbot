@@ -1,301 +1,296 @@
 """
-DuckDB Database Backend for Configuration and State Management.
+Postgres Database Backend for Configuration and State Management.
 
 Provides a persistent database layer for storing configuration settings,
-bot state, positions, orders, and trading history using DuckDB.
+bot state, positions, orders, and trading history using PostgreSQL.
 """
 
 import json
 import logging
-import threading
+import os
 from contextlib import contextmanager
 from datetime import datetime
-from pathlib import Path
 from typing import Any, Dict, Generator, List, Optional
 
-import duckdb
+from psycopg import sql
+from psycopg.conninfo import make_conninfo
+from psycopg.types.json import Jsonb
+from psycopg_pool import ConnectionPool
 
 logger = logging.getLogger(__name__)
 
-# Default database path
-DEFAULT_DB_PATH = Path(__file__).parent.parent.parent / "data" / "traderbot.duckdb"
+DEFAULT_DB_URL = (
+    os.getenv("DATABASE_URL")
+    or os.getenv("POSTGRES_URL")
+    or "postgresql://traderbot:traderbot@localhost:5432/traderbot"
+)
 
 
 class DatabaseManager:
     """
-    Manages DuckDB database connections and operations.
+    Manages PostgreSQL connections and operations.
 
     Provides a centralized interface for storing and retrieving
     configuration, state, and trading data.
     """
 
-    def __init__(self, db_path: Optional[Path] = None):
-        """
-        Initialize the database manager.
+    def __init__(
+        self,
+        db_url: Optional[str] = None,
+        schema: str = "public",
+        min_pool_size: int = 1,
+        max_pool_size: int = 5,
+        connect_timeout: int = 5,
+        application_name: str = "tws_traderbot",
+        sslmode: str = "prefer",
+    ) -> None:
+        self.db_url = db_url or DEFAULT_DB_URL
+        self.schema = schema or "public"
+        self.min_pool_size = max(1, int(min_pool_size))
+        self.max_pool_size = max(self.min_pool_size, int(max_pool_size))
+        self.connect_timeout = max(1, int(connect_timeout))
+        self.application_name = application_name
+        self.sslmode = sslmode
+        self._schema_ready = False
 
-        Args:
-            db_path: Path to the DuckDB database file. Defaults to data/traderbot.duckdb
-        """
-        self.db_path = db_path or DEFAULT_DB_PATH
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        self._conn_lock = threading.Lock()
-        self._conn = duckdb.connect(str(self.db_path))
+        conninfo = make_conninfo(
+            self.db_url,
+            connect_timeout=self.connect_timeout,
+            application_name=self.application_name,
+            sslmode=self.sslmode,
+        )
+
+        self._pool = ConnectionPool(
+            conninfo=conninfo,
+            min_size=self.min_pool_size,
+            max_size=self.max_pool_size,
+            kwargs={"autocommit": True},
+        )
+        self._pool.open()
         self._initialize_database()
 
     @contextmanager
-    def get_connection(self) -> Generator[duckdb.DuckDBPyConnection, None, None]:
+    def get_connection(self) -> Generator[object, None, None]:
         """
         Get a database connection context manager.
 
         Yields:
             Active database connection
         """
-        with self._conn_lock:
-            yield self._conn
+        with self._pool.connection() as conn:
+            self._set_search_path(conn)
+            yield conn
+
+    def close(self) -> None:
+        """Close the connection pool."""
+        if self._pool:
+            self._pool.close()
+
+    def _set_search_path(self, conn: object) -> None:
+        if self._schema_ready and self.schema and self.schema != "public":
+            conn.execute(
+                sql.SQL("SET search_path TO {}")
+                .format(sql.Identifier(self.schema))
+            )
 
     def _initialize_database(self) -> None:
         """Initialize database schema if not exists."""
-        with self.get_connection() as conn:
-            # Configuration table - stores key-value pairs with JSON values
+        with self._pool.connection() as conn:
+            if self.schema and self.schema != "public":
+                conn.execute(
+                    sql.SQL("CREATE SCHEMA IF NOT EXISTS {}")
+                    .format(sql.Identifier(self.schema))
+                )
+                conn.execute(
+                    sql.SQL("SET search_path TO {}")
+                    .format(sql.Identifier(self.schema))
+                )
+            self._schema_ready = True
+
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS config (
-                    section VARCHAR NOT NULL,
-                    key VARCHAR NOT NULL,
-                    value JSON NOT NULL,
-                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    section TEXT NOT NULL,
+                    key TEXT NOT NULL,
+                    value JSONB NOT NULL,
+                    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
                     PRIMARY KEY (section, key)
                 )
                 """
             )
 
-            # Bot state table - current state snapshot
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS bot_state (
-                    id INTEGER PRIMARY KEY DEFAULT 1,
-                    status VARCHAR DEFAULT 'STOPPED',
+                    id INTEGER PRIMARY KEY,
+                    status TEXT DEFAULT 'STOPPED',
                     tws_connected BOOLEAN DEFAULT FALSE,
-                    equity DOUBLE DEFAULT 0.0,
-                    daily_pnl DOUBLE DEFAULT 0.0,
-                    daily_pnl_percent DOUBLE DEFAULT 0.0,
-                    total_pnl DOUBLE DEFAULT 0.0,
-                    active_strategy VARCHAR DEFAULT '',
-                    error_message VARCHAR DEFAULT '',
+                    equity DOUBLE PRECISION DEFAULT 0.0,
+                    daily_pnl DOUBLE PRECISION DEFAULT 0.0,
+                    daily_pnl_percent DOUBLE PRECISION DEFAULT 0.0,
+                    total_pnl DOUBLE PRECISION DEFAULT 0.0,
+                    active_strategy TEXT DEFAULT '',
+                    error_message TEXT DEFAULT '',
                     trades_today INTEGER DEFAULT 0,
-                    win_rate_today DOUBLE DEFAULT 0.0,
-                    last_update TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    CHECK (id = 1)
+                    win_rate_today DOUBLE PRECISION DEFAULT 0.0,
+                    last_update TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+                    last_heartbeat TIMESTAMPTZ,
+                    CONSTRAINT bot_state_singleton CHECK (id = 1)
                 )
                 """
             )
-            conn.execute(
-                "ALTER TABLE bot_state ADD COLUMN IF NOT EXISTS last_heartbeat TIMESTAMP"
-            )
 
-            # Positions table
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS positions (
-                    id INTEGER PRIMARY KEY,
-                    symbol VARCHAR NOT NULL,
-                    quantity DOUBLE NOT NULL,
-                    entry_price DOUBLE NOT NULL,
-                    current_price DOUBLE DEFAULT 0.0,
-                    unrealized_pnl DOUBLE DEFAULT 0.0,
-                    entry_time TIMESTAMP,
-                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+                    symbol TEXT NOT NULL,
+                    quantity DOUBLE PRECISION NOT NULL,
+                    entry_price DOUBLE PRECISION NOT NULL,
+                    current_price DOUBLE PRECISION DEFAULT 0.0,
+                    unrealized_pnl DOUBLE PRECISION DEFAULT 0.0,
+                    entry_time TIMESTAMPTZ,
+                    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
                 )
                 """
             )
 
-            # Create sequence for positions if not exists
-            conn.execute("CREATE SEQUENCE IF NOT EXISTS positions_seq START 1")
-
-            # Orders table
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS orders (
-                    order_id VARCHAR PRIMARY KEY,
-                    symbol VARCHAR NOT NULL,
-                    side VARCHAR NOT NULL,
-                    quantity DOUBLE NOT NULL,
-                    price DOUBLE,
-                    status VARCHAR DEFAULT 'PENDING',
-                    order_type VARCHAR DEFAULT 'MARKET',
-                    submitted_time TIMESTAMP,
-                    filled_quantity DOUBLE DEFAULT 0.0,
-                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    order_id TEXT PRIMARY KEY,
+                    symbol TEXT NOT NULL,
+                    side TEXT NOT NULL,
+                    quantity DOUBLE PRECISION NOT NULL,
+                    price DOUBLE PRECISION,
+                    status TEXT DEFAULT 'PENDING',
+                    order_type TEXT DEFAULT 'MARKET',
+                    submitted_time TIMESTAMPTZ,
+                    filled_quantity DOUBLE PRECISION DEFAULT 0.0,
+                    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
                 )
                 """
             )
 
-            # Recent logs table
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS logs (
-                    id INTEGER PRIMARY KEY,
-                    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    level VARCHAR NOT NULL,
+                    id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+                    timestamp TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+                    level TEXT NOT NULL,
                     message TEXT NOT NULL
                 )
                 """
             )
 
-            # Notifications table
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS notifications (
-                    id INTEGER PRIMARY KEY,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    level VARCHAR NOT NULL,
+                    id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+                    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+                    level TEXT NOT NULL,
                     message TEXT NOT NULL,
-                    channel VARCHAR
+                    channel TEXT
                 )
                 """
             )
 
-            # Create sequences for logs/notifications
-            conn.execute("CREATE SEQUENCE IF NOT EXISTS logs_seq START 1")
-            conn.execute("CREATE SEQUENCE IF NOT EXISTS notifications_seq START 1")
-
-            # Bot commands table
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS bot_commands (
-                    id INTEGER PRIMARY KEY,
-                    command VARCHAR NOT NULL,
-                    payload JSON,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+                    command TEXT NOT NULL,
+                    payload JSONB,
+                    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
                     processed BOOLEAN DEFAULT FALSE
                 )
                 """
             )
 
-            # Create sequence for commands if not exists
-            conn.execute("CREATE SEQUENCE IF NOT EXISTS commands_seq START 1")
-
-            # Trading history table
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS trade_history (
-                    id INTEGER PRIMARY KEY,
-                    symbol VARCHAR NOT NULL,
-                    side VARCHAR NOT NULL,
-                    quantity DOUBLE NOT NULL,
-                    price DOUBLE NOT NULL,
-                    pnl DOUBLE DEFAULT 0.0,
-                    strategy VARCHAR,
-                    executed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+                    symbol TEXT NOT NULL,
+                    side TEXT NOT NULL,
+                    quantity DOUBLE PRECISION NOT NULL,
+                    price DOUBLE PRECISION NOT NULL,
+                    pnl DOUBLE PRECISION DEFAULT 0.0,
+                    strategy TEXT,
+                    executed_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
                 )
                 """
             )
 
-            # Create sequence for trade history if not exists
-            conn.execute("CREATE SEQUENCE IF NOT EXISTS trade_history_seq START 1")
-
-            # Initialize bot state if not exists
             conn.execute(
                 """
                 INSERT INTO bot_state (id)
-                SELECT 1 WHERE NOT EXISTS (SELECT 1 FROM bot_state WHERE id = 1)
+                VALUES (1)
+                ON CONFLICT (id) DO NOTHING
                 """
             )
 
-            logger.info("Database initialized at %s", self.db_path)
+            logger.info("Database initialized (schema=%s)", self.schema)
+
+    def _decode_json(self, value: Any) -> Any:
+        if isinstance(value, str):
+            try:
+                return json.loads(value)
+            except json.JSONDecodeError:
+                return value
+        return value
 
     # =========================================================================
     # Configuration Methods
     # =========================================================================
 
     def set_config(self, section: str, key: str, value: Any) -> None:
-        """
-        Set a configuration value.
-
-        Args:
-            section: Configuration section (e.g., 'ib', 'app', 'risk')
-            key: Configuration key within the section
-            value: Value to store (will be JSON serialized)
-        """
         with self.get_connection() as conn:
             conn.execute(
                 """
                 INSERT INTO config (section, key, value, updated_at)
-                VALUES (?, ?, ?::JSON, ?)
+                VALUES (%s, %s, %s, %s)
                 ON CONFLICT (section, key)
                 DO UPDATE SET value = EXCLUDED.value, updated_at = EXCLUDED.updated_at
                 """,
-                [section, key, json.dumps(value), datetime.utcnow()],
+                [section, key, Jsonb(value), datetime.utcnow()],
             )
 
     def get_config(self, section: str, key: str, default: Any = None) -> Any:
-        """
-        Get a configuration value.
-
-        Args:
-            section: Configuration section
-            key: Configuration key
-            default: Default value if not found
-
-        Returns:
-            The configuration value or default
-        """
         with self.get_connection() as conn:
             result = conn.execute(
-                "SELECT value FROM config WHERE section = ? AND key = ?",
+                "SELECT value FROM config WHERE section = %s AND key = %s",
                 [section, key],
             ).fetchone()
 
             if result:
-                return json.loads(result[0])
+                return self._decode_json(result[0])
             return default
 
     def get_section_config(self, section: str) -> Dict[str, Any]:
-        """
-        Get all configuration values for a section.
-
-        Args:
-            section: Configuration section
-
-        Returns:
-            Dictionary of key-value pairs for the section
-        """
         with self.get_connection() as conn:
             results = conn.execute(
-                "SELECT key, value FROM config WHERE section = ?",
+                "SELECT key, value FROM config WHERE section = %s",
                 [section],
             ).fetchall()
 
-            return {row[0]: json.loads(row[1]) for row in results}
+            return {row[0]: self._decode_json(row[1]) for row in results}
 
     def set_section_config(self, section: str, config: Dict[str, Any]) -> None:
-        """
-        Set all configuration values for a section.
-
-        Args:
-            section: Configuration section
-            config: Dictionary of key-value pairs to store
-        """
         with self.get_connection() as conn:
             updated_at = datetime.utcnow()
             for key, value in config.items():
                 conn.execute(
                     """
                     INSERT INTO config (section, key, value, updated_at)
-                    VALUES (?, ?, ?::JSON, ?)
+                    VALUES (%s, %s, %s, %s)
                     ON CONFLICT (section, key)
                     DO UPDATE SET value = EXCLUDED.value, updated_at = EXCLUDED.updated_at
                     """,
-                    [section, key, json.dumps(value), updated_at],
+                    [section, key, Jsonb(value), updated_at],
                 )
 
     def get_all_config(self) -> Dict[str, Dict[str, Any]]:
-        """
-        Get all configuration values grouped by section.
-
-        Returns:
-            Nested dictionary of section -> key -> value
-        """
         with self.get_connection() as conn:
             results = conn.execute(
                 "SELECT section, key, value FROM config ORDER BY section, key"
@@ -305,26 +300,19 @@ class DatabaseManager:
             for section, key, value in results:
                 if section not in config:
                     config[section] = {}
-                config[section][key] = json.loads(value)
+                config[section][key] = self._decode_json(value)
 
             return config
 
     def delete_config(self, section: str, key: Optional[str] = None) -> None:
-        """
-        Delete configuration value(s).
-
-        Args:
-            section: Configuration section
-            key: Specific key to delete, or None to delete entire section
-        """
         with self.get_connection() as conn:
             if key:
                 conn.execute(
-                    "DELETE FROM config WHERE section = ? AND key = ?",
+                    "DELETE FROM config WHERE section = %s AND key = %s",
                     [section, key],
                 )
             else:
-                conn.execute("DELETE FROM config WHERE section = ?", [section])
+                conn.execute("DELETE FROM config WHERE section = %s", [section])
 
     # =========================================================================
     # Bot State Methods
@@ -344,46 +332,41 @@ class DatabaseManager:
         win_rate_today: Optional[float] = None,
         last_heartbeat: Optional[datetime] = None,
     ) -> None:
-        """
-        Update bot state with provided values.
-
-        Only non-None values will be updated.
-        """
         updates = []
-        params = []
+        params: List[Any] = []
 
         if status is not None:
-            updates.append("status = ?")
+            updates.append("status = %s")
             params.append(status)
         if tws_connected is not None:
-            updates.append("tws_connected = ?")
+            updates.append("tws_connected = %s")
             params.append(tws_connected)
         if equity is not None:
-            updates.append("equity = ?")
+            updates.append("equity = %s")
             params.append(equity)
         if daily_pnl is not None:
-            updates.append("daily_pnl = ?")
+            updates.append("daily_pnl = %s")
             params.append(daily_pnl)
         if daily_pnl_percent is not None:
-            updates.append("daily_pnl_percent = ?")
+            updates.append("daily_pnl_percent = %s")
             params.append(daily_pnl_percent)
         if total_pnl is not None:
-            updates.append("total_pnl = ?")
+            updates.append("total_pnl = %s")
             params.append(total_pnl)
         if active_strategy is not None:
-            updates.append("active_strategy = ?")
+            updates.append("active_strategy = %s")
             params.append(active_strategy)
         if error_message is not None:
-            updates.append("error_message = ?")
+            updates.append("error_message = %s")
             params.append(error_message)
         if trades_today is not None:
-            updates.append("trades_today = ?")
+            updates.append("trades_today = %s")
             params.append(trades_today)
         if win_rate_today is not None:
-            updates.append("win_rate_today = ?")
+            updates.append("win_rate_today = %s")
             params.append(win_rate_today)
         if last_heartbeat is not None:
-            updates.append("last_heartbeat = ?")
+            updates.append("last_heartbeat = %s")
             params.append(last_heartbeat)
 
         if updates:
@@ -395,12 +378,6 @@ class DatabaseManager:
                 )
 
     def get_bot_state(self) -> Dict[str, Any]:
-        """
-        Get current bot state.
-
-        Returns:
-            Dictionary with all bot state fields
-        """
         with self.get_connection() as conn:
             result = conn.execute(
                 """
@@ -430,7 +407,6 @@ class DatabaseManager:
             return {}
 
     def reset_bot_state(self) -> None:
-        """Reset bot state to defaults."""
         with self.get_connection() as conn:
             conn.execute(
                 """
@@ -464,18 +440,12 @@ class DatabaseManager:
         unrealized_pnl: float = 0.0,
         entry_time: Optional[datetime] = None,
     ) -> int:
-        """
-        Add a new position.
-
-        Returns:
-            The position ID
-        """
         with self.get_connection() as conn:
             result = conn.execute(
                 """
                 INSERT INTO positions
-                    (id, symbol, quantity, entry_price, current_price, unrealized_pnl, entry_time, updated_at)
-                VALUES (nextval('positions_seq'), ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                    (symbol, quantity, entry_price, current_price, unrealized_pnl, entry_time, updated_at)
+                VALUES (%s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
                 RETURNING id
                 """,
                 [symbol, quantity, entry_price, current_price, unrealized_pnl, entry_time],
@@ -489,18 +459,17 @@ class DatabaseManager:
         unrealized_pnl: Optional[float] = None,
         quantity: Optional[float] = None,
     ) -> None:
-        """Update an existing position."""
         updates = []
-        params = []
+        params: List[Any] = []
 
         if current_price is not None:
-            updates.append("current_price = ?")
+            updates.append("current_price = %s")
             params.append(current_price)
         if unrealized_pnl is not None:
-            updates.append("unrealized_pnl = ?")
+            updates.append("unrealized_pnl = %s")
             params.append(unrealized_pnl)
         if quantity is not None:
-            updates.append("quantity = ?")
+            updates.append("quantity = %s")
             params.append(quantity)
 
         if updates:
@@ -508,18 +477,17 @@ class DatabaseManager:
             params.append(position_id)
             with self.get_connection() as conn:
                 conn.execute(
-                    f"UPDATE positions SET {', '.join(updates)} WHERE id = ?",
+                    f"UPDATE positions SET {', '.join(updates)} WHERE id = %s",
                     params,
                 )
 
     def get_positions(self) -> List[Dict[str, Any]]:
-        """Get all open positions."""
         with self.get_connection() as conn:
             results = conn.execute(
                 """
                 SELECT id, symbol, quantity, entry_price, current_price,
                        unrealized_pnl, entry_time, updated_at
-                FROM positions ORDER BY entry_time DESC
+                FROM positions ORDER BY entry_time DESC NULLS LAST
                 """
             ).fetchall()
 
@@ -538,13 +506,12 @@ class DatabaseManager:
             ]
 
     def get_position_by_symbol(self, symbol: str) -> Optional[Dict[str, Any]]:
-        """Get position by symbol."""
         with self.get_connection() as conn:
             result = conn.execute(
                 """
                 SELECT id, symbol, quantity, entry_price, current_price,
                        unrealized_pnl, entry_time, updated_at
-                FROM positions WHERE symbol = ?
+                FROM positions WHERE symbol = %s
                 """,
                 [symbol],
             ).fetchone()
@@ -563,12 +530,10 @@ class DatabaseManager:
             return None
 
     def delete_position(self, position_id: int) -> None:
-        """Delete a position."""
         with self.get_connection() as conn:
-            conn.execute("DELETE FROM positions WHERE id = ?", [position_id])
+            conn.execute("DELETE FROM positions WHERE id = %s", [position_id])
 
     def clear_positions(self) -> None:
-        """Clear all positions."""
         with self.get_connection() as conn:
             conn.execute("DELETE FROM positions")
 
@@ -587,13 +552,12 @@ class DatabaseManager:
         status: str = "PENDING",
         submitted_time: Optional[datetime] = None,
     ) -> None:
-        """Add a new order."""
         with self.get_connection() as conn:
             conn.execute(
                 """
                 INSERT INTO orders
                     (order_id, symbol, side, quantity, price, order_type, status, submitted_time, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
                 """,
                 [order_id, symbol, side, quantity, price, order_type, status, submitted_time],
             )
@@ -605,18 +569,17 @@ class DatabaseManager:
         filled_quantity: Optional[float] = None,
         price: Optional[float] = None,
     ) -> None:
-        """Update an existing order."""
         updates = []
-        params = []
+        params: List[Any] = []
 
         if status is not None:
-            updates.append("status = ?")
+            updates.append("status = %s")
             params.append(status)
         if filled_quantity is not None:
-            updates.append("filled_quantity = ?")
+            updates.append("filled_quantity = %s")
             params.append(filled_quantity)
         if price is not None:
-            updates.append("price = ?")
+            updates.append("price = %s")
             params.append(price)
 
         if updates:
@@ -624,20 +587,19 @@ class DatabaseManager:
             params.append(order_id)
             with self.get_connection() as conn:
                 conn.execute(
-                    f"UPDATE orders SET {', '.join(updates)} WHERE order_id = ?",
+                    f"UPDATE orders SET {', '.join(updates)} WHERE order_id = %s",
                     params,
                 )
 
     def get_orders(self, status: Optional[str] = None) -> List[Dict[str, Any]]:
-        """Get orders, optionally filtered by status."""
         with self.get_connection() as conn:
             if status:
                 results = conn.execute(
                     """
                     SELECT order_id, symbol, side, quantity, price, status,
                            order_type, submitted_time, filled_quantity, updated_at
-                    FROM orders WHERE status = ?
-                    ORDER BY submitted_time DESC
+                    FROM orders WHERE status = %s
+                    ORDER BY submitted_time DESC NULLS LAST
                     """,
                     [status],
                 ).fetchall()
@@ -646,7 +608,7 @@ class DatabaseManager:
                     """
                     SELECT order_id, symbol, side, quantity, price, status,
                            order_type, submitted_time, filled_quantity, updated_at
-                    FROM orders ORDER BY submitted_time DESC
+                    FROM orders ORDER BY submitted_time DESC NULLS LAST
                     """
                 ).fetchall()
 
@@ -667,14 +629,13 @@ class DatabaseManager:
             ]
 
     def get_pending_orders(self) -> List[Dict[str, Any]]:
-        """Get pending and submitted orders."""
         with self.get_connection() as conn:
             results = conn.execute(
                 """
                 SELECT order_id, symbol, side, quantity, price, status,
                        order_type, submitted_time, filled_quantity, updated_at
                 FROM orders WHERE status IN ('PENDING', 'SUBMITTED')
-                ORDER BY submitted_time DESC
+                ORDER BY submitted_time DESC NULLS LAST
                 """
             ).fetchall()
 
@@ -695,12 +656,10 @@ class DatabaseManager:
             ]
 
     def delete_order(self, order_id: str) -> None:
-        """Delete an order."""
         with self.get_connection() as conn:
-            conn.execute("DELETE FROM orders WHERE order_id = ?", [order_id])
+            conn.execute("DELETE FROM orders WHERE order_id = %s", [order_id])
 
     def clear_orders(self) -> None:
-        """Clear all orders."""
         with self.get_connection() as conn:
             conn.execute("DELETE FROM orders")
 
@@ -709,17 +668,15 @@ class DatabaseManager:
     # =========================================================================
 
     def add_log(self, level: str, message: str) -> None:
-        """Add a log entry."""
         with self.get_connection() as conn:
             conn.execute(
                 """
-                INSERT INTO logs (id, level, message, timestamp)
-                VALUES (nextval('logs_seq'), ?, ?, CURRENT_TIMESTAMP)
+                INSERT INTO logs (level, message, timestamp)
+                VALUES (%s, %s, CURRENT_TIMESTAMP)
                 """,
                 [level, message],
             )
 
-            # Keep only last 500 logs
             conn.execute(
                 """
                 DELETE FROM logs WHERE id NOT IN (
@@ -729,12 +686,11 @@ class DatabaseManager:
             )
 
     def get_recent_logs(self, limit: int = 50) -> List[Dict[str, Any]]:
-        """Get recent log entries."""
         with self.get_connection() as conn:
             results = conn.execute(
                 """
                 SELECT id, timestamp, level, message
-                FROM logs ORDER BY timestamp DESC LIMIT ?
+                FROM logs ORDER BY timestamp DESC LIMIT %s
                 """,
                 [limit],
             ).fetchall()
@@ -750,7 +706,6 @@ class DatabaseManager:
             ]
 
     def clear_logs(self) -> None:
-        """Clear all logs."""
         with self.get_connection() as conn:
             conn.execute("DELETE FROM logs")
 
@@ -759,12 +714,11 @@ class DatabaseManager:
     # =========================================================================
 
     def add_notification(self, level: str, message: str, channel: Optional[str] = None) -> None:
-        """Add a notification entry."""
         with self.get_connection() as conn:
             conn.execute(
                 """
-                INSERT INTO notifications (id, level, message, channel, created_at)
-                VALUES (nextval('notifications_seq'), ?, ?, ?, CURRENT_TIMESTAMP)
+                INSERT INTO notifications (level, message, channel, created_at)
+                VALUES (%s, %s, %s, CURRENT_TIMESTAMP)
                 """,
                 [level, message, channel],
             )
@@ -778,12 +732,11 @@ class DatabaseManager:
             )
 
     def get_notifications(self, limit: int = 200, offset: int = 0) -> List[Dict[str, Any]]:
-        """Get recent notification entries."""
         with self.get_connection() as conn:
             results = conn.execute(
                 """
                 SELECT id, created_at, level, message, channel
-                FROM notifications ORDER BY created_at DESC LIMIT ? OFFSET ?
+                FROM notifications ORDER BY created_at DESC LIMIT %s OFFSET %s
                 """,
                 [limit, offset],
             ).fetchall()
@@ -800,12 +753,10 @@ class DatabaseManager:
             ]
 
     def clear_notifications(self) -> None:
-        """Clear all notifications."""
         with self.get_connection() as conn:
             conn.execute("DELETE FROM notifications")
 
     def count_notifications(self) -> int:
-        """Count total notifications."""
         with self.get_connection() as conn:
             result = conn.execute("SELECT COUNT(*) FROM notifications").fetchone()
             return int(result[0]) if result else 0
@@ -815,25 +766,18 @@ class DatabaseManager:
     # =========================================================================
 
     def add_command(self, command: str, payload: Optional[Dict[str, Any]] = None) -> int:
-        """
-        Add a bot command.
-
-        Returns:
-            The command ID
-        """
         with self.get_connection() as conn:
             result = conn.execute(
                 """
-                INSERT INTO bot_commands (id, command, payload, created_at, processed)
-                VALUES (nextval('commands_seq'), ?, ?::JSON, CURRENT_TIMESTAMP, FALSE)
+                INSERT INTO bot_commands (command, payload, created_at, processed)
+                VALUES (%s, %s, CURRENT_TIMESTAMP, FALSE)
                 RETURNING id
                 """,
-                [command, json.dumps(payload) if payload else None],
+                [command, Jsonb(payload) if payload else None],
             ).fetchone()
             return int(result[0])
 
     def get_pending_commands(self) -> List[Dict[str, Any]]:
-        """Get unprocessed commands."""
         with self.get_connection() as conn:
             results = conn.execute(
                 """
@@ -847,22 +791,20 @@ class DatabaseManager:
                 {
                     "id": row[0],
                     "command": row[1],
-                    "payload": json.loads(row[2]) if row[2] else None,
+                    "payload": self._decode_json(row[2]) if row[2] is not None else None,
                     "created_at": row[3].isoformat() if row[3] else None,
                 }
                 for row in results
             ]
 
     def mark_command_processed(self, command_id: int) -> None:
-        """Mark a command as processed."""
         with self.get_connection() as conn:
             conn.execute(
-                "UPDATE bot_commands SET processed = TRUE WHERE id = ?",
+                "UPDATE bot_commands SET processed = TRUE WHERE id = %s",
                 [command_id],
             )
 
     def clear_commands(self) -> None:
-        """Clear all commands."""
         with self.get_connection() as conn:
             conn.execute("DELETE FROM bot_commands")
 
@@ -880,17 +822,11 @@ class DatabaseManager:
         strategy: Optional[str] = None,
         executed_at: Optional[datetime] = None,
     ) -> int:
-        """
-        Record a completed trade.
-
-        Returns:
-            The trade ID
-        """
         with self.get_connection() as conn:
             result = conn.execute(
                 """
-                INSERT INTO trade_history (id, symbol, side, quantity, price, pnl, strategy, executed_at)
-                VALUES (nextval('trade_history_seq'), ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
+                INSERT INTO trade_history (symbol, side, quantity, price, pnl, strategy, executed_at)
+                VALUES (%s, %s, %s, %s, %s, %s, COALESCE(%s, CURRENT_TIMESTAMP))
                 RETURNING id
                 """,
                 [symbol, side, quantity, price, pnl, strategy, executed_at],
@@ -904,7 +840,6 @@ class DatabaseManager:
         start_date: Optional[datetime] = None,
         end_date: Optional[datetime] = None,
     ) -> List[Dict[str, Any]]:
-        """Get trade history with optional filters."""
         with self.get_connection() as conn:
             query = (
                 "SELECT id, symbol, side, quantity, price, pnl, strategy, executed_at "
@@ -913,16 +848,16 @@ class DatabaseManager:
             params: List[Any] = []
 
             if symbol:
-                query += " AND symbol = ?"
+                query += " AND symbol = %s"
                 params.append(symbol)
             if start_date:
-                query += " AND executed_at >= ?"
+                query += " AND executed_at >= %s"
                 params.append(start_date)
             if end_date:
-                query += " AND executed_at <= ?"
+                query += " AND executed_at <= %s"
                 params.append(end_date)
 
-            query += " ORDER BY executed_at DESC LIMIT ?"
+            query += " ORDER BY executed_at DESC LIMIT %s"
             params.append(limit)
 
             results = conn.execute(query, params).fetchall()
@@ -942,7 +877,6 @@ class DatabaseManager:
             ]
 
     def get_daily_stats(self, date: Optional[datetime] = None) -> Dict[str, Any]:
-        """Get trading statistics for a given day."""
         target_date = date or datetime.now()
         date_str = target_date.strftime("%Y-%m-%d")
 
@@ -957,7 +891,7 @@ class DatabaseManager:
                     MAX(pnl) as max_profit,
                     MIN(pnl) as max_loss
                 FROM trade_history
-                WHERE DATE(executed_at) = ?
+                WHERE DATE(executed_at) = %s
                 """,
                 [date_str],
             ).fetchone()
@@ -977,30 +911,65 @@ class DatabaseManager:
                 "max_loss": result[5] or 0.0,
             }
 
+    def drop_schema(self) -> None:
+        if not self.schema or self.schema == "public":
+            return
+        with self._pool.connection() as conn:
+            conn.execute("SET search_path TO public")
+            conn.execute(
+                sql.SQL("DROP SCHEMA IF EXISTS {} CASCADE")
+                .format(sql.Identifier(self.schema))
+            )
 
-# Global database manager instance (lazy loaded)
+
 _db_manager: Optional[DatabaseManager] = None
 
 
 def get_database(
-    db_path: Optional[Path] = None,
+    db_url: Optional[str] = None,
+    schema: Optional[str] = None,
+    min_pool_size: Optional[int] = None,
+    max_pool_size: Optional[int] = None,
+    connect_timeout: Optional[int] = None,
+    application_name: Optional[str] = None,
+    sslmode: Optional[str] = None,
 ) -> DatabaseManager:
-    """
-    Get or create the global database manager instance.
-
-    Args:
-        db_path: Optional custom database path (only used on first call)
-
-    Returns:
-        DatabaseManager instance
-    """
     global _db_manager
-    if _db_manager is None:
-        _db_manager = DatabaseManager(db_path)
+
+    if db_url is None:
+        try:
+            from src.config.settings import get_settings
+
+            settings = get_settings()
+            db_url = settings.database.url
+            schema = schema or settings.database.schema
+            min_pool_size = min_pool_size or settings.database.min_pool_size
+            max_pool_size = max_pool_size or settings.database.max_pool_size
+            connect_timeout = connect_timeout or settings.database.connect_timeout
+            application_name = application_name or settings.database.application_name
+            sslmode = sslmode or settings.database.sslmode
+        except Exception:
+            db_url = DEFAULT_DB_URL
+
+    if _db_manager is None or (_db_manager.db_url != db_url) or (
+        schema and _db_manager.schema != schema
+    ):
+        if _db_manager is not None:
+            _db_manager.close()
+        _db_manager = DatabaseManager(
+            db_url=db_url,
+            schema=schema or "public",
+            min_pool_size=min_pool_size or 1,
+            max_pool_size=max_pool_size or 5,
+            connect_timeout=connect_timeout or 5,
+            application_name=application_name or "tws_traderbot",
+            sslmode=sslmode or "prefer",
+        )
     return _db_manager
 
 
 def reset_database_instance() -> None:
-    """Reset the global database instance (useful for testing)."""
     global _db_manager
+    if _db_manager is not None:
+        _db_manager.close()
     _db_manager = None

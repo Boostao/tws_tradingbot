@@ -26,8 +26,6 @@ try:
     from nautilus_trader.adapters.interactive_brokers.config import (
         InteractiveBrokersDataClientConfig,
         InteractiveBrokersExecClientConfig,
-        InteractiveBrokersGatewayConfig,
-        DockerizedIBGatewayConfig,
         InteractiveBrokersInstrumentProviderConfig,
     )
     from nautilus_trader.adapters.interactive_brokers.factories import (
@@ -47,6 +45,24 @@ from src.config.settings import Settings, IBConfig
 
 
 logger = logging.getLogger(__name__)
+
+
+def _build_symbol_venue_map(instrument_ids: Optional[List[str]]) -> Dict[str, str]:
+    if not instrument_ids:
+        return {}
+
+    symbol_to_venue: Dict[str, str] = {}
+    for instrument_id in instrument_ids:
+        if not instrument_id:
+            continue
+        if "." in instrument_id:
+            symbol, venue = instrument_id.split(".", 1)
+            if symbol and venue:
+                symbol_to_venue[symbol.upper()] = venue.upper()
+        else:
+            symbol_to_venue[instrument_id.upper()] = "SMART"
+
+    return symbol_to_venue
 
 
 class IBConnectionConfig:
@@ -156,28 +172,6 @@ class IBConnectionConfig:
         )
 
 
-def create_ib_gateway_config(connection_config: IBConnectionConfig) -> Optional[Any]:
-    """
-    Create Nautilus InteractiveBrokersGatewayConfig.
-    
-    Args:
-        connection_config: IB connection configuration
-        
-    Returns:
-        InteractiveBrokersGatewayConfig or None if Nautilus not available
-    """
-    if not NAUTILUS_IB_AVAILABLE:
-        logger.warning("Nautilus IB adapter not available")
-        return None
-    
-    return InteractiveBrokersGatewayConfig(
-        host=connection_config.host,
-        port=connection_config.port,
-        client_id=connection_config.client_id,
-        timeout=connection_config.timeout,
-    )
-
-
 def create_ib_data_client_config(
     connection_config: IBConnectionConfig,
     instrument_ids: Optional[List[str]] = None,
@@ -196,10 +190,9 @@ def create_ib_data_client_config(
         logger.warning("Nautilus IB adapter not available")
         return None
     
-    gateway_config = create_ib_gateway_config(connection_config)
-    
     instrument_provider_config = InteractiveBrokersInstrumentProviderConfig(
         load_ids=frozenset(instrument_ids) if instrument_ids else None,
+        symbol_to_mic_venue=_build_symbol_venue_map(instrument_ids),
     )
     
     return InteractiveBrokersDataClientConfig(
@@ -231,6 +224,7 @@ def create_ib_exec_client_config(
     
     instrument_provider_config = InteractiveBrokersInstrumentProviderConfig(
         load_ids=frozenset(instrument_ids) if instrument_ids else None,
+        symbol_to_mic_venue=_build_symbol_venue_map(instrument_ids),
     )
     
     return InteractiveBrokersExecClientConfig(
