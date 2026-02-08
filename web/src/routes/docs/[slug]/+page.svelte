@@ -15,7 +15,7 @@
 	const renderMermaid = async () => {
 		await tick();
 		if (!contentEl) return;
-		const mermaid = (await import('mermaid')).default;
+		const mermaid = (await import('mermaid/dist/mermaid.esm.mjs')).default;
 		mermaid.initialize({ startOnLoad: false, theme: 'dark' });
 		await mermaid.run({ nodes: contentEl.querySelectorAll('.mermaid') });
 		lastRenderedSlug = data.doc.slug;
