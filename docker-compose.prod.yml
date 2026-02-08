@@ -1,0 +1,56 @@
+services:
+  api:
+    build: .
+    restart: unless-stopped
+    environment:
+      IB_HOST: host.docker.internal
+      IB_PORT: 7497
+      API_CORS_ORIGINS: https://cazpe.com
+    volumes:
+      - ./config:/app/config
+      - ./data:/app/data
+      - ./logs:/app/logs
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    command: ["bash", "./run_api.sh"]
+
+  web:
+    build:
+      context: ./web
+    restart: unless-stopped
+    depends_on:
+      - api
+    environment:
+      VITE_API_URL: https://cazpe.com
+
+  bot:
+    build: .
+    restart: unless-stopped
+    environment:
+      IB_HOST: host.docker.internal
+      IB_PORT: 7497
+    volumes:
+      - ./config:/app/config
+      - ./data:/app/data
+      - ./logs:/app/logs
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    command: ["bash", "./run_bot.sh"]
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    depends_on:
+      - web
+      - api
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  caddy_data:
+  caddy_config:

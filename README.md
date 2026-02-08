@@ -134,6 +134,27 @@ docker compose up --build
 
 This uses the local DuckDB file in `data/traderbot.duckdb` by default.
 
+## 🌐 VPS Deployment (Docker + HTTPS)
+
+Use the production compose file with Caddy for automatic TLS.
+
+1. Point your DNS A record to the VPS IP.
+2. Open ports 22, 80, and 443 on the VPS firewall.
+3. On the server:
+
+```bash
+git clone <repository-url>
+cd tws_traderbot
+docker compose -f docker-compose.prod.yml up -d --build
+```
+
+The UI will be available at `https://cazpe.com` once TLS is issued.
+
+Notes:
+- `docker-compose.prod.yml` expects TWS/IB Gateway on the VPS host. Containers connect via `host.docker.internal`.
+- Update the `IB_PORT` if you use live trading (7496).
+- If you change the domain, update `deploy/Caddyfile` and `VITE_API_URL` in `docker-compose.prod.yml`.
+
 ## 🧪 Strategy Optimization (Optuna)
 
 Use the Optuna optimizer to auto-tune indicator parameters via multiple backtests.

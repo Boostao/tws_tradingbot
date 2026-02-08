@@ -1,0 +1,7 @@
+cazpe.com {
+  encode zstd gzip
+
+  @api path /api/* /health /ws/*
+  reverse_proxy @api api:8000
+  reverse_proxy web:5173
+}
