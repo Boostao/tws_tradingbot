@@ -1,4 +1,8 @@
-cazpe.com {
+{
+  auto_https off
+}
+
+http://cazpe.com {
   encode zstd gzip
 
   @api path /api/* /health /ws/*

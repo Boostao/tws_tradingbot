@@ -12,7 +12,7 @@ services:
       - ./logs:/app/logs
     extra_hosts:
       - "host.docker.internal:host-gateway"
-    command: ["bash", "./run_api.sh"]
+    command: ["bash", "-lc", "uv run uvicorn src.api.main:app --host 0.0.0.0 --port 8000"]
 
   web:
     build:
@@ -35,7 +35,7 @@ services:
       - ./logs:/app/logs
     extra_hosts:
       - "host.docker.internal:host-gateway"
-    command: ["bash", "./run_bot.sh"]
+    command: ["bash", "-lc", "uv run python -m src.bot.live_runner"]
 
   caddy:
     image: caddy:2
@@ -45,7 +45,6 @@ services:
       - api
     ports:
       - "80:80"
-      - "443:443"
     volumes:
       - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data

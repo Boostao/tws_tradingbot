@@ -682,12 +682,10 @@ class LiveTradingRunner:
                         self.node.dispose()
                     except Exception as e:
                         logger.warning(f"Error disposing node: {e}")
-                    # We break the inner loop, which will exit the node thread
+                    break
+
                 # Update heartbeat
                 self._update_heartbeat()
-
-                    # Then the outer loop will see node is finished or we break it explicitly
-                    break
 
                 time.sleep(1.0)
             
