@@ -3,7 +3,6 @@ FROM node:20-alpine AS build
 WORKDIR /app
 
 ENV NODE_ENV=development
-ENV npm_config_ignore_scripts=true
 
 COPY package.json package-lock.json ./
 RUN npm ci --include=dev

@@ -1,48 +1,80 @@
-version: "3.9"
-
 services:
   db:
     image: docker.io/library/postgres:16-alpine
+    restart: unless-stopped
     environment:
       POSTGRES_USER: traderbot
       POSTGRES_PASSWORD: traderbot
       POSTGRES_DB: traderbot
-    ports:
-      - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
   api:
     build: .
+    restart: unless-stopped
     depends_on:
       - db
     environment:
       IB_HOST: host.containers.internal
-      IB_PORT: 7497
+      IB_PORT: 4002
+      IB_ACCOUNT: ${IB_ACCOUNT:-DUO185814}
+      TWS_ACCOUNT: ${IB_ACCOUNT:-DUO185814}
+      API_CORS_ORIGINS: ${API_CORS_ORIGINS:-http://localhost,https://cazpe.com}
       DATABASE_URL: postgresql://traderbot:traderbot@db:5432/traderbot
-    ports:
-      - "8000:8000"
-    command: ["bash", "./run_api.sh"]
+    volumes:
+      - ./config:/app/config:z,U
+      - ./data:/app/data:z,U
+      - ./logs:/app/logs:z,U
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    command: ["bash", "-lc", "/app/.venv/bin/uvicorn src.api.main:app --host 0.0.0.0 --port 8000"]
 
   web:
     build:
       context: ./web
+    restart: unless-stopped
     depends_on:
       - api
     environment:
-      VITE_API_URL: http://api:8000
-    ports:
-      - "5173:5173"
+      VITE_API_URL: ${VITE_API_URL:-http://localhost:8080}
+      HOST: 0.0.0.0
+      PORT: 5173
 
   bot:
     build: .
+    restart: unless-stopped
     depends_on:
       - db
     environment:
       IB_HOST: host.containers.internal
-      IB_PORT: 7497
+      IB_PORT: 4002
+      IB_ACCOUNT: ${IB_ACCOUNT:-DUO185814}
+      TWS_ACCOUNT: ${IB_ACCOUNT:-DUO185814}
       DATABASE_URL: postgresql://traderbot:traderbot@db:5432/traderbot
-    command: ["bash", "./run_bot.sh"]
+    volumes:
+      - ./config:/app/config:z,U
+      - ./data:/app/data:z,U
+      - ./logs:/app/logs:z,U
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    command: ["bash", "-lc", "/app/.venv/bin/python -m src.bot.live_runner"]
+
+  caddy:
+    image: docker.io/library/caddy:2
+    restart: unless-stopped
+    depends_on:
+      - web
+      - api
+    ports:
+      - "8080:80"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro,Z
+      - caddy_data:/data
+      - caddy_config:/config
+    environment:
+      CADDY_HOSTS: ${CADDY_HOSTS:-localhost cazpe.com}
 
 volumes:
+  caddy_data:
+  caddy_config:
   postgres_data:
