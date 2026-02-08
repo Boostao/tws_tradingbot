@@ -21,12 +21,14 @@
 	$: state = $botState;
 	$: currentLang = $language;
 	$: lang = $language;
+	$: if (state?.tws_connected) twsError = '';
 
 	let twsHost = '';
 	let twsPort = '';
-	let twsClientId = '';
+	let twsClientId = '67';
 	let twsError = '';
 	let twsLoading = false;
+	let twsAction: 'connect' | 'disconnect' | null = null;
 
 	$: navItems = [
 		{ href: '/watchlist', label: () => (lang && t('watchlist')) as string, icon: List },
@@ -45,7 +47,12 @@
 			const config = await getConfig();
 			if (config.ib?.host) twsHost = config.ib.host;
 			if (typeof config.ib?.port === 'number') twsPort = String(config.ib.port);
-			if (typeof config.ib?.client_id === 'number') twsClientId = String(config.ib.client_id);
+			const configuredClientId = Number(config.ib?.client_id);
+			if (Number.isFinite(configuredClientId) && configuredClientId > 1) {
+				twsClientId = String(configuredClientId);
+			} else {
+				twsClientId = '67';
+			}
 		} catch (err) {
 			console.warn(err);
 		}
@@ -54,6 +61,7 @@
 	const handleToggleConnection = async () => {
 		twsError = '';
 		twsLoading = true;
+		twsAction = state.tws_connected ? 'disconnect' : 'connect';
 		try {
 			if (state.tws_connected) {
 				await disconnectTws();
@@ -70,6 +78,7 @@
 			twsError = formatApiError(err);
 		} finally {
 			twsLoading = false;
+			twsAction = null;
 		}
 	};
 
@@ -80,7 +89,6 @@
 		const nextClientId = twsClientId ? Number(twsClientId) : undefined;
 		if (nextHost) ibUpdates.host = nextHost;
 		if (Number.isFinite(nextPort)) ibUpdates.port = nextPort;
-		if (Number.isFinite(nextClientId)) ibUpdates.client_id = nextClientId;
 		return { ibUpdates, nextHost, nextPort, nextClientId };
 	};
 
@@ -169,7 +177,7 @@
 					disabled={twsLoading}
 					class:primary={!state.tws_connected}
 				>
-					{twsLoading
+					{twsLoading && twsAction === 'connect'
 						? (lang && t('connecting_tws'))
 						: state.tws_connected
 							? (lang && t('disconnect'))

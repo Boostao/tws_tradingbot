@@ -261,6 +261,7 @@ class DynamicRuleStrategy:
         self._tws_connected: bool = False
         self._tws_provider: Optional[TWSDataProvider] = None
         self._nautilus_strategy: Optional[Any] = None
+        self._nautilus_cache_override: Optional[Any] = None
 
         # Order handlers (for Nautilus integration)
         self._submit_buy_handler: Optional[Any] = None
@@ -826,6 +827,22 @@ class DynamicRuleStrategy:
                         return fallback
                 return fallback
 
+            def _read_account_value(account: object, attr: str) -> Optional[float]:
+                value = getattr(account, attr, None)
+                if callable(value):
+                    try:
+                        return _coerce_float(value())
+                    except Exception:
+                        return None
+                return _coerce_float(value)
+
+            def _first_account_value(account: object, attrs: list[str]) -> Optional[float]:
+                for attr in attrs:
+                    value = _read_account_value(account, attr)
+                    if value is not None:
+                        return value
+                return None
+
             positions = []
             equity_override: Optional[float] = None
             daily_pnl_override: Optional[float] = None
@@ -833,8 +850,13 @@ class DynamicRuleStrategy:
             tws_connected = self._tws_connected
             orders = list(self._pending_orders.values())
             use_nautilus_cache = False
+            has_nautilus_strategy = self._nautilus_strategy is not None
 
-            if self._tws_provider and (self._tws_provider.is_connected() or self._tws_provider.connect(timeout=3.0)):
+            if (
+                self._tws_provider
+                and not has_nautilus_strategy
+                and (self._tws_provider.is_connected() or self._tws_provider.connect(timeout=3.0))
+            ):
                 tws_connected = True
                 tws_positions = self._tws_provider.get_positions(timeout=3.0)
                 for pos in tws_positions:
@@ -894,15 +916,37 @@ class DynamicRuleStrategy:
                     daily_pnl_override = daily_pnl
                 if realized is not None or unrealized is not None:
                     total_pnl_override = (realized or 0.0) + (unrealized or 0.0)
-                if not positions and self._nautilus_strategy:
+                if not positions and has_nautilus_strategy:
                     use_nautilus_cache = True
-            elif self._nautilus_strategy:
+            elif has_nautilus_strategy:
                 use_nautilus_cache = True
 
             if use_nautilus_cache:
-                cache = self._nautilus_strategy.cache
+                cache = self._nautilus_cache_override or self._nautilus_strategy.cache
+                try:
+                    open_position_ids = cache.position_open_ids()
+                    logger.info(
+                        "State refresh: Nautilus cache open positions=%d (strategy_id=%s)",
+                        len(open_position_ids),
+                        self.strategy_id,
+                    )
+                    try:
+                        account_count = len(cache.accounts())
+                        open_count = cache.positions_open_count()
+                        logger.info(
+                            "State refresh: Nautilus cache accounts=%d open_positions_count=%d",
+                            account_count,
+                            open_count,
+                        )
+                    except Exception:
+                        pass
+                except Exception as exc:
+                    logger.info("State refresh: Nautilus cache lookup failed: %s", exc)
                 positions = []
-                for pos in cache.positions_open():
+                cached_positions = cache.positions_open()
+                if not cached_positions:
+                    cached_positions = cache.positions()
+                for pos in cached_positions:
                     qty = _coerce_float(pos.signed_qty) or 0.0
                     if qty == 0:
                         continue
@@ -966,14 +1010,61 @@ class DynamicRuleStrategy:
                     )
 
                 if equity_override is None:
+                    account = None
                     try:
-                        venue = None
-                        if self.config.instruments:
-                            venue_str = self.config.instruments[0].split(".")[-1]
-                            venue = Venue.from_str(venue_str)
-                        if venue is not None:
-                            account = self._nautilus_strategy.portfolio.account(venue)
-                            equity_override = _coerce_float(account.balance_total())
+                        if cached_positions:
+                            venue_value = getattr(cached_positions[0].instrument_id, "venue", None)
+                            if venue_value is not None:
+                                account = cache.account_for_venue(venue_value)
+                        if account is None:
+                            accounts = cache.accounts()
+                            if accounts:
+                                account = accounts[0]
+                        if account is not None:
+                            equity_override = _first_account_value(
+                                account,
+                                [
+                                    "balance_total",
+                                    "equity",
+                                    "net_liquidation",
+                                    "equity_with_loan_value",
+                                    "balance",
+                                ],
+                            )
+                            if daily_pnl_override is None:
+                                daily_pnl_override = _first_account_value(
+                                    account,
+                                    [
+                                        "pnl_daily",
+                                        "daily_pnl",
+                                        "pnl_day",
+                                    ],
+                                )
+                            if total_pnl_override is None:
+                                total_pnl_override = _first_account_value(
+                                    account,
+                                    [
+                                        "pnl_total",
+                                        "total_pnl",
+                                    ],
+                                )
+                                if total_pnl_override is None:
+                                    realized = _first_account_value(
+                                        account,
+                                        [
+                                            "pnl_realized",
+                                            "realized_pnl",
+                                        ],
+                                    )
+                                    unrealized = _first_account_value(
+                                        account,
+                                        [
+                                            "pnl_unrealized",
+                                            "unrealized_pnl",
+                                        ],
+                                    )
+                                    if realized is not None or unrealized is not None:
+                                        total_pnl_override = (realized or 0.0) + (unrealized or 0.0)
                     except Exception:
                         pass
             else:
@@ -1086,6 +1177,10 @@ class DynamicRuleStrategy:
         """Attach the Nautilus strategy for cache-backed state updates."""
         self._nautilus_strategy = strategy
 
+    def set_nautilus_cache_override(self, cache: Optional[Any]) -> None:
+        """Override the Nautilus cache source (e.g., node-level cache)."""
+        self._nautilus_cache_override = cache
+
 
 # =============================================================================
 # Nautilus Trader Strategy Implementation
@@ -1193,6 +1288,14 @@ if NAUTILUS_AVAILABLE:
         def set_tws_provider(self, provider: Optional[TWSDataProvider]) -> None:
             """Attach TWS provider for state updates."""
             self._strategy.set_tws_provider(provider)
+
+        def refresh_state(self) -> None:
+            """Force a state refresh using the internal strategy cache."""
+            self._strategy._update_bot_state(BotStatus.RUNNING)
+
+        def set_cache_override(self, cache: Optional[Any]) -> None:
+            """Override the cache used for state refresh (node cache preferred)."""
+            self._strategy.set_nautilus_cache_override(cache)
 
         def _submit_buy(self, instrument_id: str, quantity: float) -> None:
             self._submit_market_order(instrument_id, OrderSide.BUY, quantity)

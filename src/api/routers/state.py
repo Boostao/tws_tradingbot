@@ -22,6 +22,7 @@ from src.config.settings import update_setting
 
 
 router = APIRouter(tags=["state"])
+_tws_sidecar_enabled = True
 
 
 def _parse_datetime(value: Optional[str]) -> Optional[datetime]:
@@ -85,17 +86,6 @@ def _ingest_state_to_db(state: Dict[str, Any]) -> None:
         win_rate_today=state.get("win_rate_today"),
         last_heartbeat=_parse_datetime(state.get("last_heartbeat")),
     )
-
-    db.clear_positions()
-    for pos in state.get("positions", []) or []:
-        db.add_position(
-            symbol=pos.get("symbol", ""),
-            quantity=pos.get("quantity", 0.0),
-            entry_price=pos.get("entry_price", 0.0),
-            current_price=pos.get("current_price", 0.0),
-            unrealized_pnl=pos.get("unrealized_pnl", 0.0),
-            entry_time=_parse_datetime(pos.get("entry_time")),
-        )
 
     db.clear_orders()
     for order in state.get("orders", []) or []:
@@ -180,12 +170,30 @@ def get_state():
         return fallback
 
     tws_connected = bool(state.get("tws_connected"))
-    if not runner_active:
+    allow_tws_refresh = (not runner_active) or state.get("status") == BotStatus.STOPPED.value
+    sidecar_enabled = _tws_sidecar_enabled
+    if runner_active and state.get("status") in {
+        BotStatus.RUNNING.value,
+        BotStatus.STARTING.value,
+        BotStatus.STOPPING.value,
+    }:
         provider = get_tws_provider()
+        if provider.is_connected():
+            provider.disconnect()
+            reset_tws_provider()
+        tws_connected = False
+        state["tws_connected"] = False
+    elif allow_tws_refresh and sidecar_enabled:
+        provider = get_tws_provider()
+        if not provider.is_connected():
+            provider.connect(timeout=3.0)
         tws_connected = bool(provider.is_connected())
         state["tws_connected"] = tws_connected
+    elif allow_tws_refresh:
+        tws_connected = False
+        state["tws_connected"] = False
 
-    if tws_connected and not runner_active:
+    if tws_connected and allow_tws_refresh and sidecar_enabled:
         executions = provider.get_executions(
             timeout=3.0,
             since=datetime.now() - timedelta(days=7),
@@ -462,6 +470,17 @@ def emergency_stop():
 
 @router.post("/tws/connect")
 def connect_tws(payload: TWSConnectionRequest):
+    global _tws_sidecar_enabled
+    state = read_state()
+    if _is_runner_active(state.to_dict()) and state.status in {
+        BotStatus.RUNNING.value,
+        BotStatus.STARTING.value,
+        BotStatus.STOPPING.value,
+    }:
+        raise HTTPException(
+            status_code=409,
+            detail="Stop the bot before connecting the API sidecar to TWS.",
+        )
     try:
         provider = get_tws_provider()
     except Exception as exc:
@@ -475,7 +494,6 @@ def connect_tws(payload: TWSConnectionRequest):
         update_setting("ib", "port", int(payload.port))
     if payload.client_id:
         provider.client_id = int(payload.client_id)
-        update_setting("ib", "client_id", int(payload.client_id))
 
     connected = False
     try:
@@ -495,6 +513,7 @@ def connect_tws(payload: TWSConnectionRequest):
             detail="Unable to connect to TWS. Is TWS running with API enabled?",
         )
 
+    _tws_sidecar_enabled = True
     state = read_state()
     state.tws_connected = True
     update_state(state)
@@ -503,9 +522,11 @@ def connect_tws(payload: TWSConnectionRequest):
 
 @router.post("/tws/disconnect")
 def disconnect_tws():
+    global _tws_sidecar_enabled
     provider = get_tws_provider()
     provider.disconnect()
     reset_tws_provider()
+    _tws_sidecar_enabled = False
     state = read_state()
     state.tws_connected = False
     update_state(state)
@@ -514,6 +535,17 @@ def disconnect_tws():
 
 @router.post("/tws/reconnect")
 def reconnect_tws():
+    global _tws_sidecar_enabled
+    state = read_state()
+    if _is_runner_active(state.to_dict()) and state.status in {
+        BotStatus.RUNNING.value,
+        BotStatus.STARTING.value,
+        BotStatus.STOPPING.value,
+    }:
+        raise HTTPException(
+            status_code=409,
+            detail="Stop the bot before reconnecting the API sidecar to TWS.",
+        )
     try:
         provider = get_tws_provider()
     except Exception as exc:
@@ -537,6 +569,7 @@ def reconnect_tws():
             detail="Unable to reconnect to TWS. Is TWS running with API enabled?",
         )
 
+    _tws_sidecar_enabled = True
     state = read_state()
     state.tws_connected = True
     update_state(state)

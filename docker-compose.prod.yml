@@ -15,7 +15,7 @@ services:
     depends_on:
       - db
     environment:
-      IB_HOST: host.docker.internal
+      IB_HOST: host.containers.internal
       IB_PORT: 7497
       IB_ACCOUNT: ${IB_ACCOUNT:-DUO185814}
       TWS_ACCOUNT: ${IB_ACCOUNT:-DUO185814}
@@ -46,7 +46,7 @@ services:
     depends_on:
       - db
     environment:
-      IB_HOST: host.docker.internal
+      IB_HOST: host.containers.internal
       IB_PORT: 7497
       IB_ACCOUNT: ${IB_ACCOUNT:-DUO185814}
       TWS_ACCOUNT: ${IB_ACCOUNT:-DUO185814}

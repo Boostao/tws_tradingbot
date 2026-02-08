@@ -60,11 +60,14 @@
 	let state: BotState | null = null;
 	let logs: string[] = [];
 	let error = '';
-	let commandStatus = '';
 	let stateConnected = false;
 	let apiStatus = 'checking';
 	let apiError = '';
 	$: _lang = $language;
+	$: isRunning = state?.status === 'RUNNING';
+	$: isTransitioning = state?.status === 'STARTING' || state?.status === 'STOPPING';
+	$: canControl = Boolean(state?.runner_active) && !isTransitioning;
+	$: primaryActionLabel = isRunning ? t('stop_bot') : t('start_bot');
 
 	let stateConnection: { close: () => void } | null = null;
 	let logsConnection: { close: () => void } | null = null;
@@ -132,33 +135,25 @@
 		}
 	};
 
-	async function handleStart() {
-		commandStatus = '';
+	async function handlePrimaryAction() {
+		apiError = '';
 		try {
-			const result = await startBot();
-			commandStatus = result.status;
+			if (isRunning) {
+				await stopBot();
+			} else {
+				await startBot();
+			}
 		} catch (err) {
-			commandStatus = formatApiError(err);
-		}
-	}
-
-	async function handleStop() {
-		commandStatus = '';
-		try {
-			const result = await stopBot();
-			commandStatus = result.status;
-		} catch (err) {
-			commandStatus = formatApiError(err);
+			apiError = formatApiError(err);
 		}
 	}
 
 	async function handleEmergencyStop() {
-		commandStatus = '';
+		apiError = '';
 		try {
-			const result = await emergencyStop();
-			commandStatus = result.status;
+			await emergencyStop();
 		} catch (err) {
-			commandStatus = formatApiError(err);
+			apiError = formatApiError(err);
 		}
 	}
 
@@ -236,13 +231,15 @@
 <div class="card">
 	<h2 class="heading"><span class="heading-icon"><Gamepad2 size={18} strokeWidth={1.6} /></span>{t('bot_controls')}</h2>
 	<div style="display: flex; flex-wrap: wrap; gap: 10px;">
-		<button on:click={handleStart} disabled={!state?.runner_active}>{t('start_bot')}</button>
-		<button class="secondary" on:click={handleStop} disabled={!state?.runner_active}>{t('stop_bot')}</button>
-		<button class="danger" on:click={handleEmergencyStop} disabled={!state?.runner_active}>{t('emergency_stop')}</button>
+		<button on:click={handlePrimaryAction} disabled={!canControl}>
+			{primaryActionLabel}
+		</button>
+		{#if isRunning}
+			<button class="danger" on:click={handleEmergencyStop} disabled={!state?.runner_active}>
+				{t('emergency_stop')}
+			</button>
+		{/if}
 	</div>
-	{#if commandStatus}
-		<p class="muted" style="margin-top: 8px;">{commandStatus}</p>
-	{/if}
 </div>
 
 <div class="card">

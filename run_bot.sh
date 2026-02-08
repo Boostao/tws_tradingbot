@@ -99,6 +99,9 @@ fi
 # Check TWS/IB Gateway connection
 log_info "Checking TWS/IB Gateway connection..."
 
+IB_HOST=${IB_HOST:-127.0.0.1}
+IB_PORT_OVERRIDE=${IB_PORT:-}
+
 # Default ports
 TWS_PAPER_PORT=7497
 TWS_LIVE_PORT=7496
@@ -107,48 +110,70 @@ GATEWAY_LIVE_PORT=4001
 
 # Try to detect IB connection
 check_port() {
-    local port=$1
-    if nc -z -w2 127.0.0.1 $port 2>/dev/null; then
-        return 0
-    else
-        return 1
-    fi
+    local host=$1
+    local port=$2
+    python - "$host" "$port" <<'PY'
+import socket
+import sys
+
+host = sys.argv[1]
+port = int(sys.argv[2])
+sock = socket.socket()
+sock.settimeout(2)
+try:
+    sock.connect((host, port))
+    sys.exit(0)
+except Exception:
+    sys.exit(1)
+finally:
+    sock.close()
+PY
 }
 
 IB_CONNECTED=false
 IB_PORT=""
 IB_MODE=""
 
-if check_port $TWS_PAPER_PORT; then
+if [ -n "$IB_PORT_OVERRIDE" ] && check_port "$IB_HOST" "$IB_PORT_OVERRIDE"; then
+    IB_CONNECTED=true
+    IB_PORT=$IB_PORT_OVERRIDE
+    IB_MODE="Configured"
+elif check_port "$IB_HOST" $TWS_PAPER_PORT; then
     IB_CONNECTED=true
     IB_PORT=$TWS_PAPER_PORT
     IB_MODE="TWS Paper"
-elif check_port $TWS_LIVE_PORT; then
+elif check_port "$IB_HOST" $TWS_LIVE_PORT; then
     IB_CONNECTED=true
     IB_PORT=$TWS_LIVE_PORT
     IB_MODE="TWS Live"
-elif check_port $GATEWAY_PAPER_PORT; then
+elif check_port "$IB_HOST" $GATEWAY_PAPER_PORT; then
     IB_CONNECTED=true
     IB_PORT=$GATEWAY_PAPER_PORT
     IB_MODE="Gateway Paper"
-elif check_port $GATEWAY_LIVE_PORT; then
+elif check_port "$IB_HOST" $GATEWAY_LIVE_PORT; then
     IB_CONNECTED=true
     IB_PORT=$GATEWAY_LIVE_PORT
     IB_MODE="Gateway Live"
 fi
 
 if [ "$IB_CONNECTED" = true ]; then
-    log_success "IB connection found: $IB_MODE (port $IB_PORT)"
+    log_success "IB connection found: $IB_MODE ($IB_HOST:$IB_PORT)"
 else
     log_warn "No IB connection detected on standard ports"
+    log_info "Host: $IB_HOST"
     log_info "Standard ports: TWS Paper=$TWS_PAPER_PORT, TWS Live=$TWS_LIVE_PORT"
     log_info "                Gateway Paper=$GATEWAY_PAPER_PORT, Gateway Live=$GATEWAY_LIVE_PORT"
     log_info ""
     log_info "Please start TWS or IB Gateway and enable API connections:"
     log_info "  TWS: File → Global Configuration → API → Settings"
     log_info "  Enable: 'Enable ActiveX and Socket Clients'"
-    log_info "  Add localhost to 'Trusted IPs'"
+    log_info "  Add $IB_HOST to 'Trusted IPs'"
     log_info ""
+
+    if [ ! -t 0 ]; then
+        log_error "No TTY available to prompt. Exiting."
+        exit 1
+    fi
     
     # Ask user if they want to continue anyway (simulation mode)
     read -p "Continue in simulation mode? [y/N] " -n 1 -r

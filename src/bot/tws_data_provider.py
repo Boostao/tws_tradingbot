@@ -1539,7 +1539,8 @@ def get_tws_provider() -> TWSDataProvider:
     global _tws_provider
     if _tws_provider is None:
         settings = get_settings()
-        default_client_id = settings.ib.client_id + 10
+        # Keep the API sidecar on a separate client id band to avoid collisions.
+        default_client_id = settings.ib.client_id + 66
         _tws_provider = TWSDataProvider(client_id=default_client_id)
     return _tws_provider
 

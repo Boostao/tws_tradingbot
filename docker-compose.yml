@@ -17,8 +17,8 @@ services:
     depends_on:
       - db
     environment:
-      IB_HOST: 127.0.0.1
-      IB_PORT: 4002
+      IB_HOST: host.containers.internal
+      IB_PORT: 7497
       DATABASE_URL: postgresql://traderbot:traderbot@db:5432/traderbot
     ports:
       - "8000:8000"
@@ -39,8 +39,8 @@ services:
     depends_on:
       - db
     environment:
-      IB_HOST: 127.0.0.1
-      IB_PORT: 4002
+      IB_HOST: host.containers.internal
+      IB_PORT: 7497
       DATABASE_URL: postgresql://traderbot:traderbot@db:5432/traderbot
     command: ["bash", "./run_bot.sh"]
 

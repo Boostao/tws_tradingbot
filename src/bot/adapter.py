@@ -299,6 +299,8 @@ def create_live_node(
         ),
         exec_engine=LiveExecEngineConfig(
             reconciliation=True,
+            snapshot_positions=True,
+            snapshot_positions_interval_secs=30,
         ),
         risk_engine=LiveRiskEngineConfig(),
     )

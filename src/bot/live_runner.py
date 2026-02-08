@@ -413,16 +413,6 @@ class LiveTradingRunner:
                     use_equal_allocation=True,
                 )
                 self.strategy = NautilusDynamicRuleStrategy(strategy_config)
-
-                self._tws_provider = TWSDataProvider(
-                    host=self.settings.ib.host,
-                    port=self.settings.ib.port,
-                    client_id=self.settings.ib.client_id + 2,
-                )
-                if self._tws_provider.connect(timeout=5.0):
-                    self.strategy.set_tws_provider(self._tws_provider)
-                else:
-                    logger.warning("Failed to connect TWS provider for state updates")
             else:
                 strategy_config = DynamicRuleStrategyConfig(
                     strategy_id="live_dynamic_strategy",
@@ -666,6 +656,7 @@ class LiveTradingRunner:
         Run in Nautilus Trader mode with hot-reload support.
         """
         import threading
+        last_state_refresh = 0.0
         
         while not self._shutdown_requested:
             # Create and start node
@@ -673,6 +664,12 @@ class LiveTradingRunner:
                 strategy=self.strategy,
                 instruments=self.strategy.config.instruments,
             )
+
+            if isinstance(self.strategy, NautilusDynamicRuleStrategy) and self.node is not None:
+                try:
+                    self.strategy.set_cache_override(self.node.cache)
+                except Exception as exc:
+                    logger.debug("Failed to set Nautilus cache override: %s", exc)
             
             if not self.node:
                 logger.error("Failed to create trading node")
@@ -705,6 +702,16 @@ class LiveTradingRunner:
 
                 # Update heartbeat
                 self._update_heartbeat()
+
+                # Refresh state from Nautilus cache on a steady cadence
+                now = time.time()
+                if now - last_state_refresh >= 5.0:
+                    if isinstance(self.strategy, NautilusDynamicRuleStrategy):
+                        try:
+                            self.strategy.refresh_state()
+                        except Exception as exc:
+                            logger.debug("State refresh failed: %s", exc)
+                    last_state_refresh = now
 
                 time.sleep(1.0)
             
