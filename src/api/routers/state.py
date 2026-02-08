@@ -172,11 +172,13 @@ def get_state():
                 return fallback
         return fallback
 
-    provider = get_tws_provider()
-    tws_connected = bool(provider.is_connected())
-    state["tws_connected"] = tws_connected
+    tws_connected = bool(state.get("tws_connected"))
+    if not runner_active:
+        provider = get_tws_provider()
+        tws_connected = bool(provider.is_connected())
+        state["tws_connected"] = tws_connected
 
-    if tws_connected:
+    if tws_connected and not runner_active:
         executions = provider.get_executions(
             timeout=3.0,
             since=datetime.now() - timedelta(days=7),

@@ -466,6 +466,7 @@ def read_state_db() -> BotState:
             daily_pnl_percent=state_dict.get("daily_pnl_percent", 0.0),
             total_pnl=state_dict.get("total_pnl", 0.0),
             last_update=state_dict.get("last_update"),
+            last_heartbeat=state_dict.get("last_heartbeat"),
             recent_logs=recent_logs,
             active_strategy=state_dict.get("active_strategy", ""),
             error_message=state_dict.get("error_message", ""),
