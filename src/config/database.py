@@ -7,6 +7,7 @@ bot state, positions, orders, and trading history using DuckDB.
 
 import json
 import logging
+import threading
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
@@ -37,6 +38,8 @@ class DatabaseManager:
         """
         self.db_path = db_path or DEFAULT_DB_PATH
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        self._conn_lock = threading.Lock()
+        self._conn = duckdb.connect(str(self.db_path))
         self._initialize_database()
 
     @contextmanager
@@ -47,11 +50,8 @@ class DatabaseManager:
         Yields:
             Active database connection
         """
-        conn = duckdb.connect(str(self.db_path))
-        try:
-            yield conn
-        finally:
-            conn.close()
+        with self._conn_lock:
+            yield self._conn
 
     def _initialize_database(self) -> None:
         """Initialize database schema if not exists."""
