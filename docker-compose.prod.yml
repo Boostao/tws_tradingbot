@@ -1,6 +1,6 @@
 services:
   db:
-    image: postgres:16-alpine
+    image: docker.io/library/postgres:16-alpine
     restart: unless-stopped
     environment:
       POSTGRES_USER: traderbot
@@ -60,7 +60,7 @@ services:
     command: ["bash", "-lc", "/app/.venv/bin/python -m src.bot.live_runner"]
 
   caddy:
-    image: caddy:2
+    image: docker.io/library/caddy:2
     restart: unless-stopped
     depends_on:
       - web
