@@ -15,6 +15,7 @@ Usage:
 import argparse
 import logging
 from datetime import datetime, timezone
+import os
 import signal
 import sys
 import time
@@ -80,7 +81,8 @@ class LiveTradingRunner:
             strategy_path: Path to strategy JSON file (uses default if None)
         """
         # Load settings using ConfigLoader
-        self.settings = load_config()
+        use_api_backend = bool(os.getenv("BOT_API_URL") or os.getenv("STATE_API_URL"))
+        self.settings = load_config(sync_to_db=not use_api_backend)
         
         # Strategy path
         default_strategy_path = self.settings.app.active_strategy_path
