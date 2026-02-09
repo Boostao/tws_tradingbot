@@ -187,24 +187,25 @@ class TWSDataWrapper(EWrapper):
         self._managed_accounts = accountsList.split(",")
         logger.info(f"Managed accounts: {self._managed_accounts}")
     
-    def error(
-        self, 
-        reqId: TickerId, 
-        errorTime: str,
-        errorCode: int, 
-        errorString: str, 
-        advancedOrderRejectJson: str = ""
-    ):
-        """
-        Handle error messages from TWS.
-        
-        Args:
-            reqId: Request ID that generated the error
-            errorTime: Timestamp of the error
-            errorCode: IB API error code
-            errorString: Human-readable error message
-            advancedOrderRejectJson: Advanced order rejection details (JSON)
-        """
+    def error(self, reqId: TickerId, *args):
+        """Handle error messages from TWS across ibapi signature variants."""
+        errorCode: Optional[int]
+        errorString: Optional[str]
+        advancedOrderRejectJson = ""
+
+        # ibapi signatures observed:
+        # (reqId, errorCode, errorString)
+        # (reqId, errorCode, errorString, advancedOrderRejectJson)
+        # (reqId, errorTime, errorCode, errorString, advancedOrderRejectJson)
+        if len(args) == 2:
+            errorCode, errorString = args
+        elif len(args) == 3:
+            errorCode, errorString, advancedOrderRejectJson = args
+        elif len(args) >= 4:
+            _, errorCode, errorString, advancedOrderRejectJson = args[:4]
+        else:
+            logger.error("TWS error callback received unexpected arguments")
+            return
         # Some error codes are informational
         if errorCode in (2104, 2106, 2158, 2119, 2174):  # Market data/connection info
             if errorCode == 2174:
