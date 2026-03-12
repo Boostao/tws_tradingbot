@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import os
 from datetime import datetime, timezone
-from dataclasses import asdict
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 from uuid import uuid4
@@ -263,18 +262,3 @@ def get_symbol_cache(refresh: bool = False) -> Tuple[List[Dict[str, Any]], str, 
 
     return [], "local", cached_updated_at
 
-
-def get_redacted_settings() -> Dict[str, Any]:
-    settings = get_settings(force_reload=True)
-    data = asdict(settings)
-
-    if "auth" in data:
-        data["auth"]["password"] = "***"
-    if "notifications" in data:
-        telegram = data["notifications"].get("telegram", {})
-        discord = data["notifications"].get("discord", {})
-        if "bot_token" in telegram and telegram["bot_token"]:
-            telegram["bot_token"] = "***"
-        if "webhook_url" in discord and discord["webhook_url"]:
-            discord["webhook_url"] = "***"
-    return data

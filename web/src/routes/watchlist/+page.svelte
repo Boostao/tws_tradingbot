@@ -3,7 +3,6 @@
 	import { formatApiError, getSymbols, getWatchlist, replaceWatchlist } from '$lib/api';
 	import type { SymbolRecord } from '$lib/api';
 	import { t, language } from '$lib/i18n';
-	import { botState } from '$lib/stores/botState';
 	import SymbolSearch from '$lib/components/SymbolSearch.svelte';
 	import { List, Trash2 } from 'lucide-svelte';
 
@@ -25,7 +24,6 @@
 	let editingRow: number | null = null;
 
 	$: _lang = $language;
-	$: twsConnected = $botState.tws_connected;
 
 	function normalizeRows(next: WatchlistRow[]) {
 		const cleaned = next.filter((row) => row.ticker.trim().length > 0 || row.description || row.market);
@@ -329,7 +327,7 @@
 							{#if editingRow === index}
 								<SymbolSearch
 									placeholder="Search symbol"
-									statusTone={twsConnected ? 'online' : 'offline'}
+									statusTone={'online'}
 									includeNonStocks={true}
 									autoFocus={true}
 									initialValue={row.ticker}

@@ -1,21 +1,21 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import {
+		API_BASE,
 		clearCache,
 		formatApiError,
 		getCachePolicy,
 		getLastApiError,
 		getRestMetric,
 		getStrategy,
+		getStrategyPineScript,
 		saveStrategy,
 		setCacheTtl,
 		validateStrategy,
 		importStrategy,
-		importStrategyFile,
-		exportStrategy
+		importStrategyFile
 	} from '$lib/api';
 	import { t, language } from '$lib/i18n';
-	import { botState } from '$lib/stores/botState';
 	import {
 		GitBranch,
 		Settings,
@@ -92,6 +92,9 @@
 	let restLastError: string | null = null;
 
 	let importFile: File | null = null;
+	let pineScript = '';
+	let pineWarnings: string[] = [];
+	let pineLoading = false;
 
 	let editingRuleId: string | null = null;
 	let ruleName = '';
@@ -396,6 +399,22 @@
 		}
 	}
 
+	async function handleGeneratePineScript() {
+		message = '';
+		pineLoading = true;
+		try {
+			const result = await getStrategyPineScript();
+			pineScript = result.script;
+			pineWarnings = result.warnings;
+			status = 'pine script generated';
+		} catch (err) {
+			message = formatApiError(err);
+		} finally {
+			pineLoading = false;
+			updateRestBadges();
+		}
+	}
+
 	function resetForm() {
 		editingRuleId = null;
 		ruleName = '';
@@ -520,22 +539,7 @@
 	);
 	$: needsRange = conditionType === 'within_range';
 
-	// Explicit dependencies to ensure live preview updates when form fields change
-	$: previewRule = (
-		actionType,
-		compareMode,
-		conditionType,
-		indicatorA,
-		indicatorB,
-		lookbackPeriods,
-		priority,
-		rangeEnd,
-		rangeStart,
-		ruleName,
-		ruleScope,
-		thresholdValue,
-		buildNewRule()
-	);
+	$: previewRule = buildNewRule();
 </script>
 
 <h1 class="heading"><span class="heading-icon"><GitBranch size={20} strokeWidth={1.6} /></span>{t('strategy_builder')}</h1>
@@ -551,12 +555,13 @@
 		<ol class="quickstart-steps">
 			<li>{t('strategy_quickstart_step_watchlist')}</li>
 			<li>{t('strategy_quickstart_step_rules')}</li>
-			<li>{t('strategy_quickstart_step_backtest')}</li>
+			<li>Generate PineScript from enabled rules</li>
 		</ol>
 		<div class="quickstart-actions">
 			<a class="button-link secondary" href="/watchlist">{t('strategy_quickstart_watchlist_cta')}</a>
-			<a class="button-link secondary" href="/backtest">{t('strategy_quickstart_backtest_cta')}</a>
-			<a class="button-link secondary" href="/monitoring">{t('strategy_quickstart_monitoring_cta')}</a>
+			<button class="secondary" on:click={handleGeneratePineScript} disabled={pineLoading}>
+				{pineLoading ? 'Generating…' : 'Generate PineScript'}
+			</button>
 		</div>
 	</div>
 
@@ -1025,6 +1030,9 @@
 		<div style="display: flex; flex-wrap: wrap; gap: 8px;">
 			<button on:click={handleValidate}>{t('validate')}</button>
 			<button on:click={handleSave}>{t('save')}</button>
+			<button on:click={handleGeneratePineScript} disabled={pineLoading}>
+				{pineLoading ? 'Generating…' : 'Generate PineScript'}
+			</button>
 			<button class="secondary" on:click={handleExport}>{t('export')}</button>
 			<button class="secondary" on:click={() => loadStrategy(true)}>{t('reload')}</button>
 			<button
@@ -1078,6 +1086,18 @@
 				{/each}
 			</ul>
 		{/if}
+	</div>
+
+	<div class="card">
+		<h2>Pine Script</h2>
+		{#if pineWarnings.length}
+			<ul>
+				{#each pineWarnings as warn}
+					<li style="color: #f59e0b;">{warn}</li>
+				{/each}
+			</ul>
+		{/if}
+		<textarea rows="14" style="width: 100%;" readonly value={pineScript}></textarea>
 	</div>
 
 	{#if showJson}

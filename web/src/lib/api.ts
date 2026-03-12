@@ -1,8 +1,7 @@
 const DEFAULT_API_BASE = 'http://localhost:8000';
 
 export const API_BASE =
-	import.meta.env.VITE_API_URL ??
-	(typeof window !== 'undefined' ? window.location.origin : DEFAULT_API_BASE);
+	import.meta.env.VITE_API_URL ?? DEFAULT_API_BASE;
 
 type RestMetric = {
 	lastMs: number;
@@ -34,20 +33,14 @@ let lastApiError: ApiError | null = null;
 
 type CachePolicy = {
 	strategy: number;
-	config: number;
 	watchlist: number;
 	symbols: number;
-	backtestStatus: number;
-	backtestResults: number;
 };
 
 const cachePolicy: CachePolicy = {
 	strategy: 5000,
-	config: 10000,
 	watchlist: 10000,
-	symbols: 60000,
-	backtestStatus: 1000,
-	backtestResults: 60000
+	symbols: 60000
 };
 
 export function getCachePolicy(): CachePolicy {
@@ -64,14 +57,6 @@ export function clearCache(key?: string): void {
 		return;
 	}
 	cache.clear();
-}
-
-export function clearCacheByPrefix(prefix: string): void {
-	for (const key of cache.keys()) {
-		if (key.startsWith(prefix)) {
-			cache.delete(key);
-		}
-	}
 }
 
 export function getLastApiError(): ApiError | null {
@@ -170,33 +155,6 @@ export async function getHealth(): Promise<{ status: string }> {
 	return response.json();
 }
 
-export type BacktestRunRequest = {
-	tickers: string[];
-	start_date: string;
-	end_date: string;
-	timeframe: string;
-	initial_capital: number;
-	use_tws_data: boolean;
-	use_nautilus: boolean;
-};
-
-export type BacktestRunResponse = { job_id: string };
-
-export type BacktestStatusResponse = {
-	job_id: string;
-	status: string;
-	error?: string | null;
-	started_at?: string | null;
-	finished_at?: string | null;
-};
-
-export type BacktestResultResponse = {
-	job_id: string;
-	status: string;
-	result?: Record<string, unknown> | null;
-	error?: string | null;
-};
-
 export type SymbolRecord = {
 	symbol: string;
 	name?: string;
@@ -204,74 +162,11 @@ export type SymbolRecord = {
 	type?: string;
 };
 
-export type ConfigResponse = {
-	ib?: {
-		host?: string;
-		port?: number;
-		client_id?: number;
-	};
-};
-
-export async function getConfig(force = false): Promise<ConfigResponse> {
-	const cacheKey = 'config';
-	const cached = !force ? getCached<ConfigResponse>(cacheKey) : null;
-	if (cached) return cached;
-	const response = await timedFetch('config.get', `${API_BASE}/api/v1/config`);
-	if (!response.ok) {
-		throw await buildApiError(response, 'Config');
-	}
-	const data = (await response.json()) as ConfigResponse;
-	setCached(cacheKey, data, cachePolicy.config);
-	return data;
-}
-
-export async function runBacktest(payload: BacktestRunRequest): Promise<BacktestRunResponse> {
-	const response = await timedFetch('backtest.run', `${API_BASE}/api/v1/backtest/run`, {
-		method: 'POST',
-		headers: { 'Content-Type': 'application/json' },
-		body: JSON.stringify(payload)
-	});
-	if (!response.ok) {
-		throw await buildApiError(response, 'Backtest run');
-	}
-	return response.json();
-}
-
-export async function getBacktestStatus(
-	jobId: string,
-	force = false
-): Promise<BacktestStatusResponse> {
-	const cacheKey = `backtest_status:${jobId}`;
-	const cached = !force ? getCached<BacktestStatusResponse>(cacheKey) : null;
-	if (cached) return cached;
-	const response = await timedFetch('backtest.status', `${API_BASE}/api/v1/backtest/${jobId}`);
-	if (!response.ok) {
-		throw await buildApiError(response, 'Backtest status');
-	}
-	const data = await response.json();
-	setCached(cacheKey, data, cachePolicy.backtestStatus);
-	return data;
-}
-
-export async function getBacktestResults(
-	jobId: string,
-	force = false
-): Promise<BacktestResultResponse> {
-	const cacheKey = `backtest_results:${jobId}`;
-	const cached = !force ? getCached<BacktestResultResponse>(cacheKey) : null;
-	if (cached) return cached;
-	const response = await timedFetch('backtest.results', `${API_BASE}/api/v1/backtest/${jobId}/results`);
-	if (!response.ok) {
-		throw await buildApiError(response, 'Backtest results');
-	}
-	const data = await response.json();
-	if (data?.status === 'completed') {
-		setCached(cacheKey, data, cachePolicy.backtestResults);
-	}
-	return data;
-}
-
 export type Strategy = Record<string, unknown>;
+export type PineScriptResponse = {
+	script: string;
+	warnings: string[];
+};
 
 export async function getStrategy(force = false): Promise<Strategy> {
 	const cached = !force ? getCached<Strategy>('strategy') : null;
@@ -340,14 +235,12 @@ export async function importStrategyFile(file: File): Promise<Strategy> {
 	return data;
 }
 
-export async function exportStrategy(): Promise<Strategy> {
-	const response = await timedFetch('strategy.export', `${API_BASE}/api/v1/strategy/export`);
+export async function getStrategyPineScript(): Promise<PineScriptResponse> {
+	const response = await timedFetch('strategy.pine', `${API_BASE}/api/v1/strategy/pine-script`);
 	if (!response.ok) {
-		throw await buildApiError(response, 'Strategy export');
+		throw await buildApiError(response, 'PineScript generation');
 	}
-	const data = await response.json();
-	setCached('strategy', data, cachePolicy.strategy);
-	return data;
+	return response.json();
 }
 
 export async function getWatchlist(force = false): Promise<{ symbols: string[] }> {
@@ -376,86 +269,6 @@ export async function replaceWatchlist(symbols: string[]): Promise<{ symbols: st
 	return data;
 }
 
-export async function getState(): Promise<Record<string, unknown>> {
-	const response = await timedFetch('state.get', `${API_BASE}/api/v1/state`);
-	if (!response.ok) {
-		throw await buildApiError(response, 'State fetch');
-	}
-	return response.json();
-}
-
-export async function getLogs(): Promise<{ logs: string[] }> {
-	const response = await timedFetch('logs.get', `${API_BASE}/api/v1/logs`);
-	if (!response.ok) {
-		throw await buildApiError(response, 'Logs fetch');
-	}
-	return response.json();
-}
-
-export async function startBot(): Promise<{ status: string }> {
-	const response = await timedFetch('bot.start', `${API_BASE}/api/v1/bot/start`, { method: 'POST' });
-	if (!response.ok) {
-		throw await buildApiError(response, 'Bot start');
-	}
-	return response.json();
-}
-
-export async function stopBot(): Promise<{ status: string }> {
-	const response = await timedFetch('bot.stop', `${API_BASE}/api/v1/bot/stop`, { method: 'POST' });
-	if (!response.ok) {
-		throw await buildApiError(response, 'Bot stop');
-	}
-	return response.json();
-}
-
-export async function emergencyStop(): Promise<{ status: string }> {
-	const response = await timedFetch('bot.emergency_stop', `${API_BASE}/api/v1/bot/emergency_stop`, {
-		method: 'POST'
-	});
-	if (!response.ok) {
-		throw await buildApiError(response, 'Emergency stop');
-	}
-	return response.json();
-}
-
-export async function connectTws(payload: { host?: string; port?: number; client_id?: number }): Promise<{ connected: boolean }> {
-	const response = await timedFetch('tws.connect', `${API_BASE}/api/v1/tws/connect`, {
-		method: 'POST',
-		headers: { 'Content-Type': 'application/json' },
-		body: JSON.stringify(payload)
-	});
-	if (!response.ok) {
-		throw await buildApiError(response, 'TWS connect');
-	}
-	return response.json();
-}
-
-export async function disconnectTws(): Promise<{ connected: boolean }> {
-	const response = await timedFetch('tws.disconnect', `${API_BASE}/api/v1/tws/disconnect`, {
-		method: 'POST'
-	});
-	if (!response.ok) {
-		throw await buildApiError(response, 'TWS disconnect');
-	}
-	return response.json();
-}
-
-export async function updateConfig(
-	updates: Record<string, Record<string, unknown>>
-): Promise<Record<string, unknown>> {
-	const response = await timedFetch('config.update', `${API_BASE}/api/v1/config`, {
-		method: 'PUT',
-		headers: { 'Content-Type': 'application/json' },
-		body: JSON.stringify({ updates })
-	});
-	if (!response.ok) {
-		throw await buildApiError(response, 'Config update');
-	}
-	const data = await response.json();
-	setCached('config', data, cachePolicy.config);
-	return data;
-}
-
 export type SymbolQuery = {
 	q?: string;
 	type?: string;
@@ -469,7 +282,9 @@ export async function getSymbols(
 	force = false
 ): Promise<{ symbols: SymbolRecord[]; source?: string; updated_at?: string | null }> {
 	const cacheKey = `symbols:${JSON.stringify(query)}`;
-	const cached = !force ? getCached<{ symbols: SymbolRecord[]; source?: string; updated_at?: string | null }>(cacheKey) : null;
+	const cached = !force
+		? getCached<{ symbols: SymbolRecord[]; source?: string; updated_at?: string | null }>(cacheKey)
+		: null;
 	if (cached) return cached;
 	const params = new URLSearchParams();
 	if (query.q) params.set('q', query.q);
@@ -485,37 +300,4 @@ export async function getSymbols(
 	const data = await response.json();
 	setCached(cacheKey, data, cachePolicy.symbols);
 	return data;
-}
-
-export async function testNotification(
-	message: string,
-	channel?: 'telegram' | 'discord'
-): Promise<{ status: string }> {
-	const response = await timedFetch('notifications.test', `${API_BASE}/api/v1/notifications/test`, {
-		method: 'POST',
-		headers: { 'Content-Type': 'application/json' },
-		body: JSON.stringify({ message, channel })
-	});
-	if (!response.ok) {
-		throw await buildApiError(response, 'Notification test');
-	}
-	return response.json();
-}
-
-export async function getNotifications(
-	page = 1,
-	pageSize = 25
-): Promise<{ events: Array<Record<string, unknown>>; total: number; page: number; page_size: number }> {
-	const params = new URLSearchParams({
-		page: String(page),
-		page_size: String(pageSize)
-	});
-	const response = await timedFetch(
-		'notifications.list',
-		`${API_BASE}/api/v1/notifications?${params.toString()}`
-	);
-	if (!response.ok) {
-		throw await buildApiError(response, 'Notifications fetch');
-	}
-	return response.json();
 }

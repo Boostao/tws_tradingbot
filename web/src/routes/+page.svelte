@@ -18,24 +18,8 @@
 	});
 </script>
 
-<h1>{t('refactor_in_progress')}</h1>
-<p>{t('backend_health_check')}</p>
-
-<div class="card">
-	<span class="badge">
-		<span class={`status-dot ${status === 'online' ? '' : 'offline'}`}></span>
-		{status}
-	</span>
-	{#if error}
-		<p style="color: #f87171; margin-top: 12px;">{error}</p>
-	{/if}
-</div>
-
-<div class="card">
-	<h2>{t('next_up')}</h2>
-	<ul>
-		<li>{t('next_wire_monitoring')}</li>
-		<li>{t('next_strategy_editor')}</li>
-		<li>{t('next_backtest_runner')}</li>
-	</ul>
-</div>
+<h1>{t('watchlist')}</h1>
+<p class="muted">{status}</p>
+{#if error}
+	<p style="color: #f87171;">{error}</p>
+{/if}

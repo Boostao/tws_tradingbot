@@ -3,11 +3,11 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException, UploadFile, File
 from fastapi.responses import FileResponse
 import json
-import os
 import traceback
 
 from src.api.utils import load_strategy, save_strategy
 from src.bot.strategy.rules.models import Strategy
+from src.bot.strategy.pine_script import strategy_to_pine_script
 from src.bot.strategy.validator import validate_strategy
 from src.utils.logger import get_logger
 
@@ -59,12 +59,13 @@ async def import_strategy_file(file: UploadFile = File(...)) -> Strategy:
         raise HTTPException(status_code=400, detail="Invalid JSON file")
     
     # Validate it's a strategy
-    errors = validate_strategy(strategy_data)
+    parsed_strategy = Strategy.model_validate(strategy_data)
+    errors = validate_strategy(parsed_strategy)
     if errors:
         raise HTTPException(status_code=400, detail=f"Invalid strategy: {', '.join(errors)}")
     
-    save_strategy(strategy_data)
-    return strategy_data
+    save_strategy(parsed_strategy)
+    return parsed_strategy
 
 
 @router.get("/strategy/export")
@@ -73,9 +74,19 @@ def export_strategy():
     # Create a temporary file
     temp_file = "/tmp/strategy_export.json"
     with open(temp_file, "w") as f:
-        json.dump(strategy, f, indent=2)
+        json.dump(strategy.model_dump(mode="json"), f, indent=2)
     return FileResponse(
         temp_file,
         media_type='application/json',
-        filename=f"{strategy.get('name', 'strategy')}_{strategy.get('version', 'v1')}.json"
+        filename=f"{strategy.name or 'strategy'}_{strategy.version or 'v1'}.json"
     )
+
+
+@router.get("/strategy/pine-script")
+def get_strategy_pine_script():
+    strategy = load_strategy()
+    result = strategy_to_pine_script(strategy)
+    return {
+        "script": result.script,
+        "warnings": result.warnings,
+    }

@@ -305,7 +305,7 @@ export const translations = {
     doc_configuration_script_3:
       "Bot runner: ./run_bot.sh (or podman-compose -f docker-compose.prod.yml up -d bot)",
     doc_configuration_data_title: "Data and storage",
-    doc_configuration_data_1: "Default state storage: PostgreSQL (DATABASE_URL).",
+    doc_configuration_data_1: "Default state storage: local files in config/ and data/.",
     doc_configuration_data_2: "Sample data: data/sample/.",
     doc_configuration_backtest_title: "Backtest data source",
     doc_configuration_backtest_1: "Uses TWS data when connected and enabled.",
@@ -830,7 +830,7 @@ export const translations = {
     doc_configuration_script_3:
       "Bot : ./run_bot.sh (ou podman-compose -f docker-compose.prod.yml up -d bot)",
     doc_configuration_data_title: "Donnees et stockage",
-    doc_configuration_data_1: "Stockage par defaut : PostgreSQL (DATABASE_URL).",
+    doc_configuration_data_1: "Stockage par defaut : fichiers locaux dans config/ et data/.",
     doc_configuration_data_2: "Donnees sample : data/sample/.",
     doc_configuration_backtest_title: "Source backtest",
     doc_configuration_backtest_1: "Utilise TWS si connecte.",

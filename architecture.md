@@ -6,69 +6,33 @@ This document provides a high-level overview of the TWS Trader Bot project's arc
 graph TD
     A[User] --> B[SvelteKit UI]
     B --> C[FastAPI API]
-    C --> D[Bot Engine]
-    C --> E[WebSocket Streams]
-    E --> B
+    C --> D[Strategy Services]
 
-    D --> F[Live Runner]
-    D --> G[Backtest Runner]
-    D --> H[Optimizer]
+    D --> I[Rule Models]
+    D --> J[Pine Script Generator]
 
-    F --> I[Strategy System]
-    G --> I
-    H --> I
+    C --> K[API Routers]
+    K --> L[Strategy Router]
+    K --> M[Watchlist Router]
+    K --> N[Symbols Router]
 
-    I --> J[Rules Engine]
-    J --> K[Conditions]
-    J --> L[Indicators]
-    J --> M[Evaluator]
+    B --> O[UI Routes]
+    O --> P[Watchlist Manager]
+    O --> Q[Strategy Builder]
+    Q --> R[Pine Script Output]
 
-    F --> N[Order Manager]
-    F --> O[Risk Manager]
-    F --> P[State Manager]
+    C --> S[Config Files]
+    S --> T[config/watchlist.txt]
+    S --> U[config/active_strategy.json]
 
-    N --> Q[IB Adapter]
-    Q --> R[TWS API]
-
-    P --> S[Database]
-    S --> T[PostgreSQL]
-
-    D --> V[Data Providers]
-    V --> W[TWS Data Provider]
-    V --> X[Historical Data Loader]
-
-    C --> Y[API Routers]
-    Y --> Z[Strategy]
-    Y --> AA[Backtest]
-    Y --> BB[Config]
-    Y --> CC[State]
-    Y --> DD[Symbols]
-    Y --> EE[Watchlist]
-    Y --> FF[Notifications]
-
-    B --> GG[Components]
-    GG --> HH[Strategy Builder]
-    GG --> II[Monitoring Dashboard]
-    GG --> JJ[Backtest UI]
-    GG --> KK[Watchlist Manager]
-
-    D --> LL[Notifications Service]
-    LL --> MM[Telegram]
-    LL --> NN[Discord]
+    M --> V[TradingView Symbol Cache]
+    L --> J
 
     subgraph "External Services"
-        R
-        MM
-        NN
-    end
-
-    subgraph "Data Storage"
-        T
+        V
     end
 
     subgraph "Configuration"
-        OO[Config Files]
-        OO --> PP[default.yaml]
-        OO --> QQ[active_strategy.json]
+        S
     end
 ```

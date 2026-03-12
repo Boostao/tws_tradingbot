@@ -1,20 +1,14 @@
 <script lang="ts">
-	import { onDestroy, onMount } from 'svelte';
+	import { onMount } from 'svelte';
 	import favicon from '$lib/assets/favicon.svg';
 	import '../app.css';
 	import Sidebar from '$lib/components/Sidebar.svelte';
 	import { initLanguage, language, t } from '$lib/i18n';
-	import { startBotStatePolling, stopBotStatePolling } from '$lib/stores/botState';
 
 	$: _lang = $language;
 
 	onMount(() => {
 		initLanguage();
-		startBotStatePolling();
-	});
-
-	onDestroy(() => {
-		stopBotStatePolling();
 	});
 </script>
 

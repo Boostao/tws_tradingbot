@@ -4,27 +4,12 @@ from collections import defaultdict, deque
 import os
 from threading import Lock
 from time import time
-import asyncio
 
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.security import HTTPBasic, HTTPBasicCredentials
-from starlette import status
 
-from src.api.routers import backtest, config, notifications, state, strategy, symbols, watchlist, ws
-from src.bot.tws_data_provider import get_tws_provider, reset_tws_provider
+from src.api.routers import strategy, symbols, watchlist
 from src.config.settings import get_settings
-
-
-_security = HTTPBasic()
-
-
-def _auth_guard(credentials: HTTPBasicCredentials = Depends(_security)) -> None:
-    settings = get_settings(force_reload=True)
-    if not settings.auth.enabled:
-        return
-    if credentials.username != settings.auth.username or credentials.password != settings.auth.password:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid credentials")
 
 
 class _RateLimiter:
@@ -86,37 +71,13 @@ def create_app() -> FastAPI:
                     raise HTTPException(status_code=429, detail="rate limit exceeded")
         return await call_next(request)
 
-    dependencies = [Depends(_auth_guard)] if settings.auth.enabled else None
-    app.include_router(strategy.router, prefix="/api/v1", dependencies=dependencies)
-    app.include_router(backtest.router, prefix="/api/v1", dependencies=dependencies)
-    app.include_router(watchlist.router, prefix="/api/v1", dependencies=dependencies)
-    app.include_router(state.router, prefix="/api/v1", dependencies=dependencies)
-    app.include_router(config.router, prefix="/api/v1", dependencies=dependencies)
-    app.include_router(notifications.router, prefix="/api/v1", dependencies=dependencies)
-    app.include_router(symbols.router, prefix="/api/v1", dependencies=dependencies)
-    app.include_router(ws.router)
+    app.include_router(strategy.router, prefix="/api/v1")
+    app.include_router(watchlist.router, prefix="/api/v1")
+    app.include_router(symbols.router, prefix="/api/v1")
 
     @app.get("/health")
     def health():
         return {"status": "ok"}
-
-    @app.on_event("shutdown")
-    async def shutdown_event() -> None:
-        async def _shutdown_tws() -> None:
-            try:
-                provider = get_tws_provider()
-                await asyncio.to_thread(provider.disconnect)
-            except Exception:
-                pass
-            try:
-                reset_tws_provider()
-            except Exception:
-                pass
-
-        try:
-            await asyncio.wait_for(_shutdown_tws(), timeout=3.0)
-        except asyncio.TimeoutError:
-            pass
 
     return app
 
