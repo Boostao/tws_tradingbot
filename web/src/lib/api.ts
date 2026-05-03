@@ -1,4 +1,4 @@
-const DEFAULT_API_BASE = 'http://localhost:8000';
+const DEFAULT_API_BASE = import.meta.env.DEV ? 'http://localhost:8000' : '';
 
 export const API_BASE =
 	import.meta.env.VITE_API_URL ?? DEFAULT_API_BASE;
@@ -33,12 +33,14 @@ let lastApiError: ApiError | null = null;
 
 type CachePolicy = {
 	strategy: number;
+	cockpit: number;
 	watchlist: number;
 	symbols: number;
 };
 
 const cachePolicy: CachePolicy = {
 	strategy: 5000,
+	cockpit: 5000,
 	watchlist: 10000,
 	symbols: 60000
 };
@@ -162,6 +164,75 @@ export type SymbolRecord = {
 	type?: string;
 };
 
+export type WatchlistItem = {
+	symbol: string;
+	exchange?: string;
+	name?: string;
+	enabled: boolean;
+};
+
+export type WatchlistGroup = {
+	id: string;
+	name: string;
+	source?: string;
+	items: WatchlistItem[];
+};
+
+export type WatchlistFeed = {
+	provider: string;
+	url: string;
+	title?: string | null;
+	external_id?: string | null;
+	last_refreshed_at?: string | null;
+};
+
+export type WatchlistResponse = {
+	symbols: string[];
+	groups: WatchlistGroup[];
+	feed?: WatchlistFeed | null;
+	updated_at?: string | null;
+};
+
+export type CockpitStrategySummary = {
+	id: string;
+	name: string;
+	rule_count: number;
+	enabled_rule_count: number;
+	source: string;
+};
+
+export type CockpitStrategySlot = {
+	id: string;
+	label: string;
+	strategy_id?: string | null;
+	enabled: boolean;
+};
+
+export type CockpitWorkspace = {
+	id: string;
+	name: string;
+	kind: string;
+	enabled: boolean;
+	strategy_slots: CockpitStrategySlot[];
+};
+
+export type CockpitState = {
+	global_enabled: boolean;
+	active_workspace_id?: string | null;
+	workspaces: CockpitWorkspace[];
+	strategy_library: CockpitStrategySummary[];
+	feed?: WatchlistFeed | null;
+	updated_at?: string | null;
+};
+
+export type StrategyLibraryEntry = {
+	id: string;
+	name: string;
+	rule_count: number;
+	enabled_rule_count: number;
+	updated_at?: string | null;
+};
+
 export type Strategy = Record<string, unknown>;
 export type PineScriptResponse = {
 	script: string;
@@ -243,28 +314,141 @@ export async function getStrategyPineScript(): Promise<PineScriptResponse> {
 	return response.json();
 }
 
-export async function getWatchlist(force = false): Promise<{ symbols: string[] }> {
-	const cached = !force ? getCached<{ symbols: string[] }>('watchlist') : null;
+export async function getStrategyLibrary(): Promise<StrategyLibraryEntry[]> {
+	const response = await timedFetch('strategy.library', `${API_BASE}/api/v1/strategy/library`);
+	if (!response.ok) {
+		throw await buildApiError(response, 'Strategy library fetch');
+	}
+	return (await response.json()) as StrategyLibraryEntry[];
+}
+
+export async function saveStrategyPreset(strategy: Strategy, name?: string): Promise<StrategyLibraryEntry> {
+	const response = await timedFetch('strategy.library.save', `${API_BASE}/api/v1/strategy/library/save`, {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify({ strategy, name })
+	});
+	if (!response.ok) {
+		throw await buildApiError(response, 'Strategy preset save');
+	}
+	return (await response.json()) as StrategyLibraryEntry;
+}
+
+export async function getStrategyPreset(strategyId: string): Promise<Strategy> {
+	const response = await timedFetch('strategy.library.item', `${API_BASE}/api/v1/strategy/library/${strategyId}`);
+	if (!response.ok) {
+		throw await buildApiError(response, 'Strategy preset fetch');
+	}
+	return (await response.json()) as Strategy;
+}
+
+export async function applyStrategyPreset(strategyId: string): Promise<Strategy> {
+	const response = await timedFetch('strategy.library.apply', `${API_BASE}/api/v1/strategy/library/${strategyId}/apply`, {
+		method: 'POST'
+	});
+	if (!response.ok) {
+		throw await buildApiError(response, 'Strategy preset apply');
+	}
+	const data = (await response.json()) as Strategy;
+	setCached('strategy', data, cachePolicy.strategy);
+	return data;
+}
+
+export async function deleteStrategyPreset(strategyId: string): Promise<void> {
+	const response = await timedFetch('strategy.library.delete', `${API_BASE}/api/v1/strategy/library/${strategyId}`, {
+		method: 'DELETE'
+	});
+	if (!response.ok) {
+		throw await buildApiError(response, 'Strategy preset delete');
+	}
+}
+
+export async function getWatchlist(force = false): Promise<WatchlistResponse> {
+	const cached = !force ? getCached<WatchlistResponse>('watchlist') : null;
 	if (cached) return cached;
 	const response = await timedFetch('watchlist.get', `${API_BASE}/api/v1/watchlist`);
 	if (!response.ok) {
 		throw await buildApiError(response, 'Watchlist fetch');
 	}
-	const data = await response.json();
+	const data = (await response.json()) as WatchlistResponse;
 	setCached('watchlist', data, cachePolicy.watchlist);
 	return data;
 }
 
-export async function replaceWatchlist(symbols: string[]): Promise<{ symbols: string[] }> {
+export async function getCockpit(force = false): Promise<CockpitState> {
+	const cached = !force ? getCached<CockpitState>('cockpit') : null;
+	if (cached) return cached;
+	const response = await timedFetch('cockpit.get', `${API_BASE}/api/v1/cockpit`);
+	if (!response.ok) {
+		throw await buildApiError(response, 'Cockpit fetch');
+	}
+	const data = (await response.json()) as CockpitState;
+	setCached('cockpit', data, cachePolicy.cockpit);
+	return data;
+}
+
+export async function saveCockpit(payload: {
+	global_enabled: boolean;
+	active_workspace_id?: string | null;
+	workspaces: CockpitWorkspace[];
+}): Promise<CockpitState> {
+	const response = await timedFetch('cockpit.save', `${API_BASE}/api/v1/cockpit`, {
+		method: 'PUT',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify(payload)
+	});
+	if (!response.ok) {
+		throw await buildApiError(response, 'Cockpit update');
+	}
+	const data = (await response.json()) as CockpitState;
+	setCached('cockpit', data, cachePolicy.cockpit);
+	return data;
+}
+
+export async function replaceWatchlist(
+	payload: string[] | { groups: WatchlistGroup[]; feed?: WatchlistFeed | null }
+): Promise<WatchlistResponse> {
 	const response = await timedFetch('watchlist.replace', `${API_BASE}/api/v1/watchlist`, {
 		method: 'PUT',
 		headers: { 'Content-Type': 'application/json' },
-		body: JSON.stringify({ symbols })
+		body: Array.isArray(payload)
+			? JSON.stringify({ symbols: payload })
+			: JSON.stringify({ groups: payload.groups, feed: payload.feed ?? null })
 	});
 	if (!response.ok) {
 		throw await buildApiError(response, 'Watchlist update');
 	}
-	const data = await response.json();
+	const data = (await response.json()) as WatchlistResponse;
+	setCached('watchlist', data, cachePolicy.watchlist);
+	return data;
+}
+
+export async function importTradingViewWatchlist(url: string): Promise<WatchlistResponse> {
+	const response = await timedFetch(
+		'watchlist.import_tradingview',
+		`${API_BASE}/api/v1/watchlist/import/tradingview`,
+		{
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ url })
+		}
+	);
+	if (!response.ok) {
+		throw await buildApiError(response, 'TradingView watchlist import');
+	}
+	const data = (await response.json()) as WatchlistResponse;
+	setCached('watchlist', data, cachePolicy.watchlist);
+	return data;
+}
+
+export async function refreshWatchlistFeed(): Promise<WatchlistResponse> {
+	const response = await timedFetch('watchlist.feed_refresh', `${API_BASE}/api/v1/watchlist/feed/refresh`, {
+		method: 'POST'
+	});
+	if (!response.ok) {
+		throw await buildApiError(response, 'Watchlist feed refresh');
+	}
+	const data = (await response.json()) as WatchlistResponse;
 	setCached('watchlist', data, cachePolicy.watchlist);
 	return data;
 }

@@ -2,18 +2,24 @@
 	import { onMount } from 'svelte';
 	import {
 		API_BASE,
+		applyStrategyPreset,
 		clearCache,
+		deleteStrategyPreset,
 		formatApiError,
 		getCachePolicy,
 		getLastApiError,
 		getRestMetric,
 		getStrategy,
+		getStrategyLibrary,
 		getStrategyPineScript,
+		getStrategyPreset,
 		saveStrategy,
+		saveStrategyPreset,
 		setCacheTtl,
 		validateStrategy,
 		importStrategy,
-		importStrategyFile
+		importStrategyFile,
+		type StrategyLibraryEntry
 	} from '$lib/api';
 	import { t, language } from '$lib/i18n';
 	import {
@@ -85,6 +91,8 @@
 	let errors: string[] = [];
 	let message = '';
 	let showJson = false;
+	let presetName = '';
+	let strategyLibrary: StrategyLibraryEntry[] = [];
 	let strategyCacheTtl = getCachePolicy().strategy;
 	let restGetMs: number | null = null;
 	let restSaveMs: number | null = null;
@@ -310,6 +318,7 @@
 		try {
 			const data = await getStrategy(force);
 			updateStrategy(data as Strategy);
+			if (!presetName.trim()) presetName = (data as Strategy).name ?? '';
 		} catch (err) {
 			message = formatApiError(err);
 		} finally {
@@ -317,7 +326,17 @@
 		}
 	}
 
-	onMount(loadStrategy);
+	async function loadStrategyLibraryState() {
+		try {
+			strategyLibrary = await getStrategyLibrary();
+		} catch (err) {
+			message = formatApiError(err);
+		}
+	}
+
+	onMount(async () => {
+		await Promise.all([loadStrategy(), loadStrategyLibraryState()]);
+	});
 
 	async function handleValidate() {
 		message = '';
@@ -412,6 +431,52 @@
 		} finally {
 			pineLoading = false;
 			updateRestBadges();
+		}
+	}
+
+	async function handleSavePreset() {
+		message = '';
+		try {
+			if (!strategy) return;
+			const savedPreset = await saveStrategyPreset(strategy, presetName.trim() || strategy.name);
+			await loadStrategyLibraryState();
+			message = t('strategy_preset_saved', { name: savedPreset.name });
+		} catch (err) {
+			message = formatApiError(err);
+		}
+	}
+
+	async function handleLoadPreset(strategyId: string) {
+		message = '';
+		try {
+			const data = await getStrategyPreset(strategyId);
+			updateStrategy(data as Strategy);
+			status = 'preset loaded';
+		} catch (err) {
+			message = formatApiError(err);
+		}
+	}
+
+	async function handleActivatePreset(strategyId: string) {
+		message = '';
+		try {
+			const data = await applyStrategyPreset(strategyId);
+			updateStrategy(data as Strategy);
+			await loadStrategyLibraryState();
+			status = 'preset activated';
+		} catch (err) {
+			message = formatApiError(err);
+		}
+	}
+
+	async function handleDeletePreset(strategyId: string) {
+		message = '';
+		try {
+			await deleteStrategyPreset(strategyId);
+			await loadStrategyLibraryState();
+			status = 'preset deleted';
+		} catch (err) {
+			message = formatApiError(err);
 		}
 	}
 
@@ -586,6 +651,38 @@
 			{strategy.rules.filter((r) => r.scope === 'global').length} • {t('scope_per_ticker')}:
 			{strategy.rules.filter((r) => r.scope === 'per_ticker').length}
 		</p>
+	</div>
+
+	<div class="card">
+		<h2 class="heading"><span class="heading-icon"><GitBranch size={18} strokeWidth={1.6} /></span>{t('strategy_library')}</h2>
+		<p class="muted" style="margin-top: 4px;">{t('strategy_library_help')}</p>
+		<div style="display: grid; gap: 12px; grid-template-columns: minmax(240px, 1fr) auto auto; align-items: end; margin-top: 12px;">
+			<label>
+				{t('preset_name')}
+				<input bind:value={presetName} placeholder={t('preset_name_placeholder')} />
+			</label>
+			<button on:click={handleSavePreset}>{t('save_as_preset')}</button>
+			<button class="secondary" on:click={loadStrategyLibraryState}>{t('reload')}</button>
+		</div>
+		{#if strategyLibrary.length === 0}
+			<p class="muted" style="margin-top: 12px;">{t('no_strategy_presets')}</p>
+		{:else}
+			<div style="display: grid; gap: 10px; margin-top: 16px;">
+				{#each strategyLibrary as preset}
+					<div style="border: 1px solid #1f2937; border-radius: 10px; padding: 12px; display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; align-items: center;">
+						<div>
+							<strong>{preset.name}</strong>
+							<p class="muted" style="margin: 4px 0 0 0;">{t('strategy_library_counts', { rules: preset.rule_count, enabled: preset.enabled_rule_count })}</p>
+						</div>
+						<div style="display: flex; gap: 8px; flex-wrap: wrap;">
+							<button class="secondary" on:click={() => handleLoadPreset(preset.id)}>{t('load_preset')}</button>
+							<button class="secondary" on:click={() => handleActivatePreset(preset.id)}>{t('activate_preset')}</button>
+							<button class="secondary" style="color: #ef4444;" on:click={() => handleDeletePreset(preset.id)}>{t('delete_preset')}</button>
+						</div>
+					</div>
+				{/each}
+			</div>
+		{/if}
 	</div>
 
 	<div class="card">

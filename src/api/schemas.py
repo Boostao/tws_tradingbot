@@ -36,11 +36,97 @@ class BacktestResultResponse(BaseModel):
 
 
 class WatchlistUpdateRequest(BaseModel):
-    symbols: List[str]
+    symbols: List[str] = Field(default_factory=list)
+    groups: Optional[List["WatchlistGroup"]] = None
+    feed: Optional["WatchlistFeed"] = None
 
 
 class WatchlistChangeRequest(BaseModel):
     symbol: str
+
+
+class WatchlistItem(BaseModel):
+    symbol: str = Field(..., min_length=1)
+    exchange: str = ""
+    name: str = ""
+    enabled: bool = True
+
+
+class WatchlistGroup(BaseModel):
+    id: str = Field(..., min_length=1)
+    name: str = Field(..., min_length=1)
+    source: str = "manual"
+    items: List[WatchlistItem] = Field(default_factory=list)
+
+
+class WatchlistFeed(BaseModel):
+    provider: str = Field(..., min_length=1)
+    url: str = Field(..., min_length=1)
+    title: Optional[str] = None
+    external_id: Optional[str] = None
+    last_refreshed_at: Optional[str] = None
+
+
+class TradingViewWatchlistImportRequest(BaseModel):
+    url: str = Field(..., min_length=1)
+
+
+class WatchlistResponse(BaseModel):
+    symbols: List[str] = Field(default_factory=list)
+    groups: List[WatchlistGroup] = Field(default_factory=list)
+    feed: Optional[WatchlistFeed] = None
+    updated_at: Optional[str] = None
+
+
+class CockpitStrategySummary(BaseModel):
+    id: str = Field(..., min_length=1)
+    name: str = Field(..., min_length=1)
+    rule_count: int = 0
+    enabled_rule_count: int = 0
+    source: str = "library"
+
+
+class CockpitStrategySlot(BaseModel):
+    id: str = Field(..., min_length=1)
+    label: str = Field(..., min_length=1)
+    strategy_id: Optional[str] = None
+    enabled: bool = True
+
+
+class CockpitWorkspace(BaseModel):
+    id: str = Field(..., min_length=1)
+    name: str = Field(..., min_length=1)
+    kind: str = "long"
+    enabled: bool = True
+    strategy_slots: List[CockpitStrategySlot] = Field(default_factory=list)
+
+
+class CockpitStateUpdateRequest(BaseModel):
+    global_enabled: bool = True
+    active_workspace_id: Optional[str] = None
+    workspaces: List[CockpitWorkspace] = Field(default_factory=list)
+
+
+class CockpitStateResponse(BaseModel):
+    global_enabled: bool = True
+    active_workspace_id: Optional[str] = None
+    workspaces: List[CockpitWorkspace] = Field(default_factory=list)
+    strategy_library: List[CockpitStrategySummary] = Field(default_factory=list)
+    feed: Optional[WatchlistFeed] = None
+    updated_at: Optional[str] = None
+
+
+class StrategyLibraryEntry(BaseModel):
+    id: str = Field(..., min_length=1)
+    name: str = Field(..., min_length=1)
+    rule_count: int = 0
+    enabled_rule_count: int = 0
+    updated_at: Optional[str] = None
+
+
+class StrategyLibrarySaveRequest(BaseModel):
+    strategy: Dict[str, Any]
+    name: Optional[str] = None
 
 
 class ConfigUpdateRequest(BaseModel):

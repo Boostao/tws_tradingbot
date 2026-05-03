@@ -1,121 +1,85 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { formatApiError, getSymbols, getWatchlist, replaceWatchlist } from '$lib/api';
-	import type { SymbolRecord } from '$lib/api';
+	import {
+		formatApiError,
+		getWatchlist,
+		importTradingViewWatchlist,
+		refreshWatchlistFeed,
+		replaceWatchlist,
+		type SymbolRecord,
+		type WatchlistFeed,
+		type WatchlistGroup,
+		type WatchlistItem,
+		type WatchlistResponse
+	} from '$lib/api';
 	import { t, language } from '$lib/i18n';
 	import SymbolSearch from '$lib/components/SymbolSearch.svelte';
-	import { List, Trash2 } from 'lucide-svelte';
+	import { ChevronDown, ChevronRight, List, Plus, RefreshCcw, Trash2 } from 'lucide-svelte';
 
-	type WatchlistRow = {
-		ticker: string;
-		description: string;
-		market: string;
-	};
-
-	type WatchlistEntry = {
-		ticker: string;
-		market: string;
-	};
-
-	let rows: WatchlistRow[] = [{ ticker: '', description: '', market: '' }];
+	let watchlist: WatchlistResponse = { symbols: [], groups: [], feed: null, updated_at: null };
 	let message = '';
 	let saving = false;
 	let fileInput: HTMLInputElement | null = null;
-	let editingRow: number | null = null;
+	let tradingViewUrl = '';
+	let addingToManual = false;
+	let collapsedGroups = new Set<string>();
 
 	$: _lang = $language;
+	$: totalTickers = watchlist.groups.reduce((count, group) => count + group.items.length, 0);
+	$: activeTickers = watchlist.symbols.length;
+	$: allEnabled = totalTickers > 0 && watchlist.groups.every((group) => group.items.every((item) => item.enabled));
 
-	function normalizeRows(next: WatchlistRow[]) {
-		const cleaned = next.filter((row) => row.ticker.trim().length > 0 || row.description || row.market);
-		if (cleaned.length === 0 || cleaned[cleaned.length - 1].ticker.trim().length > 0) {
-			cleaned.push({ ticker: '', description: '', market: '' });
-		}
-		rows = cleaned;
+	function cloneGroups(groups: WatchlistGroup[]): WatchlistGroup[] {
+		return groups.map((group) => ({
+			...group,
+			items: group.items.map((item) => ({ ...item }))
+		}));
 	}
 
-	function parseEntry(value: string): WatchlistEntry {
+	function parseEntry(value: string): WatchlistItem {
 		const [rawTicker, rawMarket] = value.split(':', 2);
 		return {
-			ticker: (rawTicker ?? '').trim().toUpperCase(),
-			market: (rawMarket ?? '').trim().toUpperCase()
+			symbol: (rawTicker ?? '').trim().toUpperCase(),
+			exchange: (rawMarket ?? '').trim().toUpperCase(),
+			name: '',
+			enabled: true
 		};
 	}
 
-	function entryToString(entry: WatchlistEntry): string {
-		return entry.market ? `${entry.ticker}:${entry.market}` : entry.ticker;
+	function itemKey(item: Pick<WatchlistItem, 'symbol' | 'exchange'>): string {
+		const symbol = item.symbol.trim().toUpperCase();
+		const exchange = (item.exchange ?? '').trim().toUpperCase();
+		return exchange ? `${symbol}:${exchange}` : symbol;
 	}
 
-	function rowKey(row: WatchlistRow): string {
-		return entryToString({
-			ticker: row.ticker.trim().toUpperCase(),
-			market: row.market.trim().toUpperCase()
-		});
+	function createManualGroup(): WatchlistGroup {
+		return {
+			id: 'manual',
+			name: t('watchlist_manual_group'),
+			source: 'manual',
+			items: []
+		};
 	}
 
-	function toSymbols(list: WatchlistRow[]) {
-		const seen = new Set<string>();
-		const result: string[] = [];
-		for (const row of list) {
-			const ticker = row.ticker.trim().toUpperCase();
-			if (!ticker) continue;
-			const key = rowKey(row);
-			if (seen.has(key)) continue;
-			seen.add(key);
-			result.push(
-				entryToString({ ticker, market: row.market.trim().toUpperCase() })
-			);
+	function ensureManualGroup(groups: WatchlistGroup[]): WatchlistGroup[] {
+		if (groups.some((group) => group.source === 'manual' || group.id === 'manual')) {
+			return groups;
 		}
-		return result;
+		return [createManualGroup(), ...groups];
 	}
 
-	async function hydrateRow(index: number, ticker: string, market = '') {
-		try {
-			const exchange = market.trim().toUpperCase();
-			const { symbols } = await getSymbols({
-				q: ticker,
-				exchange: exchange || undefined,
-				limit: 200
-			});
-			let match = symbols.find((item) => {
-				if (item.symbol.toUpperCase() !== ticker.toUpperCase()) return false;
-				if (!exchange) return true;
-				return (item.exchange ?? '').toUpperCase() === exchange;
-			});
-			if (!match && exchange) {
-				const retry = await getSymbols({ q: ticker, limit: 200 });
-				match = retry.symbols.find(
-					(item) => item.symbol.toUpperCase() === ticker.toUpperCase()
-				);
-			}
-			if (!match) return;
-			rows[index] = {
-				...rows[index],
-				ticker: match.symbol.toUpperCase(),
-				description: match.name ?? rows[index].description,
-				market: (match.exchange ?? rows[index].market ?? '').toUpperCase()
-			};
-			normalizeRows([...rows]);
-		} catch {
-			// ignore symbol lookup errors
-		}
+	function normalizeWatchlist(result: WatchlistResponse) {
+		watchlist = {
+			...result,
+			groups: ensureManualGroup(result.groups ?? []),
+			feed: result.feed ?? null
+		};
+		tradingViewUrl = result.feed?.url ?? tradingViewUrl;
 	}
 
 	async function loadWatchlist(force = false) {
 		try {
-			const result = await getWatchlist(force);
-			const nextRows = result.symbols.map((entry) => {
-				const parsed = parseEntry(entry);
-				return {
-					ticker: parsed.ticker,
-					description: '',
-					market: parsed.market
-				};
-			});
-			normalizeRows(nextRows);
-			result.symbols.forEach((entry, idx) => {
-				const parsed = parseEntry(entry);
-				void hydrateRow(idx, parsed.ticker, parsed.market);
-			});
+			normalizeWatchlist(await getWatchlist(force));
 		} catch (err) {
 			message = formatApiError(err);
 		}
@@ -134,13 +98,25 @@
 		const seen = new Set<string>();
 		const result: string[] = [];
 		for (const entry of entries) {
-			if (!entry.ticker) continue;
-			const key = entryToString(entry);
+			if (!entry.symbol) continue;
+			const key = itemKey(entry);
 			if (seen.has(key)) continue;
 			seen.add(key);
 			result.push(key);
 		}
 		return result;
+	}
+
+	async function persistGroups(nextGroups: WatchlistGroup[], nextFeed: WatchlistFeed | null = watchlist.feed ?? null) {
+		saving = true;
+		message = '';
+		try {
+			normalizeWatchlist(await replaceWatchlist({ groups: nextGroups, feed: nextFeed }));
+		} catch (err) {
+			message = formatApiError(err);
+		} finally {
+			saving = false;
+		}
 	}
 
 	async function handleFileChange(event: Event) {
@@ -152,20 +128,9 @@
 		try {
 			const text = await file.text();
 			const next = parseSymbols(text);
-			const result = await replaceWatchlist(next);
-			const nextRows = result.symbols.map((entry) => {
-				const parsed = parseEntry(entry);
-				return {
-					ticker: parsed.ticker,
-					description: '',
-					market: parsed.market
-				};
-			});
-			normalizeRows(nextRows);
-			result.symbols.forEach((entry, idx) => {
-				const parsed = parseEntry(entry);
-				void hydrateRow(idx, parsed.ticker, parsed.market);
-			});
+			const manualGroup = createManualGroup();
+			manualGroup.items = next.map((entry) => parseEntry(entry));
+			normalizeWatchlist(await replaceWatchlist({ groups: [manualGroup], feed: null }));
 			message = t('saved');
 		} catch (err) {
 			message = formatApiError(err);
@@ -179,16 +144,7 @@
 		message = '';
 		saving = true;
 		try {
-			const result = await replaceWatchlist([]);
-			const nextRows = result.symbols.map((entry) => {
-				const parsed = parseEntry(entry);
-				return {
-					ticker: parsed.ticker,
-					description: '',
-					market: parsed.market
-				};
-			});
-			normalizeRows(nextRows);
+			normalizeWatchlist(await replaceWatchlist({ groups: [createManualGroup()], feed: null }));
 			message = t('clear_all');
 		} catch (err) {
 			message = formatApiError(err);
@@ -198,8 +154,7 @@
 	}
 
 	function handleDownload() {
-		const symbols = toSymbols(rows);
-		const payload = symbols.join('\n');
+		const payload = watchlist.symbols.join('\n');
 		const blob = new Blob([payload], { type: 'text/plain' });
 		const url = URL.createObjectURL(blob);
 		const link = document.createElement('a');
@@ -211,24 +166,13 @@
 		URL.revokeObjectURL(url);
 	}
 
-	async function saveRows(nextRows: WatchlistRow[]) {
-		const nextSymbols = toSymbols(nextRows);
+	async function handleImportTradingView() {
+		if (!tradingViewUrl.trim()) return;
+		message = '';
 		saving = true;
 		try {
-			const result = await replaceWatchlist(nextSymbols);
-			const rowsFromResult = result.symbols.map((entry) => {
-				const parsed = parseEntry(entry);
-				return {
-					ticker: parsed.ticker,
-					description: '',
-					market: parsed.market
-				};
-			});
-			normalizeRows(rowsFromResult);
-			result.symbols.forEach((entry, idx) => {
-				const parsed = parseEntry(entry);
-				void hydrateRow(idx, parsed.ticker, parsed.market);
-			});
+			normalizeWatchlist(await importTradingViewWatchlist(tradingViewUrl.trim()));
+			message = t('saved');
 		} catch (err) {
 			message = formatApiError(err);
 		} finally {
@@ -236,49 +180,107 @@
 		}
 	}
 
-	function handleRowClick(index: number) {
-		editingRow = index;
-	}
-
-	function handleCancel(index: number) {
-		if (editingRow === index) editingRow = null;
-	}
-
-	function handleRemove(index: number) {
+	async function handleRefreshFeed() {
 		message = '';
-		const removed = rows[index];
-		const updated = rows.filter((_, idx) => idx !== index);
-		normalizeRows(updated);
-		if (editingRow !== null) {
-			if (editingRow === index) editingRow = null;
-			else if (editingRow > index) editingRow -= 1;
-		}
-		if (removed?.ticker?.trim()) {
-			void saveRows(updated);
+		saving = true;
+		try {
+			normalizeWatchlist(await refreshWatchlistFeed());
+			message = t('saved');
+		} catch (err) {
+			message = formatApiError(err);
+		} finally {
+			saving = false;
 		}
 	}
 
-	function handleSelect(index: number, item: SymbolRecord) {
-		const nextSymbol = item.symbol.toUpperCase();
-		const nextMarket = (item.exchange ?? '').toUpperCase();
-		const nextKey = entryToString({ ticker: nextSymbol, market: nextMarket });
-		if (rows.some((row, idx) => idx !== index && rowKey(row) === nextKey)) {
-			message = t('symbol_already_added') || 'Symbol already added.';
-			editingRow = null;
+	function toggleGroupCollapse(groupId: string) {
+		const next = new Set(collapsedGroups);
+		if (next.has(groupId)) next.delete(groupId);
+		else next.add(groupId);
+		collapsedGroups = next;
+	}
+
+	function groupEnabled(group: WatchlistGroup): boolean {
+		return group.items.length > 0 && group.items.every((item) => item.enabled);
+	}
+
+	function findManualGroupIndex(groups: WatchlistGroup[]): number {
+		return groups.findIndex((group) => group.source === 'manual' || group.id === 'manual');
+	}
+
+	async function handleAddSymbol(item: SymbolRecord) {
+		const updated = cloneGroups(ensureManualGroup(watchlist.groups));
+		let manualIndex = findManualGroupIndex(updated);
+		if (manualIndex === -1) {
+			updated.unshift(createManualGroup());
+			manualIndex = 0;
+		}
+		const nextItem: WatchlistItem = {
+			symbol: item.symbol.toUpperCase(),
+			exchange: (item.exchange ?? '').toUpperCase(),
+			name: item.name ?? '',
+			enabled: true
+		};
+		const nextKey = itemKey(nextItem);
+		if (updated.some((group) => group.items.some((existing) => itemKey(existing) === nextKey))) {
+			message = t('symbol_already_added');
+			addingToManual = false;
 			return;
 		}
-		const updated = [...rows];
-		updated[index] = {
-			ticker: nextSymbol,
-			description: item.name ?? '',
-			market: nextMarket
-		};
-		normalizeRows(updated);
-		editingRow = null;
-		void saveRows(updated);
-		if (!item.name || !item.exchange) {
-			void hydrateRow(index, nextSymbol, nextMarket);
-		}
+		updated[manualIndex].items = [...updated[manualIndex].items, nextItem];
+		addingToManual = false;
+		await persistGroups(updated);
+	}
+
+	async function handleItemToggle(groupId: string, itemValue: WatchlistItem, enabled: boolean) {
+		const updated = cloneGroups(watchlist.groups).map((group) => {
+			if (group.id !== groupId) return group;
+			return {
+				...group,
+				items: group.items.map((item) =>
+					itemKey(item) === itemKey(itemValue) ? { ...item, enabled } : item
+				)
+			};
+		});
+		await persistGroups(updated);
+	}
+
+	async function handleGroupToggle(groupId: string, enabled: boolean) {
+		const updated = cloneGroups(watchlist.groups).map((group) =>
+			group.id === groupId
+				? { ...group, items: group.items.map((item) => ({ ...item, enabled })) }
+				: group
+		);
+		await persistGroups(updated);
+	}
+
+	async function handleAllToggle(enabled: boolean) {
+		const updated = cloneGroups(watchlist.groups).map((group) => ({
+			...group,
+			items: group.items.map((item) => ({ ...item, enabled }))
+		}));
+		await persistGroups(updated);
+	}
+
+	async function handleRemoveItem(groupId: string, itemValue: WatchlistItem) {
+		const updated = cloneGroups(watchlist.groups).map((group) => {
+			if (group.id !== groupId) return group;
+			return {
+				...group,
+				items: group.items.filter((item) => itemKey(item) !== itemKey(itemValue))
+			};
+		});
+		await persistGroups(updated);
+	}
+
+	function formatTimestamp(value?: string | null) {
+		if (!value) return t('watchlist_never_refreshed');
+		const date = new Date(value);
+		if (Number.isNaN(date.getTime())) return value;
+		return new Intl.DateTimeFormat(undefined, {
+			dateStyle: 'medium',
+			timeStyle: 'short'
+		}).format(date);
 	}
 </script>
 
@@ -289,7 +291,7 @@
 {/if}
 
 <div class="card">
-	<div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
+	<div class="watchlist-toolbar">
 		<input
 			type="file"
 			accept=".txt,.csv"
@@ -297,71 +299,128 @@
 			on:change={handleFileChange}
 			style="display: none;"
 		/>
+		<input
+			type="url"
+			bind:value={tradingViewUrl}
+			placeholder={t('watchlist_feed_url_placeholder')}
+			style="min-width: min(100%, 420px); flex: 1 1 320px;"
+		/>
+		<button class="secondary" on:click={handleImportTradingView}>{t('watchlist_import_tradingview')}</button>
+		<button class="secondary" on:click={handleRefreshFeed} disabled={!watchlist.feed?.url}>
+			<RefreshCcw size={14} strokeWidth={1.8} />
+			<span>{t('refresh')}</span>
+		</button>
 		<button class="secondary" on:click={() => fileInput?.click()}>{t('reload_from_file')}</button>
 		<button class="secondary" on:click={handleDownload}>{t('download')}</button>
-		<button
-			class="secondary"
-			on:click={handleClearAll}
-		>
-			{t('clear_all')}
+		<button class="secondary" on:click={() => (addingToManual = !addingToManual)}>
+			<Plus size={14} strokeWidth={1.8} />
+			<span>{t('watchlist_add_ticker')}</span>
 		</button>
+		<button class="secondary" on:click={handleClearAll}>{t('clear_all')}</button>
 		{#if saving}
 			<span class="muted">{t('loading_chart_data')}</span>
 		{/if}
 	</div>
 
-	<div style="margin-top: 16px;">
-		<table class="table">
-			<thead>
-				<tr>
-					<th style="width: 25%;">Ticker</th>
-					<th>Description</th>
-					<th style="width: 15%;">Market</th>
-					<th style="width: 44px;"></th>
-				</tr>
-			</thead>
-			<tbody>
-				{#each rows as row, index}
-					<tr>
-						<td>
-							{#if editingRow === index}
-								<SymbolSearch
-									placeholder="Search symbol"
-									statusTone={'online'}
-									includeNonStocks={true}
-									autoFocus={true}
-									initialValue={row.ticker}
-									onSelect={(item) => handleSelect(index, item)}
-									onCancel={() => handleCancel(index)}
-								/>
-							{:else}
-								<button
-									class="secondary"
-									type="button"
-									on:click={() => handleRowClick(index)}
-									style="width: 100%; text-align: left;"
-								>
-									{row.ticker || '—'}
-								</button>
-							{/if}
-						</td>
-						<td>{row.description || '—'}</td>
-						<td>{row.market || '—'}</td>
-						<td style="text-align: right;">
-							<button
-								class="secondary"
-								type="button"
-								on:click={() => handleRemove(index)}
-								aria-label={t('remove_row')}
-								title={t('remove_row')}
-								style="padding: 6px; display: inline-flex; align-items: center; justify-content: center; color: #ef4444;"
-							>
-								<Trash2 size={16} strokeWidth={1.6} />
-							</button>
-						</td>
-					</tr>
-				{/each}
-			</tbody>
-		</table>
+	<div class="watchlist-summary">
+		<div>
+			<strong>{t('watchlist_active_summary', { active: activeTickers, total: totalTickers })}</strong>
+		</div>
+		<div>{t('watchlist_last_refreshed', { value: formatTimestamp(watchlist.feed?.last_refreshed_at ?? watchlist.updated_at) })}</div>
+		<label class="toggle">
+			<input
+				type="checkbox"
+				checked={allEnabled}
+				on:change={(event) => handleAllToggle((event.currentTarget as HTMLInputElement).checked)}
+			/>
+			<span class="toggle-slider"></span>
+			<span class="toggle-label">{t('watchlist_all_tickers')}</span>
+		</label>
+	</div>
+
+	{#if addingToManual}
+		<div class="watchlist-add-panel">
+			<SymbolSearch
+				placeholder={t('watchlist_add_ticker_placeholder')}
+				statusTone={'online'}
+				includeNonStocks={true}
+				autoFocus={true}
+				onSelect={handleAddSymbol}
+				onCancel={() => (addingToManual = false)}
+			/>
+		</div>
+	{/if}
+
+	<div class="watchlist-groups">
+		{#each watchlist.groups as group}
+			<div class="watchlist-group">
+				<div class="watchlist-group-header">
+					<button class="secondary" type="button" on:click={() => toggleGroupCollapse(group.id)}>
+						{#if collapsedGroups.has(group.id)}
+							<ChevronRight size={14} strokeWidth={1.8} />
+						{:else}
+							<ChevronDown size={14} strokeWidth={1.8} />
+						{/if}
+						<span>{group.name}</span>
+					</button>
+					<div class="watchlist-group-meta">
+						<span>{group.items.filter((item) => item.enabled).length}/{group.items.length}</span>
+						<label class="toggle">
+							<input
+								type="checkbox"
+								checked={groupEnabled(group)}
+								on:change={(event) => handleGroupToggle(group.id, (event.currentTarget as HTMLInputElement).checked)}
+							/>
+							<span class="toggle-slider"></span>
+							<span class="toggle-label">{t('enabled')}</span>
+						</label>
+					</div>
+				</div>
+
+				{#if !collapsedGroups.has(group.id)}
+					{#if group.items.length === 0}
+						<p class="watchlist-empty">{t('watchlist_no_tickers')}</p>
+					{:else}
+						<div class="watchlist-group-items">
+							{#each group.items as item}
+								<div class="watchlist-item-row">
+									<div class="watchlist-item-main">
+										<div class="watchlist-item-symbol">{item.symbol}</div>
+										<div class="watchlist-item-subtitle">
+											<span>{item.exchange || '—'}</span>
+											{#if item.name}
+												<span>• {item.name}</span>
+											{/if}
+										</div>
+									</div>
+									<div class="watchlist-item-actions">
+										<label class="toggle">
+											<input
+												type="checkbox"
+												checked={item.enabled}
+												on:change={(event) => handleItemToggle(group.id, item, (event.currentTarget as HTMLInputElement).checked)}
+											/>
+											<span class="toggle-slider"></span>
+											<span class="toggle-label">{t('enabled')}</span>
+										</label>
+										{#if group.source === 'manual' || group.id === 'manual'}
+											<button
+												class="secondary"
+												type="button"
+												on:click={() => handleRemoveItem(group.id, item)}
+												aria-label={t('remove_row')}
+												title={t('remove_row')}
+											>
+												<Trash2 size={16} strokeWidth={1.6} />
+											</button>
+										{/if}
+									</div>
+								</div>
+							{/each}
+						</div>
+					{/if}
+				{/if}
+			</div>
+		{/each}
 	</div>
 </div>

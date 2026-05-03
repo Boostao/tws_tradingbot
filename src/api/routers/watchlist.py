@@ -1,9 +1,22 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException
+import requests
 
-from src.api.schemas import WatchlistChangeRequest, WatchlistUpdateRequest
-from src.api.utils import load_watchlist, save_watchlist
+from src.api.schemas import (
+    TradingViewWatchlistImportRequest,
+    WatchlistChangeRequest,
+    WatchlistResponse,
+    WatchlistUpdateRequest,
+)
+from src.api.utils import (
+    import_tradingview_watchlist,
+    load_watchlist,
+    load_watchlist_state,
+    refresh_watchlist_feed,
+    save_watchlist,
+    save_watchlist_state,
+)
 
 
 router = APIRouter(tags=["watchlist"])
@@ -11,14 +24,45 @@ router = APIRouter(tags=["watchlist"])
 
 @router.get("/watchlist")
 def get_watchlist():
-    return {"symbols": load_watchlist()}
+    state = load_watchlist_state()
+    return WatchlistResponse(symbols=load_watchlist(), **state)
 
 
 @router.put("/watchlist")
 def replace_watchlist(payload: WatchlistUpdateRequest):
+    if payload.groups is not None:
+        state = save_watchlist_state(
+            [group.model_dump(mode="json") for group in payload.groups],
+            payload.feed.model_dump(mode="json") if payload.feed else None,
+        )
+        return WatchlistResponse(symbols=load_watchlist(), **state)
+
     symbols = [s.upper().strip() for s in payload.symbols if s.strip()]
     save_watchlist(symbols)
-    return {"symbols": symbols}
+    state = load_watchlist_state()
+    return WatchlistResponse(symbols=load_watchlist(), **state)
+
+
+@router.post("/watchlist/import/tradingview")
+def import_watchlist_from_tradingview(payload: TradingViewWatchlistImportRequest):
+    try:
+        state = import_tradingview_watchlist(payload.url.strip(), current_state=load_watchlist_state())
+    except requests.RequestException as exc:
+        raise HTTPException(status_code=502, detail=f"tradingview import failed: {exc}") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return WatchlistResponse(symbols=load_watchlist(), **state)
+
+
+@router.post("/watchlist/feed/refresh")
+def refresh_watchlist():
+    try:
+        state = refresh_watchlist_feed()
+    except requests.RequestException as exc:
+        raise HTTPException(status_code=502, detail=f"watchlist refresh failed: {exc}") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return WatchlistResponse(symbols=load_watchlist(), **state)
 
 
 @router.post("/watchlist/add")
@@ -30,7 +74,8 @@ def add_symbol(payload: WatchlistChangeRequest):
     if symbol not in symbols:
         symbols.append(symbol)
         save_watchlist(symbols)
-    return {"symbols": symbols}
+    state = load_watchlist_state()
+    return WatchlistResponse(symbols=load_watchlist(), **state)
 
 
 @router.post("/watchlist/remove")
@@ -38,4 +83,5 @@ def remove_symbol(payload: WatchlistChangeRequest):
     symbol = payload.symbol.upper().strip()
     symbols = [s for s in load_watchlist() if s != symbol]
     save_watchlist(symbols)
-    return {"symbols": symbols}
+    state = load_watchlist_state()
+    return WatchlistResponse(symbols=load_watchlist(), **state)

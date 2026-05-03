@@ -20,6 +20,8 @@ dependencies = [
     # Utilities
     "requests>=2.31.0",
     "python-multipart>=0.0.22",
+    "numpy>=1.26.0",
+    "pandas>=2.2.0",
 ]
 
 [project.optional-dependencies]

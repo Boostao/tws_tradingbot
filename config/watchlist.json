@@ -1,0 +1,3245 @@
+{
+  "groups": [
+    {
+      "id": "manual",
+      "name": "Manual",
+      "source": "manual",
+      "items": []
+    },
+    {
+      "id": "cobalt-telegram",
+      "name": "\u271d\ufe0f@ Cobalt- TELEGRAM",
+      "source": "tradingview",
+      "items": [
+        {
+          "symbol": "VIX",
+          "exchange": "TVC",
+          "name": "",
+          "enabled": true
+        },
+        {
+          "symbol": "NQ1!",
+          "exchange": "CME_MINI",
+          "name": "",
+          "enabled": true
+        },
+        {
+          "symbol": "ES1!",
+          "exchange": "CME_MINI",
+          "name": "",
+          "enabled": true
+        }
+      ]
+    },
+    {
+      "id": "btc",
+      "name": "BTC",
+      "source": "tradingview",
+      "items": [
+        {
+          "symbol": "BTCUSD",
+          "exchange": "BINANCE",
+          "name": "",
+          "enabled": true
+        },
+        {
+          "symbol": "BTCUSD",
+          "exchange": "COINBASE",
+          "name": "",
+          "enabled": true
+        },
+        {
+          "symbol": "BTCUSD",
+          "exchange": "INDEX",
+          "name": "",
+          "enabled": false
+        }
+      ]
+    },
+    {
+      "id": "crypto",
+      "name": "CRYPTO",
+      "source": "tradingview",
+      "items": [
+        {
+          "symbol": "ETHUSD",
+          "exchange": "COINBASE",
+          "name": "",
+          "enabled": false
+        },
+        {
+          "symbol": "ETHUSD",
+          "exchange": "INDEX",
+          "name": "",
+          "enabled": true
+        },
+        {
+          "symbol": "ADAUSD",
+          "exchange": "COINBASE",
+          "name": "",
+          "enabled": true
+        },
+        {
+          "symbol": "SOLUSD",
+          "exchange": "COINBASE",
+          "name": "",
+          "enabled": true
+        },
+        {
+          "symbol": "XRPUSD",
+          "exchange": "COINBASE",
+          "name": "",
+          "enabled": true
+        }
+      ]
+    },
+    {
+      "id": "crypto-etf",
+      "name": "CRYPTO ETF",
+      "source": "tradingview",
+      "items": [
+        {
+          "symbol": "FETH",
+          "exchange": "TSX",
+          "name": "Fidelity Advantage Ether ETF Series L Trust Units",
+          "enabled": true
+        },
+        {
+          "symbol": "IBIT",
+          "exchange": "NASDAQ",
+          "name": "iShares Bitcoin Trust",
+          "enabled": true
+        },
+        {
+          "symbol": "FBTC",
+          "exchange": "CBOE",
+          "name": "Fidelity Advantage Bitcoin ETF Series L Trust Units",
+          "enabled": true
+        },
+        {
+          "symbol": "BITX",
+          "exchange": "CBOE",
+          "name": "",
+          "enabled": true
+        },
+        {
+          "symbol": "ETHA",
+          "exchange": "NASDAQ",
+          "name": "iShares Ethereum Trust ETF",
+          "enabled": true
+        },
+        {
+          "symbol": "BSOL",
+          "exchange": "AMEX",
+          "name": "Bitwise Solana Staking ETF",
+          "enabled": true
+        },
+        {
+          "symbol": "SOLT",
+          "exchange": "NASDAQ",
+          "name": "2x Solana ETF",
+          "enabled": true
+        },
+        {
+          "symbol": "XRPC",
+          "exchange": "NASDAQ",
+          "name": "Canary XRP ETF",
+          "enabled": true
+        },
+        {
+          "symbol": "ETHU",
+          "exchange": "CBOE",
+          "name": "",
+          "enabled": true
+        },
+        {
+          "symbol": "UXRP",
+          "exchange": "AMEX",
+          "name": "ProShares Ultra XRP ETF",
+          "enabled": true
+        },
+        {
+          "symbol": "MSBT",
+          "exchange": "AMEX",
+          "name": "Common",
+          "enabled": true
+        },
+        {
+          "symbol": "SOLZ",
+          "exchange": "NASDAQ",
+          "name": "Solana ETF",
+          "enabled": true
+        },
+        {
+          "symbol": "YBTC",
+          "exchange": "CBOE",
+          "name": "",
+          "enabled": true
+        },
+        {
+          "symbol": "XRPR",
+          "exchange": "CBOE",
+          "name": "",
+          "enabled": true
+        },
+        {
+          "symbol": "YETH",
+          "exchange": "CBOE",
+          "name": "",
+          "enabled": true
+        }
+      ]
+    },
+    {
+      "id": "titres",
+      "name": "TITRES",
+      "source": "tradingview",
+      "items": [
+        {
+          "symbol": "BE",
+          "exchange": "NYSE",
+          "name": "Bloom Energy Corporation",
+          "enabled": true
+        },
+        {
+          "symbol": "GNRC",
+          "exchange": "NYSE",
+          "name": "Generac Holdings Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "STX",
+          "exchange": "NASDAQ",
+          "name": "Seagate Technology Holdings PLC",
+          "enabled": true
+        },
+        {
+          "symbol": "ETSY",
+          "exchange": "NYSE",
+          "name": "Etsy, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "INTC",
+          "exchange": "NASDAQ",
+          "name": "Intel Corporation",
+          "enabled": true
+        },
+        {
+          "symbol": "GD",
+          "exchange": "NYSE",
+          "name": "General Dynamics Corporation",
+          "enabled": true
+        },
+        {
+          "symbol": "LITE",
+          "exchange": "NASDAQ",
+          "name": "Lumentum Holdings Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "V",
+          "exchange": "NYSE",
+          "name": "Visa Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "SNDK",
+          "exchange": "NASDAQ",
+          "name": "Sandisk Corporation",
+          "enabled": true
+        },
+        {
+          "symbol": "SBUX",
+          "exchange": "NASDAQ",
+          "name": "Starbucks Corporation",
+          "enabled": true
+        },
+        {
+          "symbol": "QIMC",
+          "exchange": "CSE",
+          "name": "",
+          "enabled": true
+        },
+        {
+          "symbol": "CNC",
+          "exchange": "NYSE",
+          "name": "Centene Corporation",
+          "enabled": true
+        },
+        {
+          "symbol": "CRWV",
+          "exchange": "NASDAQ",
+          "name": "CoreWeave, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "ON",
+          "exchange": "NASDAQ",
+          "name": "ON Semiconductor Corporation",
+          "enabled": true
+        },
+        {
+          "symbol": "FSLY",
+          "exchange": "NASDAQ",
+          "name": "Fastly, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "GFS",
+          "exchange": "NASDAQ",
+          "name": "GlobalFoundries Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "VCX",
+          "exchange": "NYSE",
+          "name": "",
+          "enabled": true
+        },
+        {
+          "symbol": "USOIL",
+          "exchange": "TVC",
+          "name": "",
+          "enabled": true
+        },
+        {
+          "symbol": "APH",
+          "exchange": "NYSE",
+          "name": "Amphenol Corporation",
+          "enabled": true
+        },
+        {
+          "symbol": "USO",
+          "exchange": "AMEX",
+          "name": "United States Oil Fund",
+          "enabled": true
+        },
+        {
+          "symbol": "MCHP",
+          "exchange": "NASDAQ",
+          "name": "Microchip Technology Incorporated",
+          "enabled": true
+        },
+        {
+          "symbol": "TMUS",
+          "exchange": "NASDAQ",
+          "name": "T-Mobile US, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "GSY",
+          "exchange": "TSX",
+          "name": "goeasy Ltd.",
+          "enabled": true
+        },
+        {
+          "symbol": "VRSK",
+          "exchange": "NASDAQ",
+          "name": "Verisk Analytics, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "ALAB",
+          "exchange": "NASDAQ",
+          "name": "Astera Labs, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "AKAM",
+          "exchange": "NASDAQ",
+          "name": "Akamai Technologies, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "MOH",
+          "exchange": "NYSE",
+          "name": "Molina Healthcare Inc",
+          "enabled": true
+        },
+        {
+          "symbol": "UHS",
+          "exchange": "NYSE",
+          "name": "Universal Health Services, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "MA",
+          "exchange": "NYSE",
+          "name": "Mastercard Incorporated",
+          "enabled": true
+        },
+        {
+          "symbol": "DOCN",
+          "exchange": "NYSE",
+          "name": "DigitalOcean Holdings, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "MU",
+          "exchange": "NASDAQ",
+          "name": "Micron Technology, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "ZM",
+          "exchange": "NASDAQ",
+          "name": "Zoom Communications, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "CRDO",
+          "exchange": "NASDAQ",
+          "name": "Credo Technology Group Holding Ltd",
+          "enabled": true
+        },
+        {
+          "symbol": "TCL.A",
+          "exchange": "TSX",
+          "name": "Transcontinental Inc. Class A",
+          "enabled": true
+        },
+        {
+          "symbol": "LB",
+          "exchange": "NYSE",
+          "name": "LandBridge Company LLC",
+          "enabled": true
+        },
+        {
+          "symbol": "TXN",
+          "exchange": "NASDAQ",
+          "name": "Texas Instruments Incorporated",
+          "enabled": true
+        },
+        {
+          "symbol": "DOW",
+          "exchange": "NYSE",
+          "name": "Dow Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "QCOM",
+          "exchange": "NASDAQ",
+          "name": "QUALCOMM Incorporated",
+          "enabled": true
+        },
+        {
+          "symbol": "MAT",
+          "exchange": "NASDAQ",
+          "name": "Mattel, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "CNR",
+          "exchange": "NYSE",
+          "name": "Core Natural Resources, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "SPOT",
+          "exchange": "NYSE",
+          "name": "Spotify Technology S.A.",
+          "enabled": true
+        },
+        {
+          "symbol": "ABBV",
+          "exchange": "NYSE",
+          "name": "AbbVie Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "TW",
+          "exchange": "NASDAQ",
+          "name": "Tradeweb Markets Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "BBIO",
+          "exchange": "NASDAQ",
+          "name": "BridgeBio Pharma, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "FLEX",
+          "exchange": "NASDAQ",
+          "name": "Flex Ltd.",
+          "enabled": true
+        },
+        {
+          "symbol": "ALB",
+          "exchange": "NYSE",
+          "name": "Albemarle Corporation",
+          "enabled": true
+        },
+        {
+          "symbol": "MAIR",
+          "exchange": "NYSE",
+          "name": "Madison Air Solutions Corporation",
+          "enabled": true
+        },
+        {
+          "symbol": "AMD",
+          "exchange": "NASDAQ",
+          "name": "Advanced Micro Devices, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "SOXX",
+          "exchange": "NASDAQ",
+          "name": "iShares PHLX SOX Semiconductor Sector Index Fund",
+          "enabled": true
+        },
+        {
+          "symbol": "AMPX",
+          "exchange": "NYSE",
+          "name": "Amprius Technologies, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "UPS",
+          "exchange": "NYSE",
+          "name": "United Parcel Service, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "REAL",
+          "exchange": "NASDAQ",
+          "name": "The RealReal, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "AMZN",
+          "exchange": "NASDAQ",
+          "name": "Amazon.com, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "QMCO",
+          "exchange": "NASDAQ",
+          "name": "Quantum Corporation",
+          "enabled": true
+        },
+        {
+          "symbol": "CF",
+          "exchange": "NYSE",
+          "name": "CF Industries Holdings, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "WU",
+          "exchange": "NYSE",
+          "name": "Western Union Company (The)",
+          "enabled": true
+        },
+        {
+          "symbol": "CZR",
+          "exchange": "NASDAQ",
+          "name": "Caesars Entertainment, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "MPWR",
+          "exchange": "NASDAQ",
+          "name": "Monolithic Power Systems, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "XLE",
+          "exchange": "AMEX",
+          "name": "State Street Energy Select Sector SPDR ETF",
+          "enabled": true
+        },
+        {
+          "symbol": "CVS",
+          "exchange": "NYSE",
+          "name": "CVS Health Corporation",
+          "enabled": true
+        },
+        {
+          "symbol": "XOM",
+          "exchange": "NYSE",
+          "name": "Exxon Mobil Corporation",
+          "enabled": true
+        },
+        {
+          "symbol": "OXY",
+          "exchange": "NYSE",
+          "name": "Occidental Petroleum Corporation",
+          "enabled": true
+        },
+        {
+          "symbol": "TVK",
+          "exchange": "TSX",
+          "name": "TerraVest Industries, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "PICS",
+          "exchange": "NASDAQ",
+          "name": "PicS N.V.",
+          "enabled": true
+        },
+        {
+          "symbol": "CVX",
+          "exchange": "NYSE",
+          "name": "Chevron Corporation",
+          "enabled": true
+        },
+        {
+          "symbol": "TQQQ",
+          "exchange": "NASDAQ",
+          "name": "ProShares UltraPro QQQ",
+          "enabled": true
+        },
+        {
+          "symbol": "EIS",
+          "exchange": "AMEX",
+          "name": "iShares MSCI Israel ETF",
+          "enabled": true
+        },
+        {
+          "symbol": "CAVA",
+          "exchange": "NYSE",
+          "name": "CAVA Group, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "OWL",
+          "exchange": "NYSE",
+          "name": "Blue Owl Capital Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "DOCU",
+          "exchange": "NASDAQ",
+          "name": "DocuSign, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "QSR",
+          "exchange": "TSX",
+          "name": "Restaurant Brands International Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "CBOE",
+          "exchange": "CBOE",
+          "name": "",
+          "enabled": true
+        },
+        {
+          "symbol": "TOI",
+          "exchange": "TSXV",
+          "name": "Topicus.com, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "EWY",
+          "exchange": "AMEX",
+          "name": "iShares MSCI South Korea ETF",
+          "enabled": true
+        },
+        {
+          "symbol": "AIQ",
+          "exchange": "NASDAQ",
+          "name": "Global X Artificial Intelligence & Technology ETF",
+          "enabled": true
+        },
+        {
+          "symbol": "IAG",
+          "exchange": "TSX",
+          "name": "iA Financial Corporation Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "GOOGL",
+          "exchange": "NASDAQ",
+          "name": "",
+          "enabled": true
+        },
+        {
+          "symbol": "FN",
+          "exchange": "NYSE",
+          "name": "Fabrinet",
+          "enabled": true
+        },
+        {
+          "symbol": "TWLO",
+          "exchange": "NYSE",
+          "name": "Twilio Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "BAH",
+          "exchange": "NYSE",
+          "name": "Booz Allen Hamilton Holding Corporation",
+          "enabled": true
+        },
+        {
+          "symbol": "INCY",
+          "exchange": "NASDAQ",
+          "name": "Incyte Corporation",
+          "enabled": true
+        },
+        {
+          "symbol": "HOG",
+          "exchange": "NYSE",
+          "name": "Harley-Davidson, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "TT",
+          "exchange": "NYSE",
+          "name": "Trane Technologies plc",
+          "enabled": true
+        },
+        {
+          "symbol": "TROW",
+          "exchange": "NASDAQ",
+          "name": "T. Rowe Price Group, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "ARM",
+          "exchange": "NASDAQ",
+          "name": "Arm Holdings plc",
+          "enabled": true
+        },
+        {
+          "symbol": "MRVL",
+          "exchange": "NASDAQ",
+          "name": "Marvell Technology, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "HCA",
+          "exchange": "NYSE",
+          "name": "HCA Healthcare, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "IFC",
+          "exchange": "TSX",
+          "name": "Intact Financial Corporation",
+          "enabled": true
+        },
+        {
+          "symbol": "PYPL",
+          "exchange": "NASDAQ",
+          "name": "PayPal Holdings, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "HSY",
+          "exchange": "NYSE",
+          "name": "The Hershey Company",
+          "enabled": true
+        },
+        {
+          "symbol": "SHAK",
+          "exchange": "NYSE",
+          "name": "Shake Shack, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "HACK",
+          "exchange": "AMEX",
+          "name": "Amplify Cybersecurity ETF",
+          "enabled": true
+        },
+        {
+          "symbol": "NDX",
+          "exchange": "NASDAQ",
+          "name": "",
+          "enabled": true
+        },
+        {
+          "symbol": "QQQ",
+          "exchange": "NASDAQ",
+          "name": "Invesco QQQ Trust, Series 1",
+          "enabled": true
+        },
+        {
+          "symbol": "WBD",
+          "exchange": "NASDAQ",
+          "name": "Warner Bros. Discovery, Inc. - Series A",
+          "enabled": true
+        },
+        {
+          "symbol": "AMAT",
+          "exchange": "NASDAQ",
+          "name": "Applied Materials, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "MRK",
+          "exchange": "NYSE",
+          "name": "Merck & Company, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "SYY",
+          "exchange": "NYSE",
+          "name": "Sysco Corporation",
+          "enabled": true
+        },
+        {
+          "symbol": "QQQM",
+          "exchange": "NASDAQ",
+          "name": "Invesco NASDAQ 100 ETF",
+          "enabled": true
+        },
+        {
+          "symbol": "QTUM",
+          "exchange": "NASDAQ",
+          "name": "Defiance Quantum ETF",
+          "enabled": true
+        },
+        {
+          "symbol": "CNX",
+          "exchange": "NYSE",
+          "name": "CNX Resources Corporation",
+          "enabled": true
+        },
+        {
+          "symbol": "KMX",
+          "exchange": "NYSE",
+          "name": "CarMax Inc",
+          "enabled": true
+        },
+        {
+          "symbol": "PWR",
+          "exchange": "NYSE",
+          "name": "Quanta Services, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "QDTE",
+          "exchange": "CBOE",
+          "name": "",
+          "enabled": true
+        },
+        {
+          "symbol": "LDOS",
+          "exchange": "NYSE",
+          "name": "Leidos Holdings, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "UI",
+          "exchange": "NYSE",
+          "name": "Ubiquiti Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "HUBS",
+          "exchange": "NYSE",
+          "name": "HubSpot, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "ASAN",
+          "exchange": "NYSE",
+          "name": "Asana, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "JD",
+          "exchange": "NASDAQ",
+          "name": "JD.com, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "MCO",
+          "exchange": "NYSE",
+          "name": "Moody's Corporation",
+          "enabled": true
+        },
+        {
+          "symbol": "OIH",
+          "exchange": "AMEX",
+          "name": "VanEck Oil Services ETF",
+          "enabled": true
+        },
+        {
+          "symbol": "WMB",
+          "exchange": "NYSE",
+          "name": "Williams Companies, Inc. (The)",
+          "enabled": true
+        },
+        {
+          "symbol": "NFLX",
+          "exchange": "NASDAQ",
+          "name": "Netflix, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "IT",
+          "exchange": "NYSE",
+          "name": "Gartner, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "WEN",
+          "exchange": "NASDAQ",
+          "name": "Wendy's Company (The)",
+          "enabled": true
+        },
+        {
+          "symbol": "QMAX",
+          "exchange": "TSX",
+          "name": "Hamilton Technology YIELD MAXIMIZER (TM) ETF Trust Units E",
+          "enabled": true
+        },
+        {
+          "symbol": "VVV",
+          "exchange": "NYSE",
+          "name": "Valvoline Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "QQQI",
+          "exchange": "NASDAQ",
+          "name": "NEOS Nasdaq 100 High Income ETF",
+          "enabled": true
+        },
+        {
+          "symbol": "DXY",
+          "exchange": "TVC",
+          "name": "",
+          "enabled": true
+        },
+        {
+          "symbol": "WELL",
+          "exchange": "NYSE",
+          "name": "Welltower Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "CTC.A",
+          "exchange": "TSX",
+          "name": "",
+          "enabled": true
+        },
+        {
+          "symbol": "LUMN",
+          "exchange": "NYSE",
+          "name": "Lumen Technologies, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "TGT",
+          "exchange": "NYSE",
+          "name": "Target Corporation",
+          "enabled": true
+        },
+        {
+          "symbol": "CVNA",
+          "exchange": "NYSE",
+          "name": "Carvana Co.",
+          "enabled": true
+        },
+        {
+          "symbol": "AVGO",
+          "exchange": "NASDAQ",
+          "name": "Broadcom Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "SCHD",
+          "exchange": "AMEX",
+          "name": "Schwab US Dividend Equity ETF",
+          "enabled": true
+        },
+        {
+          "symbol": "RH",
+          "exchange": "NYSE",
+          "name": "RH",
+          "enabled": true
+        },
+        {
+          "symbol": "CHWY",
+          "exchange": "NYSE",
+          "name": "Chewy, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "VGT",
+          "exchange": "AMEX",
+          "name": "Vanguard Information Tech ETF",
+          "enabled": true
+        },
+        {
+          "symbol": "JEPQ",
+          "exchange": "NASDAQ",
+          "name": "JPMorgan Nasdaq Equity Premium Income ETF",
+          "enabled": true
+        },
+        {
+          "symbol": "UNH",
+          "exchange": "NYSE",
+          "name": "UnitedHealth Group Incorporated",
+          "enabled": true
+        },
+        {
+          "symbol": "VICI",
+          "exchange": "NYSE",
+          "name": "VICI Properties Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "CIBR",
+          "exchange": "NASDAQ",
+          "name": "First Trust NASDAQ Cybersecurity ETF",
+          "enabled": true
+        },
+        {
+          "symbol": "TSM",
+          "exchange": "NYSE",
+          "name": "",
+          "enabled": true
+        },
+        {
+          "symbol": "GILD",
+          "exchange": "NASDAQ",
+          "name": "Gilead Sciences, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "ROKU",
+          "exchange": "NASDAQ",
+          "name": "Roku, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "EIX",
+          "exchange": "NYSE",
+          "name": "Edison International",
+          "enabled": true
+        },
+        {
+          "symbol": "FAS",
+          "exchange": "AMEX",
+          "name": "Direxion Financial Bull 3X ETF",
+          "enabled": true
+        },
+        {
+          "symbol": "DOL",
+          "exchange": "TSX",
+          "name": "Dollarama Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "SMAX",
+          "exchange": "TSX",
+          "name": "Hamilton U.S. Equity YIELD MAXIMIZER (TM) ETF Trust Units E",
+          "enabled": true
+        },
+        {
+          "symbol": "XLF",
+          "exchange": "AMEX",
+          "name": "State Street Financial Select Sector SPDR ETF",
+          "enabled": true
+        },
+        {
+          "symbol": "BROS",
+          "exchange": "NYSE",
+          "name": "Dutch Bros Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "DFY",
+          "exchange": "TSX",
+          "name": "Definity Financial Corp.",
+          "enabled": true
+        },
+        {
+          "symbol": "JEPI",
+          "exchange": "AMEX",
+          "name": "JPMorgan Equity Premium Income ETF",
+          "enabled": true
+        },
+        {
+          "symbol": "AIA",
+          "exchange": "NASDAQ",
+          "name": "iShares Asia 50 ETF",
+          "enabled": true
+        },
+        {
+          "symbol": "LMN",
+          "exchange": "TSXV",
+          "name": "Lumine Group Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "CLS",
+          "exchange": "NYSE",
+          "name": "Celestica Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "VIG",
+          "exchange": "AMEX",
+          "name": "Vanguard Div Appreciation ETF",
+          "enabled": true
+        },
+        {
+          "symbol": "EA",
+          "exchange": "NASDAQ",
+          "name": "Electronic Arts Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "CASY",
+          "exchange": "NASDAQ",
+          "name": "Caseys General Stores, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "TPH",
+          "exchange": "NYSE",
+          "name": "Tri Pointe Homes, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "KWEB",
+          "exchange": "AMEX",
+          "name": "KraneShares CSI China Internet ETF",
+          "enabled": true
+        },
+        {
+          "symbol": "ACN",
+          "exchange": "NYSE",
+          "name": "Accenture plc",
+          "enabled": true
+        },
+        {
+          "symbol": "CMG",
+          "exchange": "NYSE",
+          "name": "Chipotle Mexican Grill, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "AEP",
+          "exchange": "NASDAQ",
+          "name": "American Electric Power Company, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "META",
+          "exchange": "NASDAQ",
+          "name": "Meta Platforms, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "GAP",
+          "exchange": "NYSE",
+          "name": "Gap, Inc. (The)",
+          "enabled": true
+        },
+        {
+          "symbol": "EEM",
+          "exchange": "AMEX",
+          "name": "iShares MSCI Emerging Index Fund",
+          "enabled": true
+        },
+        {
+          "symbol": "BABA",
+          "exchange": "NYSE",
+          "name": "Alibaba Group Holding Limited",
+          "enabled": true
+        },
+        {
+          "symbol": "XYZ",
+          "exchange": "NYSE",
+          "name": "Block, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "SPX",
+          "exchange": "SP",
+          "name": "Stellar AfricaGold, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "CIEN",
+          "exchange": "NYSE",
+          "name": "Ciena Corporation",
+          "enabled": true
+        },
+        {
+          "symbol": "SPY",
+          "exchange": "AMEX",
+          "name": "SPDR S&P 500 ETF TRUST",
+          "enabled": true
+        },
+        {
+          "symbol": "VOO",
+          "exchange": "AMEX",
+          "name": "Vanguard S&P 500 ETF",
+          "enabled": true
+        },
+        {
+          "symbol": "SCHW",
+          "exchange": "NYSE",
+          "name": "Charles Schwab Corporation (The)",
+          "enabled": true
+        },
+        {
+          "symbol": "DT",
+          "exchange": "NYSE",
+          "name": "Dynatrace, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "TD",
+          "exchange": "TSX",
+          "name": "Toronto-Dominion Bank",
+          "enabled": true
+        },
+        {
+          "symbol": "INDA",
+          "exchange": "CBOE",
+          "name": "",
+          "enabled": true
+        },
+        {
+          "symbol": "AXP",
+          "exchange": "NYSE",
+          "name": "American Express Company",
+          "enabled": true
+        },
+        {
+          "symbol": "FLUT",
+          "exchange": "NYSE",
+          "name": "Flutter Entertainment plc",
+          "enabled": true
+        },
+        {
+          "symbol": "CAG",
+          "exchange": "NYSE",
+          "name": "ConAgra Brands, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "VTI",
+          "exchange": "AMEX",
+          "name": "Vanguard Total Stock Market ETF",
+          "enabled": true
+        },
+        {
+          "symbol": "MTY",
+          "exchange": "TSX",
+          "name": "MTY Food Group Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "VUG",
+          "exchange": "AMEX",
+          "name": "Vanguard Growth ETF",
+          "enabled": true
+        },
+        {
+          "symbol": "VWO",
+          "exchange": "AMEX",
+          "name": "Vanguard FTSE Emerging Markets ETF",
+          "enabled": true
+        },
+        {
+          "symbol": "AQN",
+          "exchange": "TSX",
+          "name": "Algonquin Power & Utilities Corp.",
+          "enabled": true
+        },
+        {
+          "symbol": "NBIS",
+          "exchange": "NASDAQ",
+          "name": "Nebius Group N.V.",
+          "enabled": true
+        },
+        {
+          "symbol": "WM",
+          "exchange": "NYSE",
+          "name": "Waste Management, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "VT",
+          "exchange": "AMEX",
+          "name": "Vanguard Total World Stock Index ETF",
+          "enabled": true
+        },
+        {
+          "symbol": "RSP",
+          "exchange": "AMEX",
+          "name": "Invesco S&P 500 Equal Weight ETF",
+          "enabled": true
+        },
+        {
+          "symbol": "FISV",
+          "exchange": "NASDAQ",
+          "name": "Fiserv, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "MTCH",
+          "exchange": "NASDAQ",
+          "name": "Match Group, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "XLP",
+          "exchange": "AMEX",
+          "name": "State Street Consumer Staples Select Sector SPDR ETF",
+          "enabled": true
+        },
+        {
+          "symbol": "BRK.B",
+          "exchange": "NYSE",
+          "name": "",
+          "enabled": true
+        },
+        {
+          "symbol": "NDAQ",
+          "exchange": "NASDAQ",
+          "name": "Nasdaq, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "APO",
+          "exchange": "NYSE",
+          "name": "Apollo Global Management, Inc. (New)",
+          "enabled": true
+        },
+        {
+          "symbol": "BUG",
+          "exchange": "NASDAQ",
+          "name": "",
+          "enabled": true
+        },
+        {
+          "symbol": "RMBS",
+          "exchange": "NASDAQ",
+          "name": "Rambus, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "AFRM",
+          "exchange": "NASDAQ",
+          "name": "Affirm Holdings, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "BMY",
+          "exchange": "NYSE",
+          "name": "Bristol-Myers Squibb Company",
+          "enabled": true
+        },
+        {
+          "symbol": "NET",
+          "exchange": "NYSE",
+          "name": "Cloudflare, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "DE",
+          "exchange": "NYSE",
+          "name": "Deere & Company",
+          "enabled": true
+        },
+        {
+          "symbol": "PFE",
+          "exchange": "NYSE",
+          "name": "Pfizer, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "FDX",
+          "exchange": "NYSE",
+          "name": "FedEx Corporation",
+          "enabled": true
+        },
+        {
+          "symbol": "VIOO",
+          "exchange": "AMEX",
+          "name": "Vanguard S&P Small-Cap 600 ETF",
+          "enabled": true
+        },
+        {
+          "symbol": "COST",
+          "exchange": "NASDAQ",
+          "name": "Costco Wholesale Corporation",
+          "enabled": true
+        },
+        {
+          "symbol": "UBER",
+          "exchange": "NYSE",
+          "name": "Uber Technologies, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "MUSA",
+          "exchange": "NYSE",
+          "name": "Murphy USA Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "MDB",
+          "exchange": "NASDAQ",
+          "name": "MongoDB, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "IVES",
+          "exchange": "AMEX",
+          "name": "Dan IVES Wedbush AI Revolution ETF",
+          "enabled": true
+        },
+        {
+          "symbol": "VEQT",
+          "exchange": "TSX",
+          "name": "Vanguard All-Equity ETF Portfolio",
+          "enabled": true
+        },
+        {
+          "symbol": "COF",
+          "exchange": "NYSE",
+          "name": "Capital One Financial Corporation",
+          "enabled": true
+        },
+        {
+          "symbol": "ITT",
+          "exchange": "NYSE",
+          "name": "ITT Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "BLD",
+          "exchange": "NYSE",
+          "name": "TopBuild Corp.",
+          "enabled": true
+        },
+        {
+          "symbol": "HMAX",
+          "exchange": "TSX",
+          "name": "Hamilton Canadian Financials YIELD MAXIMIZER TM ETF Trust Units E",
+          "enabled": true
+        },
+        {
+          "symbol": "LYFT",
+          "exchange": "NASDAQ",
+          "name": "Lyft, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "JBLU",
+          "exchange": "NASDAQ",
+          "name": "JetBlue Airways Corporation",
+          "enabled": true
+        },
+        {
+          "symbol": "HUM",
+          "exchange": "NYSE",
+          "name": "Humana Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "BCE",
+          "exchange": "TSX",
+          "name": "BCE Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "FSK",
+          "exchange": "NYSE",
+          "name": "FS KKR Capital Corp.",
+          "enabled": true
+        },
+        {
+          "symbol": "CHKP",
+          "exchange": "NASDAQ",
+          "name": "Check Point Software Technologies Ltd.",
+          "enabled": true
+        },
+        {
+          "symbol": "ICE",
+          "exchange": "NYSE",
+          "name": "Intercontinental Exchange Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "WFC",
+          "exchange": "NYSE",
+          "name": "Wells Fargo & Company",
+          "enabled": true
+        },
+        {
+          "symbol": "IWM",
+          "exchange": "AMEX",
+          "name": "iShares Russell 2000 ETF",
+          "enabled": true
+        },
+        {
+          "symbol": "BBY",
+          "exchange": "NYSE",
+          "name": "Best Buy Co., Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "VXUS",
+          "exchange": "NASDAQ",
+          "name": "Vanguard Total International Stock ETF",
+          "enabled": true
+        },
+        {
+          "symbol": "WMT",
+          "exchange": "NASDAQ",
+          "name": "Walmart Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "IVOO",
+          "exchange": "AMEX",
+          "name": "Vanguard S&P Mid-Cap 400 ETF",
+          "enabled": true
+        },
+        {
+          "symbol": "OZK",
+          "exchange": "NASDAQ",
+          "name": "Bank OZK",
+          "enabled": true
+        },
+        {
+          "symbol": "AQN",
+          "exchange": "NYSE",
+          "name": "Algonquin Power & Utilities Corp.",
+          "enabled": true
+        },
+        {
+          "symbol": "TSEM",
+          "exchange": "NASDAQ",
+          "name": "Tower Semiconductor Ltd.",
+          "enabled": true
+        },
+        {
+          "symbol": "BX",
+          "exchange": "NYSE",
+          "name": "Blackstone Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "JNJ",
+          "exchange": "NYSE",
+          "name": "Johnson & Johnson",
+          "enabled": true
+        },
+        {
+          "symbol": "ANET",
+          "exchange": "NYSE",
+          "name": "Arista Networks, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "JOET",
+          "exchange": "AMEX",
+          "name": "Virtus Terranova U.S. Quality Momentum ETF",
+          "enabled": true
+        },
+        {
+          "symbol": "TFC",
+          "exchange": "NYSE",
+          "name": "Truist Financial Corporation",
+          "enabled": true
+        },
+        {
+          "symbol": "RJF",
+          "exchange": "NYSE",
+          "name": "Raymond James Financial, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "LIN",
+          "exchange": "NASDAQ",
+          "name": "Linde plc",
+          "enabled": true
+        },
+        {
+          "symbol": "SLB",
+          "exchange": "NYSE",
+          "name": "SLB Limited",
+          "enabled": true
+        },
+        {
+          "symbol": "COHR",
+          "exchange": "NYSE",
+          "name": "Coherent Corp.",
+          "enabled": true
+        },
+        {
+          "symbol": "FETH",
+          "exchange": "CBOE",
+          "name": "Fidelity Advantage Ether ETF Series L Trust Units",
+          "enabled": true
+        },
+        {
+          "symbol": "C",
+          "exchange": "NYSE",
+          "name": "Citigroup, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "AAPL",
+          "exchange": "NASDAQ",
+          "name": "Apple Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "STRK",
+          "exchange": "NASDAQ",
+          "name": "",
+          "enabled": true
+        },
+        {
+          "symbol": "TSLA",
+          "exchange": "NASDAQ",
+          "name": "Tesla, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "EWJ",
+          "exchange": "AMEX",
+          "name": "iShares MSCI Japan Index Fund",
+          "enabled": true
+        },
+        {
+          "symbol": "CRM",
+          "exchange": "NYSE",
+          "name": "Salesforce, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "T",
+          "exchange": "NYSE",
+          "name": "AT&T Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "TSX",
+          "exchange": "TSX",
+          "name": "",
+          "enabled": true
+        },
+        {
+          "symbol": "DIS",
+          "exchange": "NYSE",
+          "name": "Walt Disney Company (The)",
+          "enabled": true
+        },
+        {
+          "symbol": "TMO",
+          "exchange": "NYSE",
+          "name": "Thermo Fisher Scientific Inc",
+          "enabled": true
+        },
+        {
+          "symbol": "XLI",
+          "exchange": "AMEX",
+          "name": "State Street Industrial Select Sector SPDR ETF",
+          "enabled": true
+        },
+        {
+          "symbol": "RIVN",
+          "exchange": "NASDAQ",
+          "name": "Rivian Automotive, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "AEHR",
+          "exchange": "NASDAQ",
+          "name": "Aehr Test Systems",
+          "enabled": true
+        },
+        {
+          "symbol": "ABNB",
+          "exchange": "NASDAQ",
+          "name": "Airbnb, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "CG",
+          "exchange": "NASDAQ",
+          "name": "The Carlyle Group Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "WLTH",
+          "exchange": "NASDAQ",
+          "name": "Wealthfront Corporation",
+          "enabled": true
+        },
+        {
+          "symbol": "VRT",
+          "exchange": "NYSE",
+          "name": "Vertiv Holdings, LLC",
+          "enabled": true
+        },
+        {
+          "symbol": "VZ",
+          "exchange": "NYSE",
+          "name": "Verizon Communications Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "ADBE",
+          "exchange": "NASDAQ",
+          "name": "Adobe Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "DELL",
+          "exchange": "NYSE",
+          "name": "Dell Technologies Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "JPM",
+          "exchange": "NYSE",
+          "name": "JP Morgan Chase & Co.",
+          "enabled": true
+        },
+        {
+          "symbol": "RY",
+          "exchange": "TSX",
+          "name": "Royal Bank of Canada",
+          "enabled": true
+        },
+        {
+          "symbol": "SHOP",
+          "exchange": "NASDAQ",
+          "name": "Shopify Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "BMBL",
+          "exchange": "NASDAQ",
+          "name": "Bumble Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "AME",
+          "exchange": "NYSE",
+          "name": "AMETEK, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "LMAX",
+          "exchange": "TSX",
+          "name": "Hamilton Healthcare YIELD MAXIMIZER (TM) ETF Trust Units E",
+          "enabled": true
+        },
+        {
+          "symbol": "XLV",
+          "exchange": "AMEX",
+          "name": "State Street Health Care Select Sector SPDR ETF",
+          "enabled": true
+        },
+        {
+          "symbol": "TJX",
+          "exchange": "NYSE",
+          "name": "TJX Companies, Inc. (The)",
+          "enabled": true
+        },
+        {
+          "symbol": "CRMT",
+          "exchange": "NASDAQ",
+          "name": "America's Car-Mart, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "RHP",
+          "exchange": "NYSE",
+          "name": "Ryman Hospitality Properties, Inc. (REIT)",
+          "enabled": true
+        },
+        {
+          "symbol": "PGR",
+          "exchange": "NYSE",
+          "name": "Progressive Corporation (The)",
+          "enabled": true
+        },
+        {
+          "symbol": "ONON",
+          "exchange": "NYSE",
+          "name": "On Holding AG",
+          "enabled": true
+        },
+        {
+          "symbol": "KRE",
+          "exchange": "AMEX",
+          "name": "State Street SPDR S&P Regional Banking ETF",
+          "enabled": true
+        },
+        {
+          "symbol": "PEP",
+          "exchange": "NASDAQ",
+          "name": "PepsiCo, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "LUN",
+          "exchange": "TSX",
+          "name": "Lundin Mining Corporation",
+          "enabled": true
+        },
+        {
+          "symbol": "FIVE",
+          "exchange": "NASDAQ",
+          "name": "Five Below, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "SNAP",
+          "exchange": "NYSE",
+          "name": "Snap Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "TOST",
+          "exchange": "NYSE",
+          "name": "Toast, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "ANF",
+          "exchange": "NYSE",
+          "name": "Abercrombie & Fitch Company",
+          "enabled": true
+        },
+        {
+          "symbol": "MRP",
+          "exchange": "NYSE",
+          "name": "Millrose Properties, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "EL",
+          "exchange": "NYSE",
+          "name": "Estee Lauder Companies, Inc. (The)",
+          "enabled": true
+        },
+        {
+          "symbol": "ALL",
+          "exchange": "NYSE",
+          "name": "Allstate Corporation (The)",
+          "enabled": true
+        },
+        {
+          "symbol": "FTNT",
+          "exchange": "NASDAQ",
+          "name": "Fortinet, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "SYF",
+          "exchange": "NYSE",
+          "name": "Synchrony Financial",
+          "enabled": true
+        },
+        {
+          "symbol": "SPGI",
+          "exchange": "NYSE",
+          "name": "S&P Global Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "STT",
+          "exchange": "NYSE",
+          "name": "State Street Corporation",
+          "enabled": true
+        },
+        {
+          "symbol": "CSU",
+          "exchange": "TSX",
+          "name": "Constellation Software Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "RACE",
+          "exchange": "NYSE",
+          "name": "",
+          "enabled": true
+        },
+        {
+          "symbol": "MCK",
+          "exchange": "NYSE",
+          "name": "McKesson Corporation",
+          "enabled": true
+        },
+        {
+          "symbol": "S",
+          "exchange": "NYSE",
+          "name": "SentinelOne, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "WDAY",
+          "exchange": "NASDAQ",
+          "name": "Workday, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "SQQQ",
+          "exchange": "NASDAQ",
+          "name": "ProShares UltraPro Short QQQ",
+          "enabled": true
+        },
+        {
+          "symbol": "NVDA",
+          "exchange": "NASDAQ",
+          "name": "NVIDIA Corporation",
+          "enabled": true
+        },
+        {
+          "symbol": "MMM",
+          "exchange": "NYSE",
+          "name": "3M Company",
+          "enabled": true
+        },
+        {
+          "symbol": "MSFT",
+          "exchange": "NASDAQ",
+          "name": "Microsoft Corporation",
+          "enabled": true
+        },
+        {
+          "symbol": "TME",
+          "exchange": "NYSE",
+          "name": "",
+          "enabled": true
+        },
+        {
+          "symbol": "GRNY",
+          "exchange": "AMEX",
+          "name": "Fundstrat Granny Shots US Large Cap ETF",
+          "enabled": true
+        },
+        {
+          "symbol": "ILF",
+          "exchange": "AMEX",
+          "name": "iShares Latin America 40 ETF",
+          "enabled": true
+        },
+        {
+          "symbol": "SATS",
+          "exchange": "NASDAQ",
+          "name": "EchoStar Corporation",
+          "enabled": true
+        },
+        {
+          "symbol": "IBM",
+          "exchange": "NYSE",
+          "name": "International Business Machines Corporation",
+          "enabled": true
+        },
+        {
+          "symbol": "CHYM",
+          "exchange": "NASDAQ",
+          "name": "Chime Financial, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "CELH",
+          "exchange": "NASDAQ",
+          "name": "Celsius Holdings, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "TTAN",
+          "exchange": "NASDAQ",
+          "name": "ServiceTitan, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "GLD",
+          "exchange": "AMEX",
+          "name": "SPDR Gold Shares",
+          "enabled": true
+        },
+        {
+          "symbol": "GOLD",
+          "exchange": "TVC",
+          "name": "Gold.com, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "HBAN",
+          "exchange": "NASDAQ",
+          "name": "Huntington Bancshares Incorporated",
+          "enabled": true
+        },
+        {
+          "symbol": "KKR",
+          "exchange": "NYSE",
+          "name": "KKR & Co. Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "WCN",
+          "exchange": "NYSE",
+          "name": "Waste Connections, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "BLK",
+          "exchange": "NYSE",
+          "name": "BlackRock, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "GIS",
+          "exchange": "NYSE",
+          "name": "General Mills, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "MKC",
+          "exchange": "NYSE",
+          "name": "McCormick & Company, Incorporated",
+          "enabled": true
+        },
+        {
+          "symbol": "PANW",
+          "exchange": "NASDAQ",
+          "name": "Palo Alto Networks, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "OTF",
+          "exchange": "NYSE",
+          "name": "Blue Owl Technology Finance Corp.",
+          "enabled": true
+        },
+        {
+          "symbol": "IBKR",
+          "exchange": "NASDAQ",
+          "name": "Interactive Brokers Group, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "PH",
+          "exchange": "NYSE",
+          "name": "Parker-Hannifin Corporation",
+          "enabled": true
+        },
+        {
+          "symbol": "XBI",
+          "exchange": "AMEX",
+          "name": "State Street SPDR S&P Biotech ETF",
+          "enabled": true
+        },
+        {
+          "symbol": "DDOG",
+          "exchange": "NASDAQ",
+          "name": "Datadog, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "VRTX",
+          "exchange": "NASDAQ",
+          "name": "Vertex Pharmaceuticals Incorporated",
+          "enabled": true
+        },
+        {
+          "symbol": "BNTX",
+          "exchange": "NASDAQ",
+          "name": "BioNTech SE",
+          "enabled": true
+        },
+        {
+          "symbol": "CRWD",
+          "exchange": "NASDAQ",
+          "name": "CrowdStrike Holdings, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "DAL",
+          "exchange": "NYSE",
+          "name": "Delta Air Lines, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "STLA",
+          "exchange": "NYSE",
+          "name": "",
+          "enabled": true
+        },
+        {
+          "symbol": "NOC",
+          "exchange": "NYSE",
+          "name": "Northrop Grumman Corporation",
+          "enabled": true
+        },
+        {
+          "symbol": "BILL",
+          "exchange": "NYSE",
+          "name": "BILL Holdings, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "TDG",
+          "exchange": "NYSE",
+          "name": "Transdigm Group Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "XXI",
+          "exchange": "NYSE",
+          "name": "Twenty One Capital, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "MDLN",
+          "exchange": "NASDAQ",
+          "name": "Medline Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "HIG",
+          "exchange": "NYSE",
+          "name": "The Hartford Insurance Group, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "CP",
+          "exchange": "TSX",
+          "name": "Canadian Pacific Kansas City Limited",
+          "enabled": true
+        },
+        {
+          "symbol": "FIG",
+          "exchange": "NYSE",
+          "name": "FIGMA INC",
+          "enabled": true
+        },
+        {
+          "symbol": "KVUE",
+          "exchange": "NYSE",
+          "name": "Kenvue Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "AEO",
+          "exchange": "NYSE",
+          "name": "American Eagle Outfitters, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "FAST",
+          "exchange": "NASDAQ",
+          "name": "Fastenal Company",
+          "enabled": true
+        },
+        {
+          "symbol": "ORCL",
+          "exchange": "NYSE",
+          "name": "Oracle Corporation",
+          "enabled": true
+        },
+        {
+          "symbol": "ABT",
+          "exchange": "NYSE",
+          "name": "Abbott Laboratories",
+          "enabled": true
+        },
+        {
+          "symbol": "IGV",
+          "exchange": "CBOE",
+          "name": "",
+          "enabled": true
+        },
+        {
+          "symbol": "ULTA",
+          "exchange": "NASDAQ",
+          "name": "Ulta Beauty, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "PATH",
+          "exchange": "NYSE",
+          "name": "UiPath, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "DKNG",
+          "exchange": "NASDAQ",
+          "name": "DraftKings Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "PVH",
+          "exchange": "NYSE",
+          "name": "PVH Corp.",
+          "enabled": true
+        },
+        {
+          "symbol": "EWZ",
+          "exchange": "AMEX",
+          "name": "iShares MSCI Brazil ETF",
+          "enabled": true
+        },
+        {
+          "symbol": "MDA",
+          "exchange": "TSX",
+          "name": "MDA Space Ltd",
+          "enabled": true
+        },
+        {
+          "symbol": "PG",
+          "exchange": "NYSE",
+          "name": "Procter & Gamble Company (The)",
+          "enabled": true
+        },
+        {
+          "symbol": "LYV",
+          "exchange": "NYSE",
+          "name": "Live Nation Entertainment, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "LMT",
+          "exchange": "NYSE",
+          "name": "Lockheed Martin Corporation",
+          "enabled": true
+        },
+        {
+          "symbol": "JEF",
+          "exchange": "NYSE",
+          "name": "Jefferies Financial Group Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "CPNG",
+          "exchange": "NYSE",
+          "name": "Coupang, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "IOT",
+          "exchange": "NYSE",
+          "name": "Samsara Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "AZO",
+          "exchange": "NYSE",
+          "name": "AutoZone, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "OKTA",
+          "exchange": "NASDAQ",
+          "name": "Okta, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "GLW",
+          "exchange": "NYSE",
+          "name": "Corning Incorporated",
+          "enabled": true
+        },
+        {
+          "symbol": "INTU",
+          "exchange": "NASDAQ",
+          "name": "Intuit Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "CB",
+          "exchange": "NYSE",
+          "name": "Chubb Limited",
+          "enabled": true
+        },
+        {
+          "symbol": "DG",
+          "exchange": "NYSE",
+          "name": "Dollar General Corporation",
+          "enabled": true
+        },
+        {
+          "symbol": "SPG",
+          "exchange": "NYSE",
+          "name": "Simon Property Group, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "GXO",
+          "exchange": "NYSE",
+          "name": "GXO Logistics, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "KMB",
+          "exchange": "NASDAQ",
+          "name": "Kimberly-Clark Corporation",
+          "enabled": true
+        },
+        {
+          "symbol": "PSN",
+          "exchange": "NYSE",
+          "name": "Parsons Corporation",
+          "enabled": true
+        },
+        {
+          "symbol": "NU",
+          "exchange": "NYSE",
+          "name": "Nu Holdings Ltd.",
+          "enabled": true
+        },
+        {
+          "symbol": "NKE",
+          "exchange": "NYSE",
+          "name": "Nike, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "XHB",
+          "exchange": "AMEX",
+          "name": "State Street SPDR S&P Homebuilders ETF",
+          "enabled": true
+        },
+        {
+          "symbol": "BRO",
+          "exchange": "NYSE",
+          "name": "Brown & Brown, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "ARES",
+          "exchange": "NYSE",
+          "name": "Ares Management Corporation",
+          "enabled": true
+        },
+        {
+          "symbol": "GS",
+          "exchange": "NYSE",
+          "name": "Goldman Sachs Group, Inc. (The)",
+          "enabled": true
+        },
+        {
+          "symbol": "RTX",
+          "exchange": "NYSE",
+          "name": "RTX Corporation",
+          "enabled": true
+        },
+        {
+          "symbol": "SNOW",
+          "exchange": "NYSE",
+          "name": "Snowflake Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "RBLX",
+          "exchange": "NYSE",
+          "name": "Roblox Corporation",
+          "enabled": true
+        },
+        {
+          "symbol": "WW",
+          "exchange": "NASDAQ",
+          "name": "WW International, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "ZTS",
+          "exchange": "NYSE",
+          "name": "Zoetis Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "LLY",
+          "exchange": "NYSE",
+          "name": "Eli Lilly and Company",
+          "enabled": true
+        },
+        {
+          "symbol": "KTOS",
+          "exchange": "NASDAQ",
+          "name": "Kratos Defense & Security Solutions, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "RVMD",
+          "exchange": "NASDAQ",
+          "name": "Revolution Medicines, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "DUOL",
+          "exchange": "NASDAQ",
+          "name": "Duolingo, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "SHW",
+          "exchange": "NYSE",
+          "name": "Sherwin-Williams Company (The)",
+          "enabled": true
+        },
+        {
+          "symbol": "FBIN",
+          "exchange": "NYSE",
+          "name": "Fortune Brands Innovations, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "SILVER",
+          "exchange": "TVC",
+          "name": "",
+          "enabled": true
+        },
+        {
+          "symbol": "NCLH",
+          "exchange": "NYSE",
+          "name": "Norwegian Cruise Line Holdings Ltd.",
+          "enabled": true
+        },
+        {
+          "symbol": "DDS",
+          "exchange": "NYSE",
+          "name": "Dillard's, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "DB",
+          "exchange": "NYSE",
+          "name": "Decibel Cannabis Company Inc",
+          "enabled": true
+        },
+        {
+          "symbol": "PSKY",
+          "exchange": "NASDAQ",
+          "name": "Paramount Skydance Corporation",
+          "enabled": true
+        },
+        {
+          "symbol": "ALHC",
+          "exchange": "NASDAQ",
+          "name": "Alignment Healthcare, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "DHI",
+          "exchange": "NYSE",
+          "name": "D.R. Horton, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "QXO",
+          "exchange": "NYSE",
+          "name": "QXO, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "CBRE",
+          "exchange": "NYSE",
+          "name": "CBRE Group Inc",
+          "enabled": true
+        },
+        {
+          "symbol": "GTLB",
+          "exchange": "NASDAQ",
+          "name": "GitLab Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "NVDL",
+          "exchange": "NASDAQ",
+          "name": "GraniteShares 2x Long NVDA Daily ETF",
+          "enabled": true
+        },
+        {
+          "symbol": "SLV",
+          "exchange": "AMEX",
+          "name": "iShares Silver Trust",
+          "enabled": true
+        },
+        {
+          "symbol": "TEM",
+          "exchange": "NASDAQ",
+          "name": "Tempus AI, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "PINS",
+          "exchange": "NYSE",
+          "name": "Pinterest, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "GEV",
+          "exchange": "NYSE",
+          "name": "GE Vernova Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "SNPS",
+          "exchange": "NASDAQ",
+          "name": "Synopsys, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "RDDT",
+          "exchange": "NYSE",
+          "name": "Reddit, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "MNDY",
+          "exchange": "NASDAQ",
+          "name": "monday.com Ltd.",
+          "enabled": true
+        },
+        {
+          "symbol": "MDT",
+          "exchange": "NYSE",
+          "name": "Medtronic plc.",
+          "enabled": true
+        },
+        {
+          "symbol": "PAYO",
+          "exchange": "NASDAQ",
+          "name": "Payoneer Global Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "ILMN",
+          "exchange": "NASDAQ",
+          "name": "Illumina, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "ZS",
+          "exchange": "NASDAQ",
+          "name": "Zscaler, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "CLX",
+          "exchange": "NYSE",
+          "name": "Clorox Company (The)",
+          "enabled": true
+        },
+        {
+          "symbol": "QBTS",
+          "exchange": "NYSE",
+          "name": "D-Wave Quantum Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "RBRK",
+          "exchange": "NYSE",
+          "name": "Rubrik, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "DLTR",
+          "exchange": "NASDAQ",
+          "name": "Dollar Tree, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "CDNS",
+          "exchange": "NASDAQ",
+          "name": "Cadence Design Systems, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "TOL",
+          "exchange": "NYSE",
+          "name": "Toll Brothers, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "CAPR",
+          "exchange": "NASDAQ",
+          "name": "Capricor Therapeutics, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "ELF",
+          "exchange": "NYSE",
+          "name": "e.l.f. Beauty, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "LEN",
+          "exchange": "NYSE",
+          "name": "Lennar Corporation",
+          "enabled": true
+        },
+        {
+          "symbol": "BSX",
+          "exchange": "NYSE",
+          "name": "Boston Scientific Corporation",
+          "enabled": true
+        },
+        {
+          "symbol": "GE",
+          "exchange": "NYSE",
+          "name": "GE Aerospace",
+          "enabled": true
+        },
+        {
+          "symbol": "HD",
+          "exchange": "NYSE",
+          "name": "Home Depot, Inc. (The)",
+          "enabled": true
+        },
+        {
+          "symbol": "CRCL",
+          "exchange": "NYSE",
+          "name": "Circle Internet Group, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "VIK",
+          "exchange": "NYSE",
+          "name": "Viking Holdings Ltd",
+          "enabled": true
+        },
+        {
+          "symbol": "FINX",
+          "exchange": "NASDAQ",
+          "name": "Global X FinTech ETF",
+          "enabled": true
+        },
+        {
+          "symbol": "ARKK",
+          "exchange": "CBOE",
+          "name": "",
+          "enabled": true
+        },
+        {
+          "symbol": "CAR",
+          "exchange": "NASDAQ",
+          "name": "Avis Budget Group, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "CALM",
+          "exchange": "NASDAQ",
+          "name": "Cal-Maine Foods, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "W",
+          "exchange": "NYSE",
+          "name": "Wayfair Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "U",
+          "exchange": "NYSE",
+          "name": "Unity Software Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "NOW",
+          "exchange": "NYSE",
+          "name": "ServiceNow, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "BBWI",
+          "exchange": "NYSE",
+          "name": "Bath & Body Works, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "BTDR",
+          "exchange": "NASDAQ",
+          "name": "Bitdeer Technologies Group",
+          "enabled": true
+        },
+        {
+          "symbol": "DXCM",
+          "exchange": "NASDAQ",
+          "name": "DexCom, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "USAR",
+          "exchange": "NASDAQ",
+          "name": "USA Rare Earth, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "Z",
+          "exchange": "NASDAQ",
+          "name": "Zillow Group, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "NVO",
+          "exchange": "NYSE",
+          "name": "Novo Resources Corp.",
+          "enabled": true
+        },
+        {
+          "symbol": "PLTR",
+          "exchange": "NASDAQ",
+          "name": "Palantir Technologies Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "LULU",
+          "exchange": "NASDAQ",
+          "name": "lululemon athletica inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "ISRG",
+          "exchange": "NASDAQ",
+          "name": "Intuitive Surgical, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "CCL",
+          "exchange": "NYSE",
+          "name": "Carnival Corporation",
+          "enabled": true
+        },
+        {
+          "symbol": "APP",
+          "exchange": "NASDAQ",
+          "name": "Applovin Corporation",
+          "enabled": true
+        },
+        {
+          "symbol": "KBH",
+          "exchange": "NYSE",
+          "name": "KB Home",
+          "enabled": true
+        },
+        {
+          "symbol": "KLAR",
+          "exchange": "NYSE",
+          "name": "Klarna Group plc",
+          "enabled": true
+        },
+        {
+          "symbol": "ESLT",
+          "exchange": "NASDAQ",
+          "name": "",
+          "enabled": true
+        },
+        {
+          "symbol": "BA",
+          "exchange": "NYSE",
+          "name": "Boeing Company (The)",
+          "enabled": true
+        },
+        {
+          "symbol": "DPZ",
+          "exchange": "NASDAQ",
+          "name": "Domino's Pizza Inc",
+          "enabled": true
+        },
+        {
+          "symbol": "MRNA",
+          "exchange": "NASDAQ",
+          "name": "Moderna, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "MSTR",
+          "exchange": "NASDAQ",
+          "name": "Strategy Inc",
+          "enabled": true
+        },
+        {
+          "symbol": "IREN",
+          "exchange": "NASDAQ",
+          "name": "IREN Limited",
+          "enabled": true
+        },
+        {
+          "symbol": "BIDU",
+          "exchange": "NASDAQ",
+          "name": "Baidu, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "ECL",
+          "exchange": "NYSE",
+          "name": "Ecolab Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "OPEN",
+          "exchange": "NASDAQ",
+          "name": "Opendoor Technologies Inc",
+          "enabled": true
+        },
+        {
+          "symbol": "ACHR",
+          "exchange": "NYSE",
+          "name": "Archer Aviation Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "SOUN",
+          "exchange": "NASDAQ",
+          "name": "SoundHound AI, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "DASH",
+          "exchange": "NASDAQ",
+          "name": "DoorDash, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "CHTR",
+          "exchange": "NASDAQ",
+          "name": "Charter Communications, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "RKLB",
+          "exchange": "NASDAQ",
+          "name": "Rocket Lab Corporation",
+          "enabled": true
+        },
+        {
+          "symbol": "IONQ",
+          "exchange": "NYSE",
+          "name": "IonQ, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "DECK",
+          "exchange": "NYSE",
+          "name": "Deckers Outdoor Corporation",
+          "enabled": true
+        },
+        {
+          "symbol": "RGTI",
+          "exchange": "NASDAQ",
+          "name": "Rigetti Computing, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "MAXX",
+          "exchange": "CSE",
+          "name": "",
+          "enabled": true
+        },
+        {
+          "symbol": "WULF",
+          "exchange": "NASDAQ",
+          "name": "TeraWulf Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "PL",
+          "exchange": "NYSE",
+          "name": "Planet Labs PBC",
+          "enabled": true
+        },
+        {
+          "symbol": "JOBY",
+          "exchange": "NYSE",
+          "name": "Joby Aviation, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "FTAI",
+          "exchange": "NASDAQ",
+          "name": "FTAI Aviation Ltd.",
+          "enabled": true
+        },
+        {
+          "symbol": "FIGR",
+          "exchange": "NASDAQ",
+          "name": "Figure Technology Solutions, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "ASTS",
+          "exchange": "NASDAQ",
+          "name": "AST SpaceMobile, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "HIMS",
+          "exchange": "NYSE",
+          "name": "Hims & Hers Health, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "QUBT",
+          "exchange": "NASDAQ",
+          "name": "Quantum Computing Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "RKT",
+          "exchange": "NYSE",
+          "name": "Rocket Companies, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "REGN",
+          "exchange": "NASDAQ",
+          "name": "Regeneron Pharmaceuticals, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "CNR",
+          "exchange": "TSX",
+          "name": "Canadian National Railway Company",
+          "enabled": true
+        },
+        {
+          "symbol": "UPST",
+          "exchange": "NASDAQ",
+          "name": "Upstart Holdings, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "ARQQ",
+          "exchange": "NASDAQ",
+          "name": "Arqit Quantum Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "GEMI",
+          "exchange": "NASDAQ",
+          "name": "Gemini Space Station, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "LMND",
+          "exchange": "NYSE",
+          "name": "Lemonade, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "MKL",
+          "exchange": "NYSE",
+          "name": "Markel Group Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "OKLO",
+          "exchange": "NYSE",
+          "name": "Oklo Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "COIN",
+          "exchange": "NASDAQ",
+          "name": "Coinbase Global, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "ENPH",
+          "exchange": "NASDAQ",
+          "name": "Enphase Energy, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "SOFI",
+          "exchange": "NASDAQ",
+          "name": "SoFi Technologies, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "GEHC",
+          "exchange": "NASDAQ",
+          "name": "GE HealthCare Technologies Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "GIB.A",
+          "exchange": "TSX",
+          "name": "CGI Inc. Class A",
+          "enabled": true
+        },
+        {
+          "symbol": "HOOD",
+          "exchange": "NASDAQ",
+          "name": "Robinhood Markets, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "TER",
+          "exchange": "NASDAQ",
+          "name": "Teradyne, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "RVI",
+          "exchange": "NYSE",
+          "name": "",
+          "enabled": true
+        },
+        {
+          "symbol": "BTM",
+          "exchange": "NASDAQ",
+          "name": "Bitcoin Depot Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "QQQJ",
+          "exchange": "NASDAQ",
+          "name": "Invesco NASDAQ Next Gen 100 ETF",
+          "enabled": true
+        },
+        {
+          "symbol": "ETOR",
+          "exchange": "NASDAQ",
+          "name": "eToro Group Ltd.",
+          "enabled": true
+        },
+        {
+          "symbol": "BTGO",
+          "exchange": "NYSE",
+          "name": "BitGo Holdings, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "SAIL",
+          "exchange": "NASDAQ",
+          "name": "SailPoint, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "WS",
+          "exchange": "NYSE",
+          "name": "Worthington Steel, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "CSL",
+          "exchange": "NYSE",
+          "name": "Carlisle Companies Incorporated",
+          "enabled": true
+        },
+        {
+          "symbol": "BTCZ",
+          "exchange": "CBOE",
+          "name": "",
+          "enabled": true
+        },
+        {
+          "symbol": "COLB",
+          "exchange": "NASDAQ",
+          "name": "Columbia Banking System, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "MDST",
+          "exchange": "NYSE",
+          "name": "Westwood Salient Enhanced Midstream Income ETF",
+          "enabled": true
+        },
+        {
+          "symbol": "SN",
+          "exchange": "NYSE",
+          "name": "SharkNinja, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "ARN",
+          "exchange": "MIL",
+          "name": "",
+          "enabled": true
+        },
+        {
+          "symbol": "MAGH",
+          "exchange": "NASDAQ",
+          "name": "",
+          "enabled": true
+        },
+        {
+          "symbol": "BLX",
+          "exchange": "NYSE",
+          "name": "Banco Latinoamericano de Comercio Exterior, S.A.",
+          "enabled": true
+        },
+        {
+          "symbol": "HDV",
+          "exchange": "AMEX",
+          "name": "iShares Core High Dividend ETF",
+          "enabled": true
+        },
+        {
+          "symbol": "IEO",
+          "exchange": "CBOE",
+          "name": "",
+          "enabled": true
+        },
+        {
+          "symbol": "VSNT",
+          "exchange": "NASDAQ",
+          "name": "Versant Media Group, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "XPAY",
+          "exchange": "AMEX",
+          "name": "Roundhill S&P 500 Target 20 Managed Distribution ETF",
+          "enabled": true
+        },
+        {
+          "symbol": "JIVE",
+          "exchange": "NASDAQ",
+          "name": "JPMorgan International Value ETF",
+          "enabled": true
+        },
+        {
+          "symbol": "IALT",
+          "exchange": "NASDAQ",
+          "name": "iShares Systematic Alternatives Active ETF",
+          "enabled": true
+        },
+        {
+          "symbol": "RM",
+          "exchange": "NYSE",
+          "name": "Regional Management Corp.",
+          "enabled": true
+        },
+        {
+          "symbol": "ETD",
+          "exchange": "NYSE",
+          "name": "Ethan Allen Interiors Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "SCVL",
+          "exchange": "NASDAQ",
+          "name": "Shoe Carnival, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "CLV",
+          "exchange": "GETTEX",
+          "name": "Canoe Mining Ventures Corp.",
+          "enabled": true
+        },
+        {
+          "symbol": "MIAX",
+          "exchange": "NYSE",
+          "name": "Miami International Holdings, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "WQTM",
+          "exchange": "CBOE",
+          "name": "",
+          "enabled": true
+        },
+        {
+          "symbol": "OBDC",
+          "exchange": "NYSE",
+          "name": "Blue Owl Capital Corporation",
+          "enabled": true
+        },
+        {
+          "symbol": "GOOS",
+          "exchange": "NYSE",
+          "name": "Canada Goose Holdings, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "IBTA",
+          "exchange": "NYSE",
+          "name": "Ibotta, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "GURU",
+          "exchange": "TSX",
+          "name": "GURU Organic Energy Corp",
+          "enabled": true
+        },
+        {
+          "symbol": "EXPO",
+          "exchange": "NASDAQ",
+          "name": "Exponent, Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "TRI",
+          "exchange": "NASDAQ",
+          "name": "Thomson Reuters Corporation",
+          "enabled": true
+        },
+        {
+          "symbol": "FUN",
+          "exchange": "NYSE",
+          "name": "Six Flags Entertainment Corporation",
+          "enabled": true
+        },
+        {
+          "symbol": "CSHR",
+          "exchange": "NASDAQ",
+          "name": "CoinShares PLC",
+          "enabled": true
+        },
+        {
+          "symbol": "SOFX",
+          "exchange": "NASDAQ",
+          "name": "Defiance Daily Target 2X Long SOFI ETF",
+          "enabled": true
+        },
+        {
+          "symbol": "NP",
+          "exchange": "NYSE",
+          "name": "Neptune Insurance Holdings Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "NOWS",
+          "exchange": "TSX",
+          "name": "",
+          "enabled": true
+        },
+        {
+          "symbol": "PSUS",
+          "exchange": "NYSE",
+          "name": "Pershing Square USA, Ltd.",
+          "enabled": true
+        },
+        {
+          "symbol": "PS",
+          "exchange": "NYSE",
+          "name": "Pershing Square Inc.",
+          "enabled": true
+        },
+        {
+          "symbol": "HTZ",
+          "exchange": "NASDAQ",
+          "name": "Hertz Global Holdings, Inc",
+          "enabled": true
+        },
+        {
+          "symbol": "CAT",
+          "exchange": "NYSE",
+          "name": "Caterpillar, Inc.",
+          "enabled": true
+        }
+      ]
+    }
+  ],
+  "feed": {
+    "provider": "tradingview",
+    "url": "https://www.tradingview.com/watchlists/209453826/",
+    "title": "\u271d\ufe0f@ Cobalt- TELEGRAM",
+    "external_id": "209453826",
+    "last_refreshed_at": "2026-05-02T23:56:51.450779+00:00"
+  },
+  "updated_at": "2026-05-02T23:58:01.464132+00:00"
+}

@@ -1,0 +1,103 @@
+{
+  "global_enabled": true,
+  "active_workspace_id": "workspace-long",
+  "workspaces": [
+    {
+      "id": "workspace-long",
+      "name": "Achat",
+      "kind": "long",
+      "enabled": true,
+      "strategy_slots": [
+        {
+          "id": "slot-1",
+          "label": "Strategy 1",
+          "strategy_id": "example-ema-crossover-strategy",
+          "enabled": true
+        },
+        {
+          "id": "slot-2",
+          "label": "Strategy 2",
+          "strategy_id": null,
+          "enabled": false
+        },
+        {
+          "id": "slot-3",
+          "label": "Strategy 3",
+          "strategy_id": null,
+          "enabled": false
+        },
+        {
+          "id": "slot-4",
+          "label": "Strategy 4",
+          "strategy_id": null,
+          "enabled": false
+        }
+      ]
+    },
+    {
+      "id": "workspace-short",
+      "name": "Short",
+      "kind": "short",
+      "enabled": false,
+      "strategy_slots": [
+        {
+          "id": "slot-1",
+          "label": "Strategy 1",
+          "strategy_id": "example-ema-crossover-strategy",
+          "enabled": true
+        },
+        {
+          "id": "slot-2",
+          "label": "Strategy 2",
+          "strategy_id": null,
+          "enabled": false
+        },
+        {
+          "id": "slot-3",
+          "label": "Strategy 3",
+          "strategy_id": null,
+          "enabled": false
+        },
+        {
+          "id": "slot-4",
+          "label": "Strategy 4",
+          "strategy_id": null,
+          "enabled": false
+        }
+      ]
+    },
+    {
+      "id": "workspace-swing",
+      "name": "Swing",
+      "kind": "swing",
+      "enabled": false,
+      "strategy_slots": [
+        {
+          "id": "slot-1",
+          "label": "Strategy 1",
+          "strategy_id": "example-ema-crossover-strategy",
+          "enabled": true
+        },
+        {
+          "id": "slot-2",
+          "label": "Strategy 2",
+          "strategy_id": null,
+          "enabled": false
+        },
+        {
+          "id": "slot-3",
+          "label": "Strategy 3",
+          "strategy_id": null,
+          "enabled": false
+        },
+        {
+          "id": "slot-4",
+          "label": "Strategy 4",
+          "strategy_id": null,
+          "enabled": false
+        }
+      ]
+    }
+  ],
+  "updated_at": "2026-05-03T00:03:53.414238+00:00"
+}

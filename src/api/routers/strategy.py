@@ -5,7 +5,16 @@ from fastapi.responses import FileResponse
 import json
 import traceback
 
-from src.api.utils import load_strategy, save_strategy
+from src.api.schemas import StrategyLibraryEntry, StrategyLibrarySaveRequest
+from src.api.utils import (
+    apply_strategy_preset,
+    delete_strategy_preset,
+    list_strategy_presets,
+    load_strategy,
+    load_strategy_preset,
+    save_strategy,
+    save_strategy_preset,
+)
 from src.bot.strategy.rules.models import Strategy
 from src.bot.strategy.pine_script import strategy_to_pine_script
 from src.bot.strategy.validator import validate_strategy
@@ -90,3 +99,39 @@ def get_strategy_pine_script():
         "script": result.script,
         "warnings": result.warnings,
     }
+
+
+@router.get("/strategy/library", response_model=list[StrategyLibraryEntry])
+def get_strategy_library() -> list[StrategyLibraryEntry]:
+    return [StrategyLibraryEntry(**entry) for entry in list_strategy_presets()]
+
+
+@router.post("/strategy/library/save", response_model=StrategyLibraryEntry)
+def create_strategy_preset(payload: StrategyLibrarySaveRequest) -> StrategyLibraryEntry:
+    strategy = Strategy.model_validate(payload.strategy)
+    return StrategyLibraryEntry(**save_strategy_preset(strategy, payload.name))
+
+
+@router.get("/strategy/library/{strategy_id}", response_model=Strategy)
+def get_strategy_preset(strategy_id: str) -> Strategy:
+    try:
+        return load_strategy_preset(strategy_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/strategy/library/{strategy_id}/apply", response_model=Strategy)
+def apply_saved_strategy(strategy_id: str) -> Strategy:
+    try:
+        return apply_strategy_preset(strategy_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.delete("/strategy/library/{strategy_id}")
+def remove_strategy_preset(strategy_id: str):
+    try:
+        delete_strategy_preset(strategy_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return {"status": "deleted"}

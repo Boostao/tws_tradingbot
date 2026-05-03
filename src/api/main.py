@@ -8,7 +8,7 @@ from time import time
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 
-from src.api.routers import strategy, symbols, watchlist
+from src.api.routers import cockpit, strategy, symbols, watchlist
 from src.config.settings import get_settings
 
 
@@ -72,6 +72,7 @@ def create_app() -> FastAPI:
         return await call_next(request)
 
     app.include_router(strategy.router, prefix="/api/v1")
+    app.include_router(cockpit.router, prefix="/api/v1")
     app.include_router(watchlist.router, prefix="/api/v1")
     app.include_router(symbols.router, prefix="/api/v1")
 

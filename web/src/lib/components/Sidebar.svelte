@@ -1,21 +1,22 @@
 <script lang="ts">
 	import { language, setLanguage, t } from '$lib/i18n';
-	import { Compass, GitBranch, Languages, List } from 'lucide-svelte';
+	import { Compass, GitBranch, Languages, LayoutGrid, List } from 'lucide-svelte';
 
 	$: currentLang = $language;
 	$: lang = $language;
 
 	$: navItems = [
+		{ href: '/cockpit', label: () => (lang && t('cockpit')) as string, icon: LayoutGrid },
 		{ href: '/watchlist', label: () => (lang && t('watchlist')) as string, icon: List },
 		{ href: '/strategy', label: () => (lang && t('strategy_builder')) as string, icon: GitBranch }
 	];
 </script>
 
 <aside class="sidebar">
-	<div class="sidebar-brand">
+	<a class="sidebar-brand" href="/cockpit">
 		<div class="title">{lang && t('cobalt_title')}</div>
 		<div class="subtitle">{lang && t('rule_based_trading_bot')}</div>
-	</div>
+	</a>
 
 	<div class="sidebar-section">
 		<h4 class="heading">
@@ -66,6 +67,8 @@
 
 	.sidebar-brand {
 		text-align: center;
+		text-decoration: none;
+		color: inherit;
 	}
 
 	.title {
