@@ -531,6 +531,18 @@ export async function saveStrategyPreset(strategy: Strategy, name?: string): Pro
 	return (await response.json()) as StrategyLibraryEntry;
 }
 
+export async function updateStrategyPreset(strategyId: string, strategy: Strategy, name?: string): Promise<StrategyLibraryEntry> {
+	const response = await timedFetch('strategy.library.update', `${API_BASE}/api/v1/strategy/library/${strategyId}`, {
+		method: 'PUT',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify({ strategy, name })
+	});
+	if (!response.ok) {
+		throw await buildApiError(response, 'Strategy preset update');
+	}
+	return (await response.json()) as StrategyLibraryEntry;
+}
+
 export async function getStrategyPreset(strategyId: string): Promise<Strategy> {
 	const response = await timedFetch('strategy.library.item', `${API_BASE}/api/v1/strategy/library/${strategyId}`);
 	if (!response.ok) {

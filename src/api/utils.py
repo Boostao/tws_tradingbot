@@ -615,6 +615,20 @@ def save_strategy_preset(strategy: Strategy, name: Optional[str] = None) -> Dict
     return _strategy_library_entry(preset)
 
 
+def update_strategy_preset(strategy_id: str, strategy: Strategy, name: Optional[str] = None) -> Dict[str, Any]:
+    preset_path = _find_strategy_preset_path(strategy_id)
+    if preset_path is None:
+        raise FileNotFoundError(f"Strategy preset not found: {strategy_id}")
+
+    existing_preset = load_strategy_file(preset_path)
+    preset = strategy.model_copy(deep=True)
+    preset.id = strategy_id
+    preset.name = (name or preset.name or existing_preset.name or "Strategy Preset").strip()
+    preset.created_at = existing_preset.created_at
+    save_strategy_file(preset, preset_path)
+    return _strategy_library_entry(preset)
+
+
 def delete_strategy_preset(strategy_id: str) -> None:
     preset_path = _find_strategy_preset_path(strategy_id)
     if preset_path is None:

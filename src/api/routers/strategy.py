@@ -14,6 +14,7 @@ from src.api.utils import (
     load_strategy_preset,
     save_strategy,
     save_strategy_preset,
+    update_strategy_preset,
 )
 from src.bot.strategy.rules.models import Strategy
 from src.bot.strategy.pine_script import strategy_to_pine_script
@@ -110,6 +111,15 @@ def get_strategy_library() -> list[StrategyLibraryEntry]:
 def create_strategy_preset(payload: StrategyLibrarySaveRequest) -> StrategyLibraryEntry:
     strategy = Strategy.model_validate(payload.strategy)
     return StrategyLibraryEntry(**save_strategy_preset(strategy, payload.name))
+
+
+@router.put("/strategy/library/{strategy_id}", response_model=StrategyLibraryEntry)
+def update_saved_strategy(strategy_id: str, payload: StrategyLibrarySaveRequest) -> StrategyLibraryEntry:
+    strategy = Strategy.model_validate(payload.strategy)
+    try:
+        return StrategyLibraryEntry(**update_strategy_preset(strategy_id, strategy, payload.name))
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.get("/strategy/library/{strategy_id}", response_model=Strategy)

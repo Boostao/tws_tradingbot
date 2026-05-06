@@ -16,6 +16,7 @@
 		saveStrategy,
 		saveStrategyPreset,
 		setCacheTtl,
+		updateStrategyPreset,
 		validateStrategy,
 		importStrategy,
 		importStrategyFile,
@@ -93,6 +94,9 @@
 	let showJson = false;
 	let presetName = '';
 	let strategyLibrary: StrategyLibraryEntry[] = [];
+	let currentPresetId: string | null = null;
+	let linkedPreset: StrategyLibraryEntry | null = null;
+	let linkedPresetLabel = '';
 	let strategyCacheTtl = getCachePolicy().strategy;
 	let restGetMs: number | null = null;
 	let restSaveMs: number | null = null;
@@ -151,6 +155,10 @@
 		{ label: t('action_sell'), value: 'sell' },
 		{ label: t('action_filter'), value: 'filter' }
 	];
+	$: linkedPreset = currentPresetId
+		? strategyLibrary.find((entry) => entry.id === currentPresetId) ?? null
+		: null;
+	$: linkedPresetLabel = linkedPreset?.name ?? presetName.trim();
 
 	const formatIndicator = (indicator: Indicator) => {
 		const type = indicator.type;
@@ -265,6 +273,26 @@
 		return next;
 	}
 
+	function createBlankStrategy(): Strategy {
+		return {
+			id: crypto.randomUUID(),
+			name: t('new_strategy'),
+			version: '1.0.0',
+			description: t('created_with_strategy_builder'),
+			tickers: [],
+			rules: [],
+			initial_capital: 10000,
+			max_positions: 10,
+			position_size_mode: 'equal',
+			position_size_value: 0.1
+		};
+	}
+
+	function setPresetLink(nextPresetId: string | null, nextPresetName: string) {
+		currentPresetId = nextPresetId;
+		presetName = nextPresetName;
+	}
+
 	function updateStrategy(next: Strategy) {
 		strategy = next;
 		json = JSON.stringify(next, null, 2);
@@ -318,7 +346,8 @@
 		try {
 			const data = await getStrategy(force);
 			updateStrategy(data as Strategy);
-			if (!presetName.trim()) presetName = (data as Strategy).name ?? '';
+			setPresetLink(null, (data as Strategy).name ?? '');
+			resetForm();
 		} catch (err) {
 			message = formatApiError(err);
 		} finally {
@@ -328,7 +357,11 @@
 
 	async function loadStrategyLibraryState() {
 		try {
-			strategyLibrary = await getStrategyLibrary();
+			const library = await getStrategyLibrary();
+			strategyLibrary = library;
+			if (currentPresetId && !library.some((entry) => entry.id === currentPresetId)) {
+				currentPresetId = null;
+			}
 		} catch (err) {
 			message = formatApiError(err);
 		}
@@ -392,6 +425,8 @@
 			const parsed = JSON.parse(json) as Strategy;
 			const data = await importStrategy(parsed);
 			updateStrategy(data as Strategy);
+			setPresetLink(null, (data as Strategy).name ?? '');
+			resetForm();
 			status = 'imported';
 		} catch (err) {
 			message = formatApiError(err);
@@ -409,6 +444,8 @@
 		try {
 			const data = await importStrategyFile(importFile);
 			updateStrategy(data as Strategy);
+			setPresetLink(null, (data as Strategy).name ?? '');
+			resetForm();
 			status = 'imported from file';
 			importFile = null; // Reset
 		} catch (err) {
@@ -416,6 +453,18 @@
 		} finally {
 			updateRestBadges();
 		}
+	}
+
+	function handleNewStrategy() {
+		message = '';
+		errors = [];
+		const next = createBlankStrategy();
+		updateStrategy(next);
+		setPresetLink(null, next.name);
+		resetForm();
+		pineScript = '';
+		pineWarnings = [];
+		status = 'new strategy';
 	}
 
 	async function handleGeneratePineScript() {
@@ -439,8 +488,26 @@
 		try {
 			if (!strategy) return;
 			const savedPreset = await saveStrategyPreset(strategy, presetName.trim() || strategy.name);
+			setPresetLink(savedPreset.id, savedPreset.name);
 			await loadStrategyLibraryState();
 			message = t('strategy_preset_saved', { name: savedPreset.name });
+		} catch (err) {
+			message = formatApiError(err);
+		}
+	}
+
+	async function handleUpdatePreset() {
+		message = '';
+		try {
+			if (!strategy || !currentPresetId) return;
+			const savedPreset = await updateStrategyPreset(
+				currentPresetId,
+				strategy,
+				presetName.trim() || strategy.name
+			);
+			setPresetLink(savedPreset.id, savedPreset.name);
+			await loadStrategyLibraryState();
+			message = t('strategy_preset_updated', { name: savedPreset.name });
 		} catch (err) {
 			message = formatApiError(err);
 		}
@@ -451,6 +518,8 @@
 		try {
 			const data = await getStrategyPreset(strategyId);
 			updateStrategy(data as Strategy);
+			setPresetLink(strategyId, (data as Strategy).name ?? '');
+			resetForm();
 			status = 'preset loaded';
 		} catch (err) {
 			message = formatApiError(err);
@@ -462,6 +531,8 @@
 		try {
 			const data = await applyStrategyPreset(strategyId);
 			updateStrategy(data as Strategy);
+			setPresetLink(strategyId, (data as Strategy).name ?? '');
+			resetForm();
 			await loadStrategyLibraryState();
 			status = 'preset activated';
 		} catch (err) {
@@ -473,6 +544,9 @@
 		message = '';
 		try {
 			await deleteStrategyPreset(strategyId);
+			if (currentPresetId === strategyId) {
+				currentPresetId = null;
+			}
 			await loadStrategyLibraryState();
 			status = 'preset deleted';
 		} catch (err) {
@@ -656,12 +730,21 @@
 	<div class="card">
 		<h2 class="heading"><span class="heading-icon"><GitBranch size={18} strokeWidth={1.6} /></span>{t('strategy_library')}</h2>
 		<p class="muted" style="margin-top: 4px;">{t('strategy_library_help')}</p>
-		<div style="display: grid; gap: 12px; grid-template-columns: minmax(240px, 1fr) auto auto; align-items: end; margin-top: 12px;">
+		<p class="muted" style="margin-top: 8px;">
+			{#if currentPresetId && linkedPresetLabel}
+				{t('linked_preset', { name: linkedPresetLabel })}
+			{:else}
+				{t('no_linked_preset')}
+			{/if}
+		</p>
+		<div style="display: flex; flex-wrap: wrap; gap: 12px; align-items: end; margin-top: 12px;">
 			<label>
 				{t('preset_name')}
 				<input bind:value={presetName} placeholder={t('preset_name_placeholder')} />
 			</label>
 			<button on:click={handleSavePreset}>{t('save_as_preset')}</button>
+			<button class="secondary" on:click={handleUpdatePreset} disabled={!currentPresetId}>{t('update_preset')}</button>
+			<button class="secondary" on:click={handleNewStrategy}>{t('new_strategy')}</button>
 			<button class="secondary" on:click={loadStrategyLibraryState}>{t('reload')}</button>
 		</div>
 		{#if strategyLibrary.length === 0}
@@ -671,7 +754,12 @@
 				{#each strategyLibrary as preset}
 					<div style="border: 1px solid #1f2937; border-radius: 10px; padding: 12px; display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; align-items: center;">
 						<div>
-							<strong>{preset.name}</strong>
+							<div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+								<strong>{preset.name}</strong>
+								{#if currentPresetId === preset.id}
+									<span class="badge">{t('linked_preset_badge')}</span>
+								{/if}
+							</div>
 							<p class="muted" style="margin: 4px 0 0 0;">{t('strategy_library_counts', { rules: preset.rule_count, enabled: preset.enabled_rule_count })}</p>
 						</div>
 						<div style="display: flex; gap: 8px; flex-wrap: wrap;">
