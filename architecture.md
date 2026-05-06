@@ -1,38 +1,58 @@
 # Project Architecture
 
-This document provides a high-level overview of the TWS Trader Bot project's architectural structure using Mermaid.js.
+This document reflects the current local TWS trading architecture.
 
 ```mermaid
 graph TD
-    A[User] --> B[SvelteKit UI]
+    A[User] --> B[SvelteKit Split UI]
     B --> C[FastAPI API]
-    C --> D[Strategy Services]
+    B --> D[Sidebar Runtime Controls]
 
-    D --> I[Rule Models]
-    D --> J[Pine Script Generator]
+    C --> E[Cockpit Router]
+    C --> F[Watchlist Router]
+    C --> G[Strategy Router]
+    C --> H[Config Router]
+    C --> I[State Router]
 
-    C --> K[API Routers]
-    K --> L[Strategy Router]
-    K --> M[Watchlist Router]
-    K --> N[Symbols Router]
+    E --> J[config/cockpit.json]
+    F --> K[config/watchlist.json]
+    F --> L[config/watchlist.txt]
+    G --> M[config/active_strategy.json]
+    H --> N[config/default.yaml]
+    I --> O[config/.bot_state.json]
 
-    B --> O[UI Routes]
-    O --> P[Watchlist Manager]
-    O --> Q[Strategy Builder]
-    Q --> R[Pine Script Output]
+    I --> P[LiveTradingRunner]
+    P --> Q[RuleEngine]
+    Q --> R[IndicatorFactory]
+    P --> S[TWSDataProvider]
+    P --> T[Trade Ledger]
 
-    C --> S[Config Files]
-    S --> T[config/watchlist.txt]
-    S --> U[config/active_strategy.json]
+    S --> U[TWS / IB Gateway]
 
-    M --> V[TradingView Symbol Cache]
-    L --> J
+    F --> W[TradingView feed import]
 
-    subgraph "External Services"
-        V
+    subgraph Runtime
+        P
+        Q
+        R
+        S
+        T
     end
 
-    subgraph "Configuration"
-        S
+    subgraph Persistence
+        J
+        K
+        L
+        M
+        N
+        O
     end
 ```
+
+## Notes
+
+- The cockpit enforces one active strategy slot per workspace.
+- The live runner resolves watchlist instruments into `SYMBOL.VENUE` identifiers and reloads ticker/strategy enablement at cycle boundaries.
+- The runtime now fetches per-symbol and per-timeframe market-data bundles for rule evaluation.
+- The runtime requests market data for the full watchlist feed universe and only executes orders for currently enabled strategy and ticker targets.
+- The direct `ibapi` TWS path is the only live execution path in this branch.

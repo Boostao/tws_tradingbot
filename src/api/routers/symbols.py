@@ -16,7 +16,7 @@ def get_symbols(
     refresh: bool = False,
     limit: int | None = None,
 ):
-    symbols, source, updated_at = get_symbol_cache(refresh=refresh)
+    symbols, source, updated_at, warning = get_symbol_cache(refresh=refresh)
     filtered = symbols
     if q:
         needle = q.lower()
@@ -54,4 +54,4 @@ def get_symbols(
         ]
     if limit and limit > 0:
         filtered = filtered[:limit]
-    return {"symbols": filtered, "source": source, "updated_at": updated_at}
+    return {"symbols": filtered, "source": source, "updated_at": updated_at, "warning": warning}

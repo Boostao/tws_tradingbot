@@ -1,74 +1,79 @@
 # GitHub Copilot Agent Instructions — TWS Trader Bot
 
-## ✅ Project Goal
-Build and maintain a rule‑based trading bot with a Streamlit UI and Nautilus Trader integration. Focus on reliability, clear UX, and safe trading workflows (backtest before deploy).
+## Product Goal
+Maintain a local TWS/Interactive Brokers trading bot with:
+- Svelte split UI in `web/`
+- FastAPI backend in `src/api/`
+- File-backed live worker in `src/bot/live_runner.py`
+- Rule-engine based strategy execution
+- Direct Python + `ibapi` market-data and execution integration
 
-## 📌 Current Project State (Jan 28, 2026)
-- **Status:** UI functional, i18n complete, backtest mapping improved, VIX fallback/sanitization added.
-- **Runtime:** Nautilus IB adapter supported; non‑Nautilus mode now supports live order execution via IB API.
-- **Real-time data:** TWS market data subscriptions/snapshots supported.
-- **Auth:** Optional UI login gate via `auth` config.
-- **State:** DuckDB backend enabled by default (JSON is fallback).
-- **Package manager:** `uv` with virtual env in `.venv/`.
-- **Tests:** `uv run pytest tests/ -v` should pass (124 tests currently).
+## Current State
+- Cockpit is the main control surface.
+- Each workspace has exactly one active strategy slot.
+- Watchlist state is stored as grouped JSON and exported to the legacy text watchlist for compatibility.
+- Watchlist items expose normalized `instrument_id` values in `SYMBOL.VENUE` form.
+- The live runner now fetches rule-required symbol/timeframe subscriptions, not just one dominant timeframe.
+- The live runner reloads cockpit/watchlist/strategy state at the start of each execution cycle.
+- Market data stays subscribed for the full watchlist universe, while execution only runs for currently enabled strategy and ticker targets.
+- Direct TWS execution through `ibapi` is the primary live path.
+- Runtime state includes recent logs, recent open orders, recent closed trades, and the last dry-run snapshot.
 
-## 🗺️ Where Things Live (Quick Map)
-- **UI Entry:** `src/ui/main.py`
-- **UI Tabs:** `src/ui/tabs/monitoring.py`, `src/ui/tabs/strategy.py`
-- **UI Components:** `src/ui/components/` (rule builder, charts, watchlist)
-- **UI Theme/CSS:** `src/ui/styles.py`
-- **i18n:** `src/ui/i18n.py` + `src/ui/translations.py`
-- **Strategy Models & Rules:** `src/bot/strategy/rules/models.py`, `evaluator.py`, `indicators.py`
-- **Strategy Validation:** `src/bot/strategy/validator.py`
-- **Bot Runtime:** `src/bot/live_runner.py`
-- **IB Adapter:** `src/bot/adapter.py`
-- **State:** `src/bot/state.py` (DuckDB in `data/traderbot.duckdb`, JSON fallback)
-- **Config:** `config/default.yaml`
-- **Docs:** `docs/strategy_guide.md`
-- **Sample Data:** `data/sample/`
+## Architecture Map
+- UI routes: `web/src/routes/`
+- Shared web API client: `web/src/lib/api.ts`
+- Cockpit page: `web/src/routes/cockpit/+page.svelte`
+- Shared app styles: `web/src/app.css`
+- API app entry: `src/api/main.py`
+- API routers: `src/api/routers/`
+- Watchlist and cockpit persistence helpers: `src/api/utils.py`
+- Rule models and engine: `src/bot/strategy/rules/`
+- Market-data resolution helpers: `src/bot/strategy/rules/market_data.py`
+- Live runtime: `src/bot/live_runner.py`
+- Direct TWS provider: `src/bot/tws_data_provider.py`
+- Runtime state and trade ledger: `src/bot/state.py`
 
-## 🌍 i18n Requirements (IMPORTANT)
-**All UI text must pass through the i18n layer.**
-- Use `i18n.t("key")` for any user‑visible text.
-- Never hardcode new UI strings in the Streamlit UI.
-- When adding or changing UI text:
-  1. Add/update the key in `src/ui/translations.py` for **both** `en` and `fr`.
-  2. Use `i18n.t("your_key")` in UI code.
-- If removing UI text, remove the related translation keys from **all** languages.
-- If you must insert HTML in UI text, ensure it remains in translations (keep consistent across locales).
+## Working Rules
+- Preserve the single active strategy slot behavior in the cockpit.
+- Do not reintroduce multi-strategy fan-out unless the user explicitly asks for it.
+- Treat the sidebar runtime settings as global execution settings.
+- Prefer the direct TWS path for executable runtime work.
+- When changing rule evaluation, maintain compatibility with both flat market data maps and nested `symbol -> timeframe -> frame` bundles.
+- If you touch watchlist state, preserve both grouped JSON metadata and the enabled-symbol legacy text export.
+- Keep API and web types aligned when runtime state changes.
 
-## 🔁 Common Agent Tasks
-### Add a new indicator
-1. `src/utils/indicators.py`
-2. `src/bot/strategy/rules/indicators.py`
-3. `src/bot/strategy/rules/models.py` (enum)
-4. `src/ui/components/rule_builder.py` (dropdown)
-5. `src/bot/strategy/validator.py`
+## UI Guidance
+- Keep the cockpit dense and operationally focused.
+- Avoid wasting vertical space in the header area.
+- Prefer single-line summaries for ticker rows and compact strategy summaries when possible.
+- Any new user-visible strings in the Svelte UI must go through `web/src/lib/i18n/translations.ts` for both `en` and `fr`.
 
-### Add a new operator
-1. `src/bot/strategy/rules/models.py` (enum)
-2. `src/bot/strategy/rules/evaluator.py`
-3. `src/ui/components/rule_builder.py` (UI)
+## Validation
+- Backend unit tests: `pytest tests/unit -q`
+- Focused runtime tests: `pytest tests/unit/test_runtime_control.py -q`
+- Rule-engine tests: `pytest tests/unit/test_rule_engine.py -q`
+- Frontend checks: `cd web && npm run check`
+- Runner import check: `python -m src.bot.live_runner --help`
 
-### Modify bot state
-1. `src/bot/state.py`
-2. `src/bot/live_runner.py`
-3. `src/ui/tabs/monitoring.py`
+## Common Tasks
+### Runtime changes
+1. Update `src/bot/live_runner.py`
+2. Update `src/bot/state.py` if persisted state changes
+3. Update `src/api/routers/state.py` and `web/src/lib/api.ts` if the control plane changes
+4. Add or update focused tests in `tests/unit/test_runtime_control.py`
 
-## 🧪 Run & Test
-- UI: `./run_ui.sh`
-- Bot: `./run_bot.sh`
-- Tests: `uv run pytest tests/ -v`
+### Rule-engine or data-flow changes
+1. Update `src/bot/strategy/rules/conditions.py`, `engine.py`, or `market_data.py`
+2. Keep `tests/unit/test_rule_engine.py` green
+3. If the live runner depends on the change, add a focused runtime test too
 
-## ⚠️ Known Notes
-- VIX data is loaded via TWS when available, else sample CSV.
-- VIX sample has a stray value; loader sanitizes it.
-- Nautilus IB adapter uses `nautilus_ibapi`, with fallback to native IB adapter.
-- UI launcher auto-picks a free port (8501–8510).
-- Auth is disabled by default; enable in `config/default.yaml` or `AUTH_*` env vars.
+### Cockpit layout changes
+1. Update `web/src/routes/cockpit/+page.svelte`
+2. Update `web/src/app.css`
+3. Run `cd web && npm run check`
 
-## ✅ Working Standards
-- Preserve existing architecture and patterns.
-- Prefer minimal, targeted edits.
-- Update tests when behavior changes.
-- If UI text changes, update translations immediately.
+## Known Constraints
+- The runtime is local and file-backed by design.
+- TWS pacing still matters for historical requests.
+- Multi-timeframe runtime support now exists in the execution path, but any UI/history tooling that assumes one flat frame per symbol should be treated carefully.
+- The dry-run route should never place orders.

@@ -6,10 +6,32 @@ providing typed dataclasses for easy access.
 
 import os
 import yaml
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Dict, Any, Optional
 from dotenv import load_dotenv
+
+
+@dataclass
+class IBConfig:
+    """Interactive Brokers TWS connection configuration."""
+
+    host: str = "127.0.0.1"
+    port: int = 7497
+    client_id: int = 1
+    account: str = ""
+    timeout: int = 5
+    trading_mode: str = "paper"
+
+
+@dataclass
+class RuntimeConfig:
+    """Trading runtime configuration exposed to the control sidebar."""
+
+    fixed_notional: float = 10000.0
+    bracket_enabled: bool = False
+    stop_loss_pct: float = 2.0
+    take_profit_pct: float = 4.0
 
 
 @dataclass
@@ -40,6 +62,8 @@ class LoggingConfig:
 @dataclass
 class Settings:
     """Main settings container with all configuration sections."""
+    ib: IBConfig = field(default_factory=IBConfig)
+    runtime: RuntimeConfig = field(default_factory=RuntimeConfig)
     app: AppConfig = field(default_factory=AppConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
 
@@ -115,7 +139,16 @@ class ConfigLoader:
     def _apply_env_overrides(self, config: Dict[str, Any]) -> None:
         """Apply environment variable overrides."""
         env_mappings = {
-            "LOG_LEVEL": ("app", "log_level"),
+            "IB_HOST": ("ib", "host"),
+            "IB_PORT": ("ib", "port"),
+            "IB_CLIENT_ID": ("ib", "client_id"),
+            "IB_ACCOUNT": ("ib", "account"),
+            "IB_TIMEOUT": ("ib", "timeout"),
+            "IB_TRADING_MODE": ("ib", "trading_mode"),
+            "RUNTIME_FIXED_NOTIONAL": ("runtime", "fixed_notional"),
+            "RUNTIME_BRACKET_ENABLED": ("runtime", "bracket_enabled"),
+            "RUNTIME_STOP_LOSS_PCT": ("runtime", "stop_loss_pct"),
+            "RUNTIME_TAKE_PROFIT_PCT": ("runtime", "take_profit_pct"),
             "APP_ACTIVE_STRATEGY_PATH": ("app", "active_strategy_path"),
             "APP_WATCHLIST_PATH": ("app", "watchlist_path"),
             "APP_SYMBOL_CACHE_PATH": ("app", "symbol_cache_path"),
@@ -125,6 +158,13 @@ class ConfigLoader:
             value = os.getenv(env_key)
             if value is not None:
                 self._set_nested(config, config_path, self._convert_value(value))
+
+        log_level = os.getenv("LOG_LEVEL")
+        if log_level is not None:
+            converted = self._convert_value(log_level)
+            self._set_nested(config, ("app", "log_level"), converted)
+            self._set_nested(config, ("logging", "level"), converted)
+            self._set_nested(config, ("logging", "console", "level"), converted)
 
     def _set_nested(self, config: Dict[str, Any], path: tuple, value: Any) -> None:
         """Set a nested value in config dict."""
@@ -148,10 +188,26 @@ class ConfigLoader:
 
     def _create_settings(self, raw_config: Dict[str, Any]) -> Settings:
         """Create Settings object from raw config dict."""
+        ib_cfg = raw_config.get("ib", {})
+        runtime_cfg = raw_config.get("runtime", {})
         app_cfg = raw_config.get("app", {})
         logging_cfg = raw_config.get("logging", {})
 
         return Settings(
+            ib=IBConfig(
+                host=ib_cfg.get("host", "127.0.0.1"),
+                port=ib_cfg.get("port", 7497),
+                client_id=ib_cfg.get("client_id", 1),
+                account=ib_cfg.get("account", ""),
+                timeout=ib_cfg.get("timeout", 5),
+                trading_mode=ib_cfg.get("trading_mode", "paper"),
+            ),
+            runtime=RuntimeConfig(
+                fixed_notional=runtime_cfg.get("fixed_notional", 10000.0),
+                bracket_enabled=runtime_cfg.get("bracket_enabled", False),
+                stop_loss_pct=runtime_cfg.get("stop_loss_pct", 2.0),
+                take_profit_pct=runtime_cfg.get("take_profit_pct", 4.0),
+            ),
             app=AppConfig(
                 log_level=app_cfg.get("log_level", "INFO"),
                 strategies_dir=app_cfg.get("strategies_dir", "strategies"),
@@ -209,12 +265,47 @@ def get_settings(force_reload: bool = False) -> Settings:
     return _settings
 
 
-def update_setting(section: str, key: str, value: Any) -> None:
-    """Update a single setting value in the in-memory cached configuration."""
-    settings = get_settings()
+def _apply_setting_update(settings: Settings, section: str, key: str, value: Any) -> None:
     section_obj = getattr(settings, section, None)
     if section_obj is not None and hasattr(section_obj, key):
         setattr(section_obj, key, value)
+
+    if section not in settings._raw_config or not isinstance(settings._raw_config.get(section), dict):
+        settings._raw_config[section] = {}
+    settings._raw_config[section][key] = value
+
+
+def _persist_settings(settings: Settings) -> None:
+    config_dir = Path(os.getenv("TRADERBOT_CONFIG_DIR", Path(__file__).parent.parent.parent / "config"))
+    config_dir.mkdir(parents=True, exist_ok=True)
+    default_config_path = config_dir / "default.yaml"
+    with open(default_config_path, "w") as config_file:
+        yaml.safe_dump(settings._raw_config, config_file, sort_keys=False)
+
+
+def update_settings(updates: Dict[str, Dict[str, Any]]) -> None:
+    """Update multiple setting values and persist them with a single file write."""
+    settings = get_settings()
+    for section, values in updates.items():
+        if not isinstance(values, dict):
+            continue
+        for key, value in values.items():
+            _apply_setting_update(settings, section, key, value)
+    _persist_settings(settings)
+
+
+def update_setting(section: str, key: str, value: Any) -> None:
+    """Update a setting value in memory and persist it to the default config file."""
+    update_settings({section: {key: value}})
+
+
+def get_redacted_settings() -> Dict[str, Any]:
+    """Return the subset of settings that is safe and useful for the UI."""
+    settings = get_settings()
+    return {
+        "ib": asdict(settings.ib),
+        "runtime": asdict(settings.runtime),
+    }
 
 
 # Convenience alias

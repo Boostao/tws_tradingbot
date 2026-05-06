@@ -1,4 +1,20 @@
-# Default configuration for the PineScript-oriented app
+# Default configuration for the local TWS trader bot
+
+# Interactive Brokers / TWS
+ib:
+  host: "127.0.0.1"
+  port: 7497
+  client_id: 1
+  account: ""
+  timeout: 5
+  trading_mode: "paper"
+
+# Runtime controls
+runtime:
+  fixed_notional: 10000.0
+  bracket_enabled: false
+  stop_loss_pct: 2.0
+  take_profit_pct: 4.0
 
 # Application Settings
 app:

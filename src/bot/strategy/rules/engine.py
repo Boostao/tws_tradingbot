@@ -7,7 +7,7 @@ Handles both global (filter) rules and per-ticker signal rules.
 
 import logging
 from datetime import datetime
-from typing import Dict, List, Tuple, Optional, Set
+from typing import Dict, List, Tuple, Optional, Set, Iterable
 import pandas as pd
 
 from src.bot.strategy.rules.models import (
@@ -18,6 +18,7 @@ from src.bot.strategy.rules.models import (
     TimeframeUnit,
     IndicatorType,
 )
+from src.bot.strategy.rules.market_data import first_available_frame, get_market_frame
 from src.bot.strategy.rules.conditions import ConditionEvaluator
 
 
@@ -62,10 +63,15 @@ class RuleEngine:
         self._ticker_rules = strategy.get_ticker_rules()
         self._rule_results.clear()
         logger.info(f"Strategy reloaded: {strategy.name} with {len(strategy.rules)} rules")
+
+    def _tracked_tickers(self, tickers: Optional[Iterable[str]] = None) -> List[str]:
+        if tickers is None:
+            return list(self.strategy.tickers)
+        return [ticker for ticker in tickers]
     
     def evaluate_global_rules(
         self,
-        market_data: Dict[str, pd.DataFrame],
+        market_data: Dict[str, object],
         vix_bars: Optional[pd.DataFrame] = None,
         current_time: Optional[datetime] = None
     ) -> bool:
@@ -95,9 +101,10 @@ class RuleEngine:
                 # Use first available bar data for global rules
                 # Global rules typically use VIX or time-based conditions
                 bars = self._get_bars_for_rule(rule, market_data)
+                subject_key = self._rule_subject_key(rule, market_data)
                 
                 evaluator = ConditionEvaluator(rule.condition)
-                result = evaluator.evaluate(bars, vix_bars, current_time, market_data)
+                result = evaluator.evaluate(bars, vix_bars, current_time, market_data, subject_key=subject_key)
                 
                 self._rule_results[rule.id] = result
                 
@@ -125,7 +132,7 @@ class RuleEngine:
         bars: pd.DataFrame,
         vix_bars: Optional[pd.DataFrame] = None,
         current_time: Optional[datetime] = None,
-        market_data: Optional[Dict[str, pd.DataFrame]] = None,
+        market_data: Optional[Dict[str, object]] = None,
     ) -> List[str]:
         """
         Evaluate per-ticker rules for a specific symbol.
@@ -150,7 +157,7 @@ class RuleEngine:
             
             try:
                 evaluator = ConditionEvaluator(rule.condition)
-                result = evaluator.evaluate(bars, vix_bars, current_time, market_data or {ticker: bars})
+                result = evaluator.evaluate(bars, vix_bars, current_time, market_data or {ticker: bars}, subject_key=ticker)
                 
                 self._rule_results[rule.id] = result
                 
@@ -179,9 +186,10 @@ class RuleEngine:
     
     def evaluate_all(
         self,
-        market_data: Dict[str, pd.DataFrame],
+        market_data: Dict[str, object],
         vix_bars: Optional[pd.DataFrame] = None,
-        current_time: Optional[datetime] = None
+        current_time: Optional[datetime] = None,
+        tickers: Optional[Iterable[str]] = None,
     ) -> Dict[str, List[str]]:
         """
         Evaluate all rules and return signals per ticker.
@@ -207,12 +215,12 @@ class RuleEngine:
         # Then evaluate per-ticker rules for each ticker in the strategy
         signals: Dict[str, List[str]] = {}
         
-        for ticker in self.strategy.tickers:
-            if ticker not in market_data:
+        for ticker in self._tracked_tickers(tickers):
+            bars = get_market_frame(market_data, ticker)
+            if bars is None:
                 logger.warning(f"No data available for ticker {ticker}")
                 continue
-            
-            bars = market_data[ticker]
+
             actions = self.evaluate_ticker_rules(ticker, bars, vix_bars, current_time, market_data)
             
             if actions:
@@ -220,7 +228,7 @@ class RuleEngine:
         
         return signals
     
-    def get_required_data_subscriptions(self) -> List[Tuple[str, TimeframeUnit]]:
+    def get_required_data_subscriptions(self, tickers: Optional[Iterable[str]] = None) -> List[Tuple[str, TimeframeUnit]]:
         """
         Get list of data subscriptions required for this strategy.
         
@@ -230,7 +238,7 @@ class RuleEngine:
         subscriptions: Set[Tuple[str, TimeframeUnit]] = set()
         
         # Add subscriptions for strategy tickers
-        for ticker in self.strategy.tickers:
+        for ticker in self._tracked_tickers(tickers):
             # Find the timeframes used in ticker rules
             for rule in self._ticker_rules:
                 timeframe = self._get_rule_timeframe(rule)
@@ -275,7 +283,7 @@ class RuleEngine:
     def _get_bars_for_rule(
         self,
         rule: Rule,
-        market_data: Dict[str, pd.DataFrame]
+        market_data: Dict[str, object]
     ) -> pd.DataFrame:
         """
         Get the appropriate bar data for evaluating a rule.
@@ -291,25 +299,32 @@ class RuleEngine:
         indicator = rule.condition.indicator_a
         indicator_type = indicator.type.value if hasattr(indicator.type, 'value') else indicator.type
         
-        if indicator.symbol and indicator.symbol in market_data:
-            return market_data[indicator.symbol]
+        if indicator.symbol:
+            frame = get_market_frame(market_data, indicator.symbol, indicator.timeframe)
+            if frame is not None:
+                return frame
         
         # For VIX type, try to get VIX data
-        if indicator_type == "vix" and "VIX" in market_data:
-            return market_data["VIX"]
+        if indicator_type == "vix":
+            frame = get_market_frame(market_data, "VIX", indicator.timeframe)
+            if frame is not None:
+                return frame
         
         # For time-based rules, any data will work (we just need the structure)
         if indicator_type == "time":
-            # Return first available data
-            for data in market_data.values():
-                return data
+            return first_available_frame(market_data)
         
         # Default: return first available data
-        for data in market_data.values():
-            return data
+        return first_available_frame(market_data)
         
-        # If no data available, return empty DataFrame
-        return pd.DataFrame()
+    def _rule_subject_key(self, rule: Rule, market_data: Dict[str, object]) -> str | None:
+        indicator = rule.condition.indicator_a
+        if indicator.symbol:
+            return indicator.symbol
+        for ticker in self.strategy.tickers:
+            if get_market_frame(market_data, ticker, indicator.timeframe) is not None:
+                return ticker
+        return None
     
     def _get_rule_timeframe(self, rule: Rule) -> TimeframeUnit:
         """Get the primary timeframe for a rule."""

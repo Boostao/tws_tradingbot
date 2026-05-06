@@ -4,11 +4,13 @@
 	import '../app.css';
 	import Sidebar from '$lib/components/Sidebar.svelte';
 	import { initLanguage, language, t } from '$lib/i18n';
+	import { startRuntimePolling } from '$lib/stores/runtime';
 
 	$: _lang = $language;
 
 	onMount(() => {
 		initLanguage();
+		return startRuntimePolling();
 	});
 </script>
 

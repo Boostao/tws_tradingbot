@@ -18,6 +18,7 @@
 
 	let query = '';
 	let source: string | null = null;
+	let warning: string | null = null;
 	let results: Array<SymbolRecord & { score: number; matchType: 'symbol' | 'name'; indices: number[] }> = [];
 	let selectedIndex = -1;
 	let open = false;
@@ -35,7 +36,14 @@
 			: source === 'cache'
 				? t('symbol_source_cached')
 				: t('local_database_label'));
-	$: statusBadgeTone = source === 'tradingview' ? 'online' : statusTone;
+	$: warningText = warning ? formatWarning(warning) : '';
+	$: statusBadgeTone = source === 'tradingview' && !warning ? 'online' : statusTone;
+
+	function formatWarning(nextWarning: string): string {
+		const key = `symbol_warning_${nextWarning}`;
+		const translated = t(key);
+		return translated === key ? t('symbol_warning_unknown', { warning: nextWarning }) : translated;
+	}
 
 	function normalize(text?: string): string {
 		return (text || '').toLowerCase();
@@ -157,6 +165,7 @@
 				limit: Math.max(50, maxResults * 4)
 			});
 			source = data.source ?? null;
+			warning = data.warning ?? null;
 			results = buildResults(data.symbols ?? [], nextQuery);
 			selectedIndex = results.length ? 0 : -1;
 			open = true;
@@ -263,6 +272,9 @@
 					{statusText}
 				</span>
 			</div>
+			{#if warningText}
+				<div class="warning-banner">{warningText}</div>
+			{/if}
 			<div class="results">
 				{#if results.length === 0 && query.trim().length > 0}
 					<div class="empty">{t('no_results_for')} “{query.trim()}”</div>
@@ -343,6 +355,14 @@
 
 	.status-bar .offline {
 		color: #f59e0b;
+	}
+
+	.warning-banner {
+		padding: 8px 12px;
+		font-size: 12px;
+		color: #fbbf24;
+		background: rgba(245, 158, 11, 0.08);
+		border-bottom: 1px solid #1f2937;
 	}
 
 	.results {

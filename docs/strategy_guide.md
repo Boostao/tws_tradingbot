@@ -2,6 +2,13 @@
 
 A comprehensive guide to creating effective trading strategies with TWS Trader Bot.
 
+## Current Runtime Notes
+
+- The cockpit activates one strategy per workspace.
+- Enabled watchlist symbols are normalized to `SYMBOL.VENUE` instrument IDs for live execution.
+- The live runner now fetches the specific symbol/timeframe subscriptions required by the active rules.
+- If you mix multiple timeframes in one strategy, prefer using them deliberately and sparingly. The live runtime supports them, but you should still validate the strategy carefully because not every surrounding UI/history tool is as rich as the live execution path.
+
 ## Table of Contents
 
 1. [Understanding the Rule System](#understanding-the-rule-system)

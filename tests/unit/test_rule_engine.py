@@ -29,6 +29,7 @@ from src.bot.strategy.rules.models import (
 from src.bot.strategy.rules.indicators import IndicatorFactory, create_indicator_series
 from src.bot.strategy.rules.conditions import ConditionEvaluator, evaluate_condition
 from src.bot.strategy.rules.engine import RuleEngine, create_rule_engine
+from src.bot.strategy.rules.market_data import frame_from_entry
 
 
 # ============================================================================
@@ -522,6 +523,49 @@ class TestRuleEngine:
         # Signals should only contain tracked tickers
         for ticker in signals:
             assert ticker in ["AAPL", "MSFT"]
+
+    def test_evaluate_all_with_nested_timeframes(self, sample_bars):
+        strategy = Strategy(
+            name="Nested Timeframe Strategy",
+            tickers=["AAPL"],
+            rules=[
+                Rule(
+                    name="Higher timeframe trend",
+                    scope=RuleScope.PER_TICKER,
+                    condition=Condition(
+                        type=ConditionType.GREATER_THAN,
+                        indicator_a=Indicator(type=IndicatorType.EMA, length=3, timeframe=TimeframeUnit.M15),
+                        threshold=0.0,
+                    ),
+                    action=ActionType.BUY,
+                    enabled=True,
+                )
+            ],
+        )
+
+        engine = RuleEngine(strategy)
+        nested_market_data = {
+            "AAPL": {
+                TimeframeUnit.M5.value: sample_bars,
+                TimeframeUnit.M15.value: sample_bars.copy(),
+            }
+        }
+
+        signals = engine.evaluate_all(nested_market_data)
+
+        assert "AAPL" in signals
+
+    def test_frame_from_entry_returns_smallest_timeframe_without_sorting(self, sample_bars):
+        nested_market_data = {
+            TimeframeUnit.H1.value: sample_bars,
+            TimeframeUnit.M5.value: sample_bars.copy(),
+            "ignored": {"not": "a frame"},
+            TimeframeUnit.M15.value: sample_bars.copy(),
+        }
+
+        frame = frame_from_entry(nested_market_data)
+
+        assert frame is nested_market_data[TimeframeUnit.M5.value]
     
     def test_get_required_subscriptions(self, sample_strategy):
         """Test data subscription discovery."""
@@ -535,6 +579,39 @@ class TestRuleEngine:
         assert "VIX" in symbols
         # Should include strategy tickers
         assert "AAPL" in symbols or any(s[0] == "AAPL" for s in subscriptions)
+
+    def test_get_required_subscriptions_accepts_runtime_ticker_override(self, sample_strategy):
+        engine = RuleEngine(sample_strategy)
+
+        subscriptions = engine.get_required_data_subscriptions(tickers=["SPY.ARCA"])
+
+        assert all(symbol != "AAPL" for symbol, _ in subscriptions if symbol != "VIX")
+        assert any(symbol == "SPY.ARCA" for symbol, _ in subscriptions)
+
+    def test_evaluate_all_accepts_runtime_ticker_override(self, sample_bars):
+        strategy = Strategy(
+            name="Runtime Tickers",
+            tickers=["AAPL"],
+            rules=[
+                Rule(
+                    name="Simple Buy",
+                    scope=RuleScope.PER_TICKER,
+                    condition=Condition(
+                        type=ConditionType.GREATER_THAN,
+                        indicator_a=Indicator(type=IndicatorType.PRICE, timeframe=TimeframeUnit.M5),
+                        threshold=90.0,
+                    ),
+                    action=ActionType.BUY,
+                    enabled=True,
+                )
+            ],
+        )
+        engine = RuleEngine(strategy)
+
+        signals = engine.evaluate_all({"SPY.ARCA": sample_bars}, tickers=["SPY.ARCA"])
+
+        assert strategy.tickers == ["AAPL"]
+        assert list(signals.keys()) == ["SPY.ARCA"]
     
     def test_reload_strategy(self, sample_strategy):
         """Test strategy reload."""

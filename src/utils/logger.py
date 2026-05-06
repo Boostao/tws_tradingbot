@@ -1,7 +1,6 @@
 import logging
 import logging.handlers
 import sys
-from datetime import datetime
 from pathlib import Path
 from typing import Optional, List, Callable
 
@@ -31,28 +30,27 @@ class Logger:
 
     def _setup_logger(self) -> None:
         """Set up the logger with configuration from settings."""
-        # Get logging configuration from typed settings
         settings = get_settings()
         log_config = settings.logging
         log_level = getattr(logging, log_config.level.upper(), logging.INFO)
         log_format = log_config.format
 
-        # Create logger
-        self._logger = logging.getLogger('trading_bot')
-        self._logger.setLevel(log_level)
+        root_logger = logging.getLogger()
+        root_logger.setLevel(log_level)
+        root_logger.handlers = [
+            handler for handler in root_logger.handlers if not getattr(handler, "_traderbot_owned", False)
+        ]
+        has_external_console_handler = any(
+            isinstance(handler, logging.StreamHandler) and not getattr(handler, "_traderbot_owned", False)
+            for handler in root_logger.handlers
+        )
 
-        # Remove any existing handlers
-        self._logger.handlers.clear()
-
-        # Create formatter
         formatter = logging.Formatter(log_format)
 
-        # File handler with daily rotation
         if log_config.file_enabled:
             file_path = Path(log_config.file_path)
             file_path.parent.mkdir(parents=True, exist_ok=True)
 
-            # Use TimedRotatingFileHandler for daily rotation
             daily_handler = logging.handlers.TimedRotatingFileHandler(
                 file_path,
                 when='midnight',
@@ -63,32 +61,35 @@ class Logger:
             daily_handler.suffix = "%Y-%m-%d"
             daily_handler.setLevel(log_level)
             daily_handler.setFormatter(formatter)
-            self._logger.addHandler(daily_handler)
+            daily_handler._traderbot_owned = True
+            root_logger.addHandler(daily_handler)
 
-        # Console handler
-        if log_config.console_enabled:
+        if log_config.console_enabled and not has_external_console_handler:
             console_level = getattr(logging, log_config.console_level.upper(), logging.INFO)
 
             console_handler = logging.StreamHandler(sys.stdout)
             console_handler.setLevel(console_level)
             console_handler.setFormatter(formatter)
-            self._logger.addHandler(console_handler)
-        
-        # Add buffer handler for UI display
+            console_handler._traderbot_owned = True
+            root_logger.addHandler(console_handler)
+
         buffer_handler = LogBufferHandler()
         buffer_handler.setLevel(log_level)
         buffer_handler.setFormatter(logging.Formatter(
             "[%(asctime)s] [%(levelname)s] %(message)s",
             datefmt="%Y-%m-%d %H:%M:%S"
         ))
-        self._logger.addHandler(buffer_handler)
+        buffer_handler._traderbot_owned = True
+        root_logger.addHandler(buffer_handler)
+
+        self._logger = root_logger
 
     def get_logger(self, name: str) -> logging.Logger:
         """Get a logger instance for a specific module."""
         if self._logger is None:
             self._setup_logger()
 
-        return self._logger.getChild(name)
+        return logging.getLogger(name)
 
     @property
     def logger(self) -> logging.Logger:
@@ -182,7 +183,7 @@ def get_logger(name: str) -> logging.Logger:
 
 
 def setup_logging(
-    level: int = logging.INFO,
+    level: int | None = None,
     format_str: Optional[str] = None,
 ) -> None:
     """
@@ -194,22 +195,21 @@ def setup_logging(
         level: Logging level (e.g., logging.DEBUG, logging.INFO)
         format_str: Custom format string (uses default if None)
     """
-    if format_str is None:
-        format_str = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-    
-    # Configure root logger
-    logging.basicConfig(
-        level=level,
-        format=format_str,
-        handlers=[
-            logging.StreamHandler(sys.stdout),
+    if level is None and format_str is None:
+        _get_logger_instance()
+    else:
+        if format_str is None:
+            format_str = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+
+        root_logger = logging.getLogger()
+        root_logger.handlers = [
+            handler for handler in root_logger.handlers if not getattr(handler, "_traderbot_owned", False)
         ]
-    )
-    
-    # Also configure the trading_bot logger
-    trading_logger = logging.getLogger("trading_bot")
-    trading_logger.setLevel(level)
-    
-    # Reduce noise from third-party libraries
+        root_logger.setLevel(level or logging.INFO)
+        console_handler = logging.StreamHandler(sys.stdout)
+        console_handler.setFormatter(logging.Formatter(format_str))
+        console_handler._traderbot_owned = True
+        root_logger.addHandler(console_handler)
+
     logging.getLogger("urllib3").setLevel(logging.WARNING)
     logging.getLogger("asyncio").setLevel(logging.WARNING)

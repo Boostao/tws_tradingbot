@@ -1,15 +1,21 @@
 from __future__ import annotations
 
 from collections import defaultdict, deque
+import logging
 import os
+from pathlib import Path
 from threading import Lock
 from time import time
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 
-from src.api.routers import cockpit, strategy, symbols, watchlist
+from src.api.routers import cockpit, config, diagnostics, state, strategy, symbols, watchlist
 from src.config.settings import get_settings
+from src.utils.logger import setup_logging
+
+
+logger = logging.getLogger(__name__)
 
 
 class _RateLimiter:
@@ -32,7 +38,32 @@ class _RateLimiter:
             return True
 
 
+def _mask_account(account: str | None) -> str:
+    raw = str(account or "").strip()
+    if not raw:
+        return "unset"
+    if len(raw) <= 4:
+        return raw
+    return f"{raw[:2]}***{raw[-2:]}"
+
+
+def _log_api_startup(settings, rate_limit_enabled: bool, cors_origins: list[str], cors_origin_regex: str) -> None:
+    logger.info(
+        "API startup | env=%s ib_host=%s ib_port=%s trading_mode=%s account=%s rate_limit=%s cors_origins=%s cors_regex=%s log_file=%s",
+        os.getenv("TRADING_BOT_ENV", "development"),
+        settings.ib.host,
+        settings.ib.port,
+        settings.ib.trading_mode,
+        _mask_account(settings.ib.account),
+        rate_limit_enabled,
+        len(cors_origins),
+        cors_origin_regex,
+        Path(settings.logging.file_path),
+    )
+
+
 def create_app() -> FastAPI:
+    setup_logging()
     app = FastAPI(title="TWS Traderbot API", version="0.1.0")
 
     settings = get_settings(force_reload=True)
@@ -61,6 +92,10 @@ def create_app() -> FastAPI:
         burst=int(os.getenv("API_RATE_LIMIT_BURST", "20")),
     )
 
+    @app.on_event("startup")
+    async def log_startup() -> None:
+        _log_api_startup(settings, rate_limit_enabled, cors_origins, cors_origin_regex)
+
     @app.middleware("http")
     async def rate_limit(request: Request, call_next):
         if rate_limit_enabled:
@@ -75,6 +110,9 @@ def create_app() -> FastAPI:
     app.include_router(cockpit.router, prefix="/api/v1")
     app.include_router(watchlist.router, prefix="/api/v1")
     app.include_router(symbols.router, prefix="/api/v1")
+    app.include_router(diagnostics.router, prefix="/api/v1")
+    app.include_router(config.router, prefix="/api/v1")
+    app.include_router(state.router, prefix="/api/v1")
 
     @app.get("/health")
     def health():

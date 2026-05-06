@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 from datetime import datetime, timezone
@@ -9,12 +10,22 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 from uuid import uuid4
 
+from src.bot.instruments import normalize_instrument_id
 from src.bot.strategy.rules.models import Strategy
 from src.bot.strategy.rules.serialization import list_strategies as list_strategy_files
 from src.bot.strategy.rules.serialization import load_strategy as load_strategy_file
 from src.bot.strategy.rules.serialization import save_strategy as save_strategy_file
 from src.config.settings import get_settings
 import requests
+
+
+logger = logging.getLogger(__name__)
+
+_symbol_cache_diagnostics: Dict[str, Optional[str]] = {
+    "last_warning": None,
+    "last_checked_at": None,
+    "source": None,
+}
 
 
 def _reload_signal_path() -> Path:
@@ -70,6 +81,16 @@ def _cockpit_state_path() -> Path:
 
 def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _update_symbol_cache_diagnostics(source: Optional[str], warning: Optional[str]) -> None:
+    _symbol_cache_diagnostics["source"] = source
+    _symbol_cache_diagnostics["last_warning"] = warning
+    _symbol_cache_diagnostics["last_checked_at"] = _utc_now_iso()
+
+
+def get_symbol_cache_diagnostics() -> Dict[str, Optional[str]]:
+    return dict(_symbol_cache_diagnostics)
 
 
 def _watchlist_entry_key(symbol: str, exchange: str = "") -> str:
@@ -144,6 +165,7 @@ def _normalize_watchlist_item(item: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         "exchange": exchange,
         "name": name,
         "enabled": enabled,
+        "instrument_id": normalize_instrument_id(symbol, exchange),
     }
 
 
@@ -243,6 +265,26 @@ def _active_watchlist_symbols_from_groups(groups: List[Dict[str, Any]]) -> List[
     return active
 
 
+def normalized_watchlist_instruments(groups: List[Dict[str, Any]], include_disabled: bool = False) -> List[str]:
+    instruments: List[str] = []
+    seen = set()
+    for group in groups:
+        for raw_item in group.get("items", []):
+            if not isinstance(raw_item, dict):
+                continue
+            item = _normalize_watchlist_item(raw_item)
+            if not item:
+                continue
+            if not include_disabled and not item.get("enabled", True):
+                continue
+            instrument_id = str(item.get("instrument_id") or "").strip().upper()
+            if not instrument_id or instrument_id in seen:
+                continue
+            seen.add(instrument_id)
+            instruments.append(instrument_id)
+    return instruments
+
+
 def _copy_groups(groups: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return [json.loads(json.dumps(group)) for group in groups]
 
@@ -298,8 +340,8 @@ def load_watchlist_state() -> Dict[str, Any]:
         try:
             with open(watchlist_state_path, "r") as f:
                 return _normalize_watchlist_state(json.load(f))
-        except Exception:
-            pass
+        except (OSError, json.JSONDecodeError, TypeError, ValueError) as exc:
+            logger.warning("Failed to read watchlist state file %s: %s", watchlist_state_path, exc)
 
     legacy_symbols = _read_legacy_watchlist_symbols()
     if legacy_symbols:
@@ -385,8 +427,9 @@ def _symbol_metadata_lookup() -> Tuple[Dict[str, str], Dict[str, str]]:
     by_symbol_exchange: Dict[str, str] = {}
     by_symbol_only: Dict[str, str] = {}
     try:
-        symbols, _, _ = get_symbol_cache(refresh=False)
-    except Exception:
+        symbols, _, _, _ = get_symbol_cache(refresh=False)
+    except (OSError, ValueError, TypeError) as exc:
+        logger.warning("Failed to build symbol metadata lookup: %s", exc)
         return by_symbol_exchange, by_symbol_only
 
     for item in symbols:
@@ -514,7 +557,8 @@ def list_strategy_library() -> List[Dict[str, Any]]:
     for _, _, file_path in list_strategy_files(_strategies_dir_path()):
         try:
             strategy = load_strategy_file(file_path)
-        except Exception:
+        except (OSError, json.JSONDecodeError, TypeError, ValueError) as exc:
+            logger.warning("Failed to load strategy library file %s: %s", file_path, exc)
             continue
         if strategy.id in seen:
             continue
@@ -539,7 +583,8 @@ def list_strategy_presets() -> List[Dict[str, Any]]:
     for _, _, file_path in list_strategy_files(_strategies_dir_path()):
         try:
             strategy = load_strategy_file(file_path)
-        except Exception:
+        except (OSError, json.JSONDecodeError, TypeError, ValueError) as exc:
+            logger.warning("Failed to load strategy preset file %s: %s", file_path, exc)
             continue
         presets.append(_strategy_library_entry(strategy))
     return sorted(presets, key=lambda item: item["name"].lower())
@@ -587,13 +632,39 @@ def _default_strategy_slots(strategy_library: List[Dict[str, Any]]) -> List[Dict
     default_strategy_id = strategy_library[0]["id"] if strategy_library else None
     return [
         {
-            "id": f"slot-{index + 1}",
-            "label": f"Strategy {index + 1}",
-            "strategy_id": default_strategy_id if index == 0 else None,
-            "enabled": index == 0,
+            "id": "slot-1",
+            "label": "Active Strategy",
+            "strategy_id": default_strategy_id,
+            "enabled": bool(default_strategy_id),
         }
-        for index in range(4)
     ]
+
+
+def _normalize_single_strategy_slot(
+    slots_payload: List[Dict[str, Any]],
+    valid_strategy_ids: set[str],
+) -> List[Dict[str, Any]]:
+    slots = [
+        _normalize_strategy_slot(slot, index, valid_strategy_ids)
+        for index, slot in enumerate(slots_payload)
+        if isinstance(slot, dict)
+    ]
+
+    if not slots:
+        return _default_strategy_slots([{"id": next(iter(valid_strategy_ids), None)}] if valid_strategy_ids else [])
+
+    selected_slot = next(
+        (slot for slot in slots if slot["enabled"] and slot["strategy_id"]),
+        next((slot for slot in slots if slot["strategy_id"]), slots[0]),
+    )
+
+    selected_slot = {
+        "id": "slot-1",
+        "label": "Active Strategy",
+        "strategy_id": selected_slot["strategy_id"],
+        "enabled": bool(selected_slot["strategy_id"]),
+    }
+    return [selected_slot]
 
 
 def _default_cockpit_state() -> Dict[str, Any]:
@@ -650,10 +721,7 @@ def _normalize_cockpit_workspace(
     name = str(workspace.get("name") or f"Workspace {fallback_index + 1}").strip() or f"Workspace {fallback_index + 1}"
     kind = str(workspace.get("kind") or "custom").strip() or "custom"
     slots_payload = workspace.get("strategy_slots") if isinstance(workspace.get("strategy_slots"), list) else []
-
-    slots = [_normalize_strategy_slot(slot, index, valid_strategy_ids) for index, slot in enumerate(slots_payload) if isinstance(slot, dict)]
-    if not slots:
-        slots = _default_strategy_slots([{"id": next(iter(valid_strategy_ids), None)}] if valid_strategy_ids else [])
+    slots = _normalize_single_strategy_slot(slots_payload, valid_strategy_ids)
 
     return {
         "id": workspace_id,
@@ -662,6 +730,41 @@ def _normalize_cockpit_workspace(
         "enabled": bool(workspace.get("enabled", True)),
         "strategy_slots": slots,
     }
+
+
+def _workspace_has_active_strategy(workspace: Dict[str, Any]) -> bool:
+    slots = workspace.get("strategy_slots") if isinstance(workspace.get("strategy_slots"), list) else []
+    if not slots:
+        return False
+    slot = slots[0]
+    return bool(slot.get("enabled") and slot.get("strategy_id"))
+
+
+def _enforce_single_active_strategy_workspace(
+    workspaces: List[Dict[str, Any]],
+    requested_active_workspace_id: str,
+) -> str:
+    selected_workspace_id = ""
+
+    requested_workspace = next((workspace for workspace in workspaces if workspace["id"] == requested_active_workspace_id), None)
+    if requested_workspace and _workspace_has_active_strategy(requested_workspace):
+        selected_workspace_id = requested_workspace["id"]
+    else:
+        selected_workspace_id = next(
+            (workspace["id"] for workspace in workspaces if _workspace_has_active_strategy(workspace)),
+            requested_active_workspace_id,
+        )
+
+    for workspace in workspaces:
+        slots = workspace.get("strategy_slots") if isinstance(workspace.get("strategy_slots"), list) else []
+        if not slots:
+            continue
+        slot = slots[0]
+        slot["enabled"] = bool(
+            workspace["id"] == selected_workspace_id and slot.get("strategy_id") and slot.get("enabled")
+        )
+
+    return selected_workspace_id
 
 
 def _normalize_cockpit_state(payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -691,6 +794,7 @@ def _normalize_cockpit_state(payload: Dict[str, Any]) -> Dict[str, Any]:
     active_workspace_id = str(payload.get("active_workspace_id") or "").strip() or workspaces[0]["id"]
     if active_workspace_id not in {workspace["id"] for workspace in workspaces}:
         active_workspace_id = workspaces[0]["id"]
+    active_workspace_id = _enforce_single_active_strategy_workspace(workspaces, active_workspace_id)
 
     updated_at = str(payload.get("updated_at") or "").strip() or None
     return {
@@ -709,8 +813,8 @@ def load_cockpit_state() -> Dict[str, Any]:
         try:
             with open(cockpit_path, "r") as f:
                 return _normalize_cockpit_state(json.load(f))
-        except Exception:
-            pass
+        except (OSError, json.JSONDecodeError, TypeError, ValueError) as exc:
+            logger.warning("Failed to read cockpit state file %s: %s", cockpit_path, exc)
     return _normalize_cockpit_state(_default_cockpit_state())
 
 
@@ -753,19 +857,22 @@ def save_strategy(strategy: Strategy) -> None:
     _create_reload_signal()
 
 
-def _read_symbol_cache_file() -> Tuple[List[Dict[str, Any]], Optional[str], Optional[str]]:
+def _read_symbol_cache_file() -> Tuple[List[Dict[str, Any]], Optional[str], Optional[str], Optional[str]]:
     symbol_cache_path = _symbol_cache_path()
     if symbol_cache_path.exists():
         try:
             with open(symbol_cache_path, "r") as f:
                 data = json.load(f)
             if isinstance(data, list):
-                return data, "cache", None
+                return data, "cache", None, None
             if isinstance(data, dict) and isinstance(data.get("symbols"), list):
-                return data.get("symbols", []), data.get("source"), data.get("updated_at")
-        except Exception:
-            return [], None, None
-    return [], None, None
+                return data.get("symbols", []), data.get("source"), data.get("updated_at"), None
+            logger.warning("Symbol cache file has unexpected payload shape: %s", symbol_cache_path)
+            return [], None, None, "invalid_symbol_cache_payload"
+        except (OSError, json.JSONDecodeError, TypeError, ValueError) as exc:
+            logger.warning("Failed to read symbol cache file %s: %s", symbol_cache_path, exc)
+            return [], None, None, "symbol_cache_read_failed"
+    return [], None, None, None
 
 
 def _write_symbol_cache(symbols: List[Dict[str, Any]], source: str) -> None:
@@ -896,8 +1003,8 @@ def _fetch_symbols_from_tradingview() -> List[Dict[str, Any]]:
     return list(unique.values())
 
 
-def get_symbol_cache(refresh: bool = False) -> Tuple[List[Dict[str, Any]], str, Optional[str]]:
-    cached_symbols, cached_source, cached_updated_at = _read_symbol_cache_file()
+def get_symbol_cache(refresh: bool = False) -> Tuple[List[Dict[str, Any]], str, Optional[str], Optional[str]]:
+    cached_symbols, cached_source, cached_updated_at, cache_warning = _read_symbol_cache_file()
     cache_ttl = int(os.getenv("SYMBOL_CACHE_TTL_SECONDS", "86400"))
     symbol_cache_path = _symbol_cache_path()
     is_stale = False
@@ -905,7 +1012,8 @@ def get_symbol_cache(refresh: bool = False) -> Tuple[List[Dict[str, Any]], str, 
         try:
             mtime = symbol_cache_path.stat().st_mtime
             is_stale = (datetime.now(timezone.utc).timestamp() - mtime) > cache_ttl
-        except Exception:
+        except OSError as exc:
+            logger.warning("Failed to inspect symbol cache file %s: %s", symbol_cache_path, exc)
             is_stale = True
 
     if refresh or is_stale or not cached_symbols:
@@ -913,12 +1021,20 @@ def get_symbol_cache(refresh: bool = False) -> Tuple[List[Dict[str, Any]], str, 
             symbols = _fetch_symbols_from_tradingview()
             if len(symbols) > 1000:
                 _write_symbol_cache(symbols, "tradingview")
-                return symbols, "tradingview", datetime.now(timezone.utc).isoformat()
-        except Exception:
-            pass
+                _update_symbol_cache_diagnostics("tradingview", None)
+                return symbols, "tradingview", datetime.now(timezone.utc).isoformat(), None
+            logger.warning("TradingView symbol refresh returned too few symbols: %s", len(symbols))
+            if cache_warning is None:
+                cache_warning = "symbol_refresh_incomplete"
+        except (requests.RequestException, OSError, ValueError, TypeError) as exc:
+            logger.warning("TradingView symbol refresh failed: %s", exc)
+            if cache_warning is None:
+                cache_warning = "symbol_refresh_failed"
 
     if cached_symbols:
-        return cached_symbols, cached_source or "cache", cached_updated_at
+        _update_symbol_cache_diagnostics(cached_source or "cache", cache_warning)
+        return cached_symbols, cached_source or "cache", cached_updated_at, cache_warning
 
-    return [], "local", cached_updated_at
+    _update_symbol_cache_diagnostics("local", cache_warning)
+    return [], "local", cached_updated_at, cache_warning
 

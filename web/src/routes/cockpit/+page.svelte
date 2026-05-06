@@ -14,6 +14,7 @@
 		type WatchlistResponse
 	} from '$lib/api';
 	import { language, t } from '$lib/i18n';
+	import { runtimeState } from '$lib/stores/runtime';
 	import { LayoutGrid, Power, RefreshCcw, Search, Settings2, ShieldAlert, Sparkles, Tags, X } from 'lucide-svelte';
 
 	let cockpit: CockpitState | null = null;
@@ -22,6 +23,8 @@
 	let message = '';
 	let collapsedGroups = new Set<string>();
 	let tickerFilter = '';
+
+	$: botState = $runtimeState;
 
 	$: _lang = $language;
 	$: activeWorkspace = cockpit?.workspaces.find((workspace) => workspace.id === cockpit?.active_workspace_id) ?? cockpit?.workspaces[0] ?? null;
@@ -37,11 +40,40 @@
 		.filter(({ items }) => items.length > 0);
 	$: activeTickerCount = displayGroups.reduce((count, group) => count + group.items.filter((item) => item.enabled).length, 0);
 	$: totalTickerCount = displayGroups.reduce((count, group) => count + group.items.length, 0);
+	$: activeStrategySlot = activeWorkspace?.strategy_slots[0] ?? null;
 
 	function cloneGroups(groups: WatchlistGroup[]): WatchlistGroup[] {
 		return groups.map((group) => ({
 			...group,
 			items: group.items.map((item) => ({ ...item }))
+		}));
+	}
+
+	function buildExclusiveStrategyWorkspaces(
+		targetWorkspaceId: string,
+		targetSlotId: string,
+		nextEnabled: boolean,
+		nextStrategyId?: string | null
+	): CockpitWorkspace[] {
+		if (!cockpit) return [];
+		return cloneWorkspaces(cockpit.workspaces).map((workspace) => ({
+			...workspace,
+			strategy_slots: workspace.strategy_slots.map((candidate) => {
+				const strategyId =
+					workspace.id === targetWorkspaceId && candidate.id === targetSlotId
+						? (typeof nextStrategyId === 'undefined' ? candidate.strategy_id ?? null : nextStrategyId)
+						: candidate.strategy_id ?? null;
+				return {
+					...candidate,
+					strategy_id: strategyId,
+					enabled: Boolean(
+						workspace.id === targetWorkspaceId &&
+						candidate.id === targetSlotId &&
+						nextEnabled &&
+						strategyId
+					),
+				};
+			}),
 		}));
 	}
 
@@ -54,7 +86,10 @@
 
 	async function loadCockpit(force = false) {
 		try {
-			const [nextCockpit, nextWatchlist] = await Promise.all([getCockpit(force), getWatchlist(force)]);
+			const [nextCockpit, nextWatchlist] = await Promise.all([
+				getCockpit(force),
+				getWatchlist(force)
+			]);
 			cockpit = nextCockpit;
 			masterWatchlist = nextWatchlist;
 		} catch (err) {
@@ -63,7 +98,7 @@
 	}
 
 	onMount(() => {
-		loadCockpit();
+		void loadCockpit();
 	});
 
 	async function persist(next: CockpitState) {
@@ -126,32 +161,14 @@
 
 	async function setSlotEnabled(slot: CockpitStrategySlot, enabled: boolean) {
 		if (!cockpit || !activeWorkspace) return;
-		const nextWorkspaces = cloneWorkspaces(cockpit.workspaces).map((workspace) => {
-			if (workspace.id !== activeWorkspace.id) return workspace;
-			return {
-				...workspace,
-				strategy_slots: workspace.strategy_slots.map((candidate) =>
-					candidate.id === slot.id ? { ...candidate, enabled } : candidate
-				)
-			};
-		});
-		await persist({ ...cockpit, workspaces: nextWorkspaces });
+		const nextWorkspaces = buildExclusiveStrategyWorkspaces(activeWorkspace.id, slot.id, enabled, slot.strategy_id ?? null);
+		await persist({ ...cockpit, active_workspace_id: activeWorkspace.id, workspaces: nextWorkspaces });
 	}
 
 	async function setSlotStrategy(slot: CockpitStrategySlot, strategyId: string) {
 		if (!cockpit || !activeWorkspace) return;
-		const nextWorkspaces = cloneWorkspaces(cockpit.workspaces).map((workspace) => {
-			if (workspace.id !== activeWorkspace.id) return workspace;
-			return {
-				...workspace,
-				strategy_slots: workspace.strategy_slots.map((candidate) =>
-					candidate.id === slot.id
-						? { ...candidate, strategy_id: strategyId || null, enabled: Boolean(strategyId) }
-						: candidate
-				)
-			};
-		});
-		await persist({ ...cockpit, workspaces: nextWorkspaces });
+		const nextWorkspaces = buildExclusiveStrategyWorkspaces(activeWorkspace.id, slot.id, Boolean(strategyId), strategyId || null);
+		await persist({ ...cockpit, active_workspace_id: activeWorkspace.id, workspaces: nextWorkspaces });
 	}
 
 	async function setAllTickers(enabled: boolean) {
@@ -211,7 +228,6 @@
 <div class="cockpit-page">
 	<div class="cockpit-page-header">
 		<h1 class="heading"><span class="heading-icon"><LayoutGrid size={20} strokeWidth={1.6} /></span>{t('cockpit')}</h1>
-
 		{#if message}
 			<p class="cockpit-message">{message}</p>
 		{/if}
@@ -219,51 +235,50 @@
 
 	{#if cockpit && activeWorkspace}
 		<div class="cockpit-shell">
-			<div class="cockpit-topbar card">
-				<div class="cockpit-tabs">
-					{#each cockpit.workspaces as workspace}
-						<button
-							class:active-tab={workspace.id === activeWorkspace.id}
-							class="secondary cockpit-tab"
-							on:click={() => setActiveWorkspace(workspace.id)}
-						>
-							<span>{workspace.name}</span>
+			<div class="cockpit-header card">
+				<div class="cockpit-topbar">
+					<div class="cockpit-tabs">
+						{#each cockpit.workspaces as workspace}
+							<button
+								class:active-tab={workspace.id === activeWorkspace.id}
+								class="secondary cockpit-tab"
+								on:click={() => setActiveWorkspace(workspace.id)}
+							>
+								<span>{workspace.name}</span>
+							</button>
+						{/each}
+					</div>
+					<div class="cockpit-top-actions">
+						<label class="toggle">
+							<input type="checkbox" checked={cockpit.global_enabled} on:change={(event) => setGlobalEnabled((event.currentTarget as HTMLInputElement).checked)} />
+							<span class="toggle-slider"></span>
+							<span class="toggle-label">{t('cockpit_main_breaker')}</span>
+						</label>
+						<label class="toggle">
+							<input type="checkbox" checked={activeWorkspace.enabled} on:change={(event) => setWorkspaceEnabled((event.currentTarget as HTMLInputElement).checked)} />
+							<span class="toggle-slider"></span>
+							<span class="toggle-label">{t('cockpit_workspace_enabled')}</span>
+						</label>
+						<button class="secondary" on:click={() => loadCockpit(true)}>
+							<RefreshCcw size={14} strokeWidth={1.8} />
+							<span>{t('reload')}</span>
 						</button>
-					{/each}
+					</div>
 				</div>
-				<div class="cockpit-top-actions">
-					<label class="toggle">
-						<input type="checkbox" checked={cockpit.global_enabled} on:change={(event) => setGlobalEnabled((event.currentTarget as HTMLInputElement).checked)} />
-						<span class="toggle-slider"></span>
-						<span class="toggle-label">{t('cockpit_main_breaker')}</span>
-					</label>
-					<button class="secondary" on:click={() => loadCockpit(true)}>
-						<RefreshCcw size={14} strokeWidth={1.8} />
-						<span>{t('reload')}</span>
-					</button>
-				</div>
-			</div>
-
-			<div class="cockpit-meta card">
-				<div class="cockpit-meta-block">
-					<div class="cockpit-meta-label">{t('cockpit_workspace_mode')}</div>
-					<div class="cockpit-meta-value">{activeWorkspace.kind}</div>
-				</div>
-				<div class="cockpit-meta-block">
-					<div class="cockpit-meta-label">{t('cockpit_ticker_status')}</div>
-					<div class="cockpit-meta-value">{activeTickerCount} / {totalTickerCount}</div>
-				</div>
-				<div class="cockpit-meta-block">
-					<div class="cockpit-meta-label">{t('cockpit_feed_source')}</div>
-					<div class="cockpit-meta-value">{masterWatchlist?.feed?.title || t('ticker_source_default')}</div>
-					<div class="cockpit-meta-subtle">{t('watchlist_last_refreshed', { value: formatTimestamp(masterWatchlist?.feed?.last_refreshed_at ?? masterWatchlist?.updated_at ?? cockpit.updated_at) })}</div>
-				</div>
-				<div class="cockpit-meta-block cockpit-meta-toggle">
-					<label class="toggle">
-						<input type="checkbox" checked={activeWorkspace.enabled} on:change={(event) => setWorkspaceEnabled((event.currentTarget as HTMLInputElement).checked)} />
-						<span class="toggle-slider"></span>
-						<span class="toggle-label">{t('cockpit_workspace_enabled')}</span>
-					</label>
+				<div class="cockpit-meta-strip">
+					<div class="cockpit-meta-chip">
+						<span class="cockpit-meta-label">{t('cockpit_workspace_mode')}</span>
+						<strong>{activeWorkspace.kind}</strong>
+					</div>
+					<div class="cockpit-meta-chip">
+						<span class="cockpit-meta-label">{t('cockpit_ticker_status')}</span>
+						<strong>{activeTickerCount} / {totalTickerCount}</strong>
+					</div>
+					<div class="cockpit-meta-chip cockpit-meta-chip-wide">
+						<span class="cockpit-meta-label">{t('cockpit_feed_source')}</span>
+						<strong>{masterWatchlist?.feed?.title || t('ticker_source_default')}</strong>
+						<span class="cockpit-meta-subtle">{t('watchlist_last_refreshed', { value: formatTimestamp(masterWatchlist?.feed?.last_refreshed_at ?? masterWatchlist?.updated_at ?? cockpit.updated_at) })}</span>
+					</div>
 				</div>
 			</div>
 
@@ -271,34 +286,36 @@
 				<section class="card cockpit-column">
 					<div class="cockpit-section-header">
 						<h2><span class="heading-icon"><Sparkles size={18} strokeWidth={1.6} /></span>{t('cockpit_strategy_slots')}</h2>
-						<span class="muted">{activeWorkspace.strategy_slots.filter((slot) => slot.enabled && slot.strategy_id).length}/{activeWorkspace.strategy_slots.length}</span>
+						<span class="muted">{activeStrategySlot?.enabled && activeStrategySlot?.strategy_id ? '1/1' : '0/1'}</span>
 					</div>
 					<div class="cockpit-slot-list">
-						{#each activeWorkspace.strategy_slots as slot}
+						{#if activeStrategySlot}
 							<div class="cockpit-slot-card">
 								<div class="cockpit-slot-header">
-									<div>
-										<div class="cockpit-slot-title">{slot.label}</div>
-										<div class="cockpit-slot-subtitle">{strategyName(slot.strategy_id)}</div>
+									<div class="cockpit-slot-summary">
+										<div class="cockpit-slot-title">{activeStrategySlot.label}</div>
+										<div class="cockpit-slot-subtitle">{strategyName(activeStrategySlot.strategy_id)}</div>
 									</div>
 									<label class="toggle">
-										<input type="checkbox" checked={slot.enabled} on:change={(event) => setSlotEnabled(slot, (event.currentTarget as HTMLInputElement).checked)} />
+										<input type="checkbox" checked={activeStrategySlot.enabled} on:change={(event) => setSlotEnabled(activeStrategySlot, (event.currentTarget as HTMLInputElement).checked)} />
 										<span class="toggle-slider"></span>
 										<span class="toggle-label">{t('enabled')}</span>
 									</label>
 								</div>
-								<select value={slot.strategy_id ?? ''} on:change={(event) => setSlotStrategy(slot, (event.currentTarget as HTMLSelectElement).value)}>
-									<option value="">{t('cockpit_unassigned')}</option>
-									{#each cockpit.strategy_library as strategy}
-										<option value={strategy.id}>{strategy.name}</option>
-									{/each}
-								</select>
-								<div class="cockpit-slot-footnote">
+								<div class="cockpit-slot-controls">
+									<select value={activeStrategySlot.strategy_id ?? ''} on:change={(event) => setSlotStrategy(activeStrategySlot, (event.currentTarget as HTMLSelectElement).value)}>
+										<option value="">{t('cockpit_unassigned')}</option>
+										{#each cockpit.strategy_library as strategy}
+											<option value={strategy.id}>{strategy.name}</option>
+										{/each}
+									</select>
+									<div class="cockpit-slot-footnote">
 									<Settings2 size={14} strokeWidth={1.6} />
 									<span>{t('cockpit_strategy_slot_help')}</span>
+									</div>
 								</div>
 							</div>
-						{/each}
+						{/if}
 					</div>
 				</section>
 
@@ -354,9 +371,12 @@
 									<div class="cockpit-ticker-list">
 										{#each filteredGroup.items as item}
 											<div class="cockpit-ticker-row">
-												<div>
-													<div class="cockpit-ticker-symbol">{item.symbol}</div>
-													<div class="cockpit-ticker-subtle">{item.exchange || '—'} {item.name ? `• ${item.name}` : ''}</div>
+												<div class="cockpit-ticker-line">
+													<span class="cockpit-ticker-symbol">{item.symbol}</span>
+													<span class="cockpit-ticker-subtle">{item.exchange || '—'}</span>
+													{#if item.name}
+														<span class="cockpit-ticker-subtle cockpit-ticker-name">{item.name}</span>
+													{/if}
 												</div>
 												<label class="toggle">
 													<input type="checkbox" checked={item.enabled} on:change={(event) => setTickerEnabled(group.id, item, (event.currentTarget as HTMLInputElement).checked)} />

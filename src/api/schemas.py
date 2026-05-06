@@ -13,7 +13,6 @@ class BacktestRunRequest(BaseModel):
     timeframe: str = "5m"
     initial_capital: float = 10000.0
     use_tws_data: bool = True
-    use_nautilus: bool = False
 
 
 class BacktestRunResponse(BaseModel):
@@ -50,6 +49,7 @@ class WatchlistItem(BaseModel):
     exchange: str = ""
     name: str = ""
     enabled: bool = True
+    instrument_id: Optional[str] = None
 
 
 class WatchlistGroup(BaseModel):
@@ -152,6 +152,40 @@ class BotCommand(BaseModel):
 
 class BotCommandResponse(BaseModel):
     commands: List[BotCommand]
+
+
+class DiagnosticsStartup(BaseModel):
+    environment: str
+    trading_mode: str
+    ib_host: str
+    ib_port: int
+    client_id: int
+    account: str
+    log_level: str
+    log_file: str
+    watchlist_path: str
+    strategy_path: str
+    symbol_cache_path: str
+
+
+class DiagnosticsRuntime(BaseModel):
+    runner_active: bool = False
+    last_runtime_reload_at: Optional[str] = None
+    last_runtime_reload_reason: Optional[str] = None
+    last_disconnect_at: Optional[str] = None
+    last_disconnect_reason: Optional[str] = None
+
+
+class DiagnosticsSymbols(BaseModel):
+    source: Optional[str] = None
+    last_checked_at: Optional[str] = None
+    last_warning: Optional[str] = None
+
+
+class DiagnosticsResponse(BaseModel):
+    startup: DiagnosticsStartup
+    runtime: DiagnosticsRuntime
+    symbols: DiagnosticsSymbols
 
 
 class NotificationTestRequest(BaseModel):

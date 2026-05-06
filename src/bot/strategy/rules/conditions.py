@@ -17,6 +17,7 @@ from src.bot.strategy.rules.models import (
     Indicator,
 )
 from src.bot.strategy.rules.indicators import IndicatorFactory
+from src.bot.strategy.rules.market_data import get_market_frame
 from src.utils.indicators import crosses_above, crosses_below, slope
 
 
@@ -45,6 +46,7 @@ class ConditionEvaluator:
         vix_bars: Optional[pd.DataFrame] = None,
         current_time: Optional[datetime] = None,
         market_data: Optional[Dict[str, pd.DataFrame]] = None,
+        subject_key: Optional[str] = None,
     ) -> bool:
         """
         Evaluate the condition against provided data.
@@ -58,6 +60,7 @@ class ConditionEvaluator:
             True if the condition is satisfied, False otherwise
         """
         self._market_data = market_data
+        self._subject_key = subject_key
         condition_type = self._get_condition_type()
         
         if condition_type == "crosses_above":
@@ -99,21 +102,20 @@ class ConditionEvaluator:
     ) -> NDArray[np.float64]:
         """Get indicator series from bar data."""
         bars_for_indicator = bars
+        market_data = self._market_data if isinstance(self._market_data, dict) else None
 
-        if indicator.symbol and self._market_data:
-            symbol_key = indicator.symbol
-            if symbol_key in self._market_data:
-                bars_for_indicator = self._market_data[symbol_key]
-            else:
-                # Try fallback keys
-                symbol_upper = symbol_key.upper()
-                if symbol_upper in self._market_data:
-                    bars_for_indicator = self._market_data[symbol_upper]
-                elif "." in symbol_key:
-                    base_symbol = symbol_key.split(".")[0]
-                    if base_symbol in self._market_data:
-                        bars_for_indicator = self._market_data[base_symbol]
-        return self._indicator_factory.create_indicator_series(indicator, bars_for_indicator, vix_bars)
+        if market_data:
+            indicator_symbol = indicator.symbol or getattr(self, "_subject_key", None)
+            resolved = get_market_frame(market_data, indicator_symbol, indicator.timeframe)
+            if resolved is not None:
+                bars_for_indicator = resolved
+
+        indicator_type = indicator.type.value if hasattr(indicator.type, "value") else indicator.type
+        resolved_vix_bars = vix_bars
+        if indicator_type == "vix" and market_data:
+            resolved_vix_bars = get_market_frame(market_data, indicator.symbol or "VIX", indicator.timeframe) or vix_bars
+
+        return self._indicator_factory.create_indicator_series(indicator, bars_for_indicator, resolved_vix_bars)
     
     def _evaluate_crosses_above(
         self,
