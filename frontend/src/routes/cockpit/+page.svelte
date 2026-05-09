@@ -351,7 +351,7 @@
 					</div>
 					<div class="cockpit-group-list">
 						{#if filteredGroups.length === 0}
-							<p class="cockpit-filter-empty">{$_("no_tickers_match")}</p>
+							<p class="cockpit-filter-empty">{t('no_tickers_match')}</p>
 						{:else}
 							{#each filteredGroups as filteredGroup}
 								{@const group = filteredGroup.group}

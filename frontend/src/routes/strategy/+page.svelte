@@ -1261,5 +1261,5 @@
 		</div>
 	{/if}
 {:else}
-	<p class="muted">{$_("loading_strategy")}</p>
+	<p class="muted">{t('loading_strategy')}</p>
 {/if}
