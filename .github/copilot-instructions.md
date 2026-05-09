@@ -6,9 +6,13 @@ Maintain a local TWS/Interactive Brokers trading bot with:
 - Golang Native backend
 - SQLite-backed state (`system_config`)
 - Rule-engine based strategy execution using concurrent Go native array math
-- Direct Golang + `scmhub/ibapi` market-data and execution integration via TCP 7497
+- Direct Golang + `scmhub/ibapi` market-data and execution integration mapped dynamically to the UI config port
 
 ## Current State
+- Cockpit is the main control surface.
+- Each workspace has exactly one active strategy slot.
+- Watchlist items expose normalized `instrument_id` values in `SYMBOL.VENUE` form.
+- Market data stays subscribed for the full watchlist universe, while execution only runs for currently enabled strategy and ticker targets.
 - The backend operates locally over IPC (Wails), not REST.
 - SQLite strictly types and persists state from UI preferences to Watchlists.
 - The execution relies on `Engine.EvaluateTick()` which natively accepts arrays of floats against mapped Go strategy structs.
@@ -25,9 +29,11 @@ Maintain a local TWS/Interactive Brokers trading bot with:
 
 ## Working Rules
 - Preserve the single active strategy slot behavior in the cockpit.
+- Do not reintroduce multi-strategy fan-out unless the user explicitly asks for it.
 - Treat the UI runtime settings as global execution settings.
 - Wails IPC bindings (`wails generate module`) sync the Go structs to TypeScript seamlessly. Ensure struct fields intended for Svelte use standard JSON formatting `json:"property"`.
 - The application stack is exclusively Go and Node.js (for frontend build).
+- When changing rule evaluation, maintain compatibility with both flat market data maps and nested `symbol -> timeframe -> frame` bundles.
 
 ## UI Guidance
 - Keep the cockpit dense and operationally focused.
@@ -38,3 +44,9 @@ Maintain a local TWS/Interactive Brokers trading bot with:
 ## Validation
 - Backend unit tests: `go test -v ./backend/...`
 - Build verification: `wails build`
+
+## Known Constraints
+- The runtime is local and SQLite-backed by design.
+- TWS pacing still matters for historical data block requests.
+- Multi-timeframe runtime support exists in the execution path, but any UI/history tooling that assumes one flat frame per symbol should be treated carefully.
+- The dry-run execution routes should never place live orders.
