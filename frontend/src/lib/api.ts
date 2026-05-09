@@ -347,10 +347,6 @@ export type ConfigResponse = {
 };
 
 export type Strategy = Record<string, unknown>;
-export type PineScriptResponse = {
-	script: string;
-	warnings: string[];
-};
 
 export async function getStrategy(force = false): Promise<Strategy> {
 	return fetchCachedJson<Strategy>('strategy', cachePolicy.strategy, 'strategy.get', `${API_BASE}/api/v1/strategy`, 'Strategy fetch', force);
@@ -501,14 +497,6 @@ export async function importStrategyFile(file: File): Promise<Strategy> {
 	const data = await response.json();
 	setCached('strategy', data, cachePolicy.strategy);
 	return data;
-}
-
-export async function getStrategyPineScript(): Promise<PineScriptResponse> {
-	const response = await timedFetch('strategy.pine', `${API_BASE}/api/v1/strategy/pine-script`);
-	if (!response.ok) {
-		throw await buildApiError(response, 'PineScript generation');
-	}
-	return response.json();
 }
 
 export async function getStrategyLibrary(): Promise<StrategyLibraryEntry[]> {

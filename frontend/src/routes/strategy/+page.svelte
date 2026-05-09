@@ -11,7 +11,6 @@
 		getRestMetric,
 		getStrategy,
 		getStrategyLibrary,
-		getStrategyPineScript,
 		getStrategyPreset,
 		saveStrategy,
 		saveStrategyPreset,
@@ -104,10 +103,6 @@
 	let restLastError: string | null = null;
 
 	let importFile: File | null = null;
-	let pineScript = '';
-	let pineWarnings: string[] = [];
-	let pineLoading = false;
-
 	let editingRuleId: string | null = null;
 	let ruleName = '';
 	let ruleScope = 'per_ticker';
@@ -462,25 +457,7 @@
 		updateStrategy(next);
 		setPresetLink(null, next.name);
 		resetForm();
-		pineScript = '';
-		pineWarnings = [];
 		status = 'new strategy';
-	}
-
-	async function handleGeneratePineScript() {
-		message = '';
-		pineLoading = true;
-		try {
-			const result = await getStrategyPineScript();
-			pineScript = result.script;
-			pineWarnings = result.warnings;
-			status = 'pine script generated';
-		} catch (err) {
-			message = formatApiError(err);
-		} finally {
-			pineLoading = false;
-			updateRestBadges();
-		}
 	}
 
 	async function handleSavePreset() {
@@ -694,13 +671,9 @@
 		<ol class="quickstart-steps">
 			<li>{t('strategy_quickstart_step_watchlist')}</li>
 			<li>{t('strategy_quickstart_step_rules')}</li>
-			<li>{$_("generate_pine_script")}</li>
 		</ol>
 		<div class="quickstart-actions">
 			<a class="button-link secondary" href="/watchlist">{t('strategy_quickstart_watchlist_cta')}</a>
-			<button class="secondary" on:click={handleGeneratePineScript} disabled={pineLoading}>
-				{pineLoading ? 'Generating…' : 'Generate PineScript'}
-			</button>
 		</div>
 	</div>
 
@@ -1215,9 +1188,6 @@
 		<div style="display: flex; flex-wrap: wrap; gap: 8px;">
 			<button on:click={handleValidate}>{t('validate')}</button>
 			<button on:click={handleSave}>{t('save')}</button>
-			<button on:click={handleGeneratePineScript} disabled={pineLoading}>
-				{pineLoading ? 'Generating…' : 'Generate PineScript'}
-			</button>
 			<button class="secondary" on:click={handleExport}>{t('export')}</button>
 			<button class="secondary" on:click={() => loadStrategy(true)}>{t('reload')}</button>
 			<button
@@ -1271,18 +1241,6 @@
 				{/each}
 			</ul>
 		{/if}
-	</div>
-
-	<div class="card">
-		<h2>{$_("pine_script")}</h2>
-		{#if pineWarnings.length}
-			<ul>
-				{#each pineWarnings as warn}
-					<li style="color: #f59e0b;">{warn}</li>
-				{/each}
-			</ul>
-		{/if}
-		<textarea rows="14" style="width: 100%;" readonly value={pineScript}></textarea>
 	</div>
 
 	{#if showJson}

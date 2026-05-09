@@ -583,8 +583,6 @@ export const translations = {
     status: "Status",
     no_active_orders: "No active orders",
     loading_strategy: "Loading strategy...",
-    pine_script: "Pine Script",
-    generate_pine_script: "Generate PineScript from enabled rules",
     no_tickers_match: "No tickers match this filter."
   },
   fr: {
@@ -1171,8 +1169,6 @@ export const translations = {
     open_positions_count: "Positions ouvertes",
     current: "Actuel",
     loading_strategy: "Chargement de la stratégie...",
-    pine_script: "Pine Script",
-    generate_pine_script: "Générer PineScript à partir des règles actives",
     no_tickers_match: "Aucun symbole ne correspond à ce filtre."
   }
 };
