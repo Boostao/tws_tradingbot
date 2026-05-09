@@ -29,6 +29,12 @@ Maintain a local TWS/Interactive Brokers trading bot with:
 - Wails IPC bindings (`wails generate module`) sync the Go structs to TypeScript seamlessly. Ensure struct fields intended for Svelte use standard JSON formatting `json:"property"`.
 - The application stack is exclusively Go and Node.js (for frontend build).
 
+## UI Guidance
+- Keep the cockpit dense and operationally focused.
+- Avoid wasting vertical space in the header area.
+- Prefer single-line summaries for ticker rows and compact strategy summaries when possible.
+- Any new user-visible strings in the Svelte UI must go through `frontend/src/lib/i18n/translations.ts` for both `en` and `fr`.
+
 ## Validation
 - Backend unit tests: `go test -v ./backend/...`
 - Build verification: `wails build`
