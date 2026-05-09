@@ -25,7 +25,35 @@ jobs:
           go mod tidy
           go test -v ./...
 
+  tag:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    name: Create Tag
+    needs: test
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.get_version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Get version from package.json
+        id: get_version
+        run: |
+          VERSION=$(node -p "require('./frontend/package.json').version")
+          echo "version=v$VERSION" >> $GITHUB_OUTPUT
+      - name: Check and create tag
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION=${{ steps.get_version.outputs.version }}
+          if git ls-remote --tags origin | grep -q "refs/tags/$VERSION"; then
+            echo "Tag $VERSION already exists."
+          else
+            echo "Creating tag $VERSION..."
+            git tag $VERSION
+            git push origin $VERSION
+          fi
+
   build:
+    needs: tag
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     name: Build on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
@@ -80,6 +108,7 @@ jobs:
       - name: Release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ needs.tag.outputs.version }}
           files: |
             build/bin/tws_traderbot*-linux-amd64
             build/bin/tws_traderbot*-windows-amd64.exe
