@@ -1,6 +1,5 @@
 # Go and Build
 build/bin/
-wails.json
 dist/
 *.exe
 *.app
