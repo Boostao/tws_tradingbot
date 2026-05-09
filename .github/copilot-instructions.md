@@ -1,9 +1,9 @@
-# GitHub Copilot Agent Instructions — TWS Trader Bot (Go Edition)
+# GitHub Copilot Agent Instructions — TWS Trader Bot
 
 ## Product Goal
 Maintain a local TWS/Interactive Brokers trading bot with:
 - Svelte UI embedded via Wails
-- Golang Native backend replacing the old Python FastAPI
+- Golang Native backend
 - SQLite-backed state (`system_config`)
 - Rule-engine based strategy execution using concurrent Go native array math
 - Direct Golang + `scmhub/ibapi` market-data and execution integration via TCP 7497
@@ -12,7 +12,7 @@ Maintain a local TWS/Interactive Brokers trading bot with:
 - The backend operates locally over IPC (Wails), not REST.
 - SQLite strictly types and persists state from UI preferences to Watchlists.
 - The execution relies on `Engine.EvaluateTick()` which natively accepts arrays of floats against mapped Go strategy structs.
-- PineScript ASTs have been deprecated in favor of native Go math (SMA, EMA, Crossover, Slope).
+- Strategy calculations use native Go math (SMA, EMA, Crossover, Slope).
 - TWS connection is handled by a custom `IBWrapper` embedding `ibapi.Wrapper`.
 
 ## Architecture Map
@@ -27,7 +27,7 @@ Maintain a local TWS/Interactive Brokers trading bot with:
 - Preserve the single active strategy slot behavior in the cockpit.
 - Treat the UI runtime settings as global execution settings.
 - Wails IPC bindings (`wails generate module`) sync the Go structs to TypeScript seamlessly. Ensure struct fields intended for Svelte use standard JSON formatting `json:"property"`.
-- Never suggest installing Python dependencies since the runtime is strictly Go + Node(build only).
+- The application stack is exclusively Go and Node.js (for frontend build).
 
 ## Validation
 - Backend unit tests: `go test -v ./backend/...`
