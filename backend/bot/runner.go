@@ -33,8 +33,8 @@ func (r *Runner) Start(strategyPath string) error {
 		return fmt.Errorf("failed to parse strategy config: %v", err)
 	}
 
-	// 2. Connect to IBKR
-	if err := r.Client.Connect(); err != nil {
+	// 2. Connect to IBKR (For now using 127.0.0.1:7497; can be tied to UI payload later)
+	if err := r.Client.Connect("127.0.0.1", 7497, 1); err != nil {
 		return err
 	}
 

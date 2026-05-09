@@ -16,7 +16,7 @@ type IBKRClient struct {
 type IBWrapper struct {
 	ibapi.Wrapper
 	engine       *Engine
-	marketData   map[string][]float64 // Array of parsed bar fields. E.g "Close", "Open"
+	marketData   map[string][]float64
 	currentReqID int64
 }
 
@@ -32,14 +32,22 @@ func NewIBKRClient() *IBKRClient {
 	}
 }
 
-func (c *IBKRClient) Connect() error {
-	err := c.client.Connect("127.0.0.1", 7497, 1)
+// Connect starts the TCP socket to TWS dynamically using arguments.
+func (c *IBKRClient) Connect(host string, port int, clientID int) error {
+	if host == "" {
+		host = "127.0.0.1"
+	}
+	if port == 0 {
+		port = 7497 
+	}
+	
+	err := c.client.Connect(host, port, int64(clientID))
 	if err != nil {
-		return fmt.Errorf("failed to connect to TWS: %w", err)
+		return fmt.Errorf("failed to connect to TWS on %s:%d (clientID: %d): %w", host, port, clientID, err)
 	}
 
 	time.Sleep(1 * time.Second)
-	fmt.Println("Connected to TWS locally on 7497")
+	fmt.Printf("Connected to TWS locally on %s:%d\n", host, port)
 	return nil
 }
 
@@ -52,8 +60,6 @@ func (c *IBKRClient) Disconnect() {
 
 // Override HistoricalData to parse incoming bars into pure float arrays for our mathematical Engine.
 func (w *IBWrapper) HistoricalData(reqID int64, bar *ibapi.Bar) {
-	// For simple rules ported from Py we usually only need Close 
-	// But let's build the map
 	w.marketData[fmt.Sprintf("Close_%d", reqID)] = append(w.marketData[fmt.Sprintf("Close_%d", reqID)], bar.Close)
 	w.marketData[fmt.Sprintf("Open_%d", reqID)] = append(w.marketData[fmt.Sprintf("Open_%d", reqID)], bar.Open)
 	w.marketData[fmt.Sprintf("High_%d", reqID)] = append(w.marketData[fmt.Sprintf("High_%d", reqID)], bar.High)
@@ -63,19 +69,16 @@ func (w *IBWrapper) HistoricalData(reqID int64, bar *ibapi.Bar) {
 // Override HistoricalDataEnd to trigger Engine Evaluation
 func (w *IBWrapper) HistoricalDataEnd(reqID int64, startDateStr string, endDateStr string) {
 	fmt.Printf("IBKR: Finished streaming historical data block for %d. Starting evaluation...\n", reqID)
-	
+
 	if w.engine != nil && w.engine.IsRunning {
-		// Mock Symbol resolution for now based on reqID
 		symbol := fmt.Sprintf("SYM_%d", reqID)
-		
-		// To match the generic `strategy.EvaluateConditions`, we need to normalize arrays 
-		// "Close", "Open" etc out of the specific ReqID mappings just for this symbol run
+
 		normMap := map[string][]float64{}
 		normMap["Close"] = w.marketData[fmt.Sprintf("Close_%d", reqID)]
 		normMap["Open"] = w.marketData[fmt.Sprintf("Open_%d", reqID)]
 
 		actions := w.engine.EvaluateTick(symbol, normMap)
-		
+
 		if len(actions) > 0 {
 			fmt.Printf(">>> TRADING RULES TRIGGERED for %s: %v\n", symbol, actions)
 		} else {
