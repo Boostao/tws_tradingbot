@@ -2,12 +2,14 @@ name: Release TWS TraderBot Go
 
 on:
   push:
-    tags:
-      - 'v*'
+    branches:
+      - main
+  pull_request:
   workflow_dispatch:
 
 jobs:
   test:
+    if: github.event_name == 'pull_request'
     name: Run Tests
     runs-on: ubuntu-latest
     steps:
@@ -24,8 +26,8 @@ jobs:
           go test -v ./...
 
   build:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     name: Build on ${{ matrix.os }}
-    needs: test
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:

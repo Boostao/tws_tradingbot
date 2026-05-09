@@ -694,7 +694,7 @@
 		<ol class="quickstart-steps">
 			<li>{t('strategy_quickstart_step_watchlist')}</li>
 			<li>{t('strategy_quickstart_step_rules')}</li>
-			<li>Generate PineScript from enabled rules</li>
+			<li>{$_("generate_pine_script")}</li>
 		</ol>
 		<div class="quickstart-actions">
 			<a class="button-link secondary" href="/watchlist">{t('strategy_quickstart_watchlist_cta')}</a>
@@ -1274,7 +1274,7 @@
 	</div>
 
 	<div class="card">
-		<h2>Pine Script</h2>
+		<h2>{$_("pine_script")}</h2>
 		{#if pineWarnings.length}
 			<ul>
 				{#each pineWarnings as warn}
@@ -1303,5 +1303,5 @@
 		</div>
 	{/if}
 {:else}
-	<p class="muted">Loading strategy...</p>
+	<p class="muted">{$_("loading_strategy")}</p>
 {/if}
