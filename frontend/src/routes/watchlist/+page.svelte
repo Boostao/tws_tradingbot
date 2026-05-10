@@ -20,7 +20,9 @@
 	let message = '';
 	let saving = false;
 	let fileInput: HTMLInputElement | null = null;
-	let tradingViewUrl = '';
+	import { watchlistDraftUrl } from "$lib/stores/ui";
+	$: tradingViewUrl = $watchlistDraftUrl;
+	function updateDraft(e: any) { watchlistDraftUrl.set(e.target.value); }
 	let addingToManual = false;
 	let collapsedGroups = new Set<string>();
 
@@ -301,7 +303,7 @@
 		/>
 		<input
 			type="url"
-			bind:value={tradingViewUrl}
+			value={tradingViewUrl} on:input={updateDraft}
 			placeholder={t('watchlist_feed_url_placeholder')}
 			style="min-width: min(100%, 420px); flex: 1 1 320px;"
 		/>
