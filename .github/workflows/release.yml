@@ -75,7 +75,7 @@ jobs:
           go-version: '1.25'
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: 22
 
@@ -112,21 +112,21 @@ jobs:
 
       - name: Upload Artifact (Linux)
         if: runner.os == 'Linux'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: binary-linux
           path: build/bin/tws_traderbot*-linux-amd64
 
       - name: Upload Artifact (Windows)
         if: runner.os == 'Windows'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: binary-windows
           path: build/bin/tws_traderbot*-windows-amd64.exe
 
       - name: Upload Artifact (macOS)
         if: runner.os == 'macOS'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: binary-macos
           path: build/bin/tws_traderbot*-macos-universal.zip

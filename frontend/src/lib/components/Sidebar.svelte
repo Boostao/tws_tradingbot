@@ -3,7 +3,7 @@
 	import { connectTws, disconnectTws, formatApiError, getConfig, startBot, stopBot, updateConfig, type BotState, type ConfigResponse } from '$lib/api';
 	import { language, setLanguage, t } from '$lib/i18n';
 	import { refreshRuntimeState, runtimeState } from '$lib/stores/runtime';
-	import { Activity, Compass, GitBranch, Languages, LayoutGrid, List, Plug, Power } from 'lucide-svelte';
+	import { Activity, BookOpen, Compass, GitBranch, Languages, LayoutGrid, List, Plug, Power } from 'lucide-svelte';
 
 	$: currentLang = $language;
 	$: lang = $language;
@@ -62,7 +62,8 @@
 		{ href: '/cockpit', label: () => (lang && t('cockpit')) as string, icon: LayoutGrid },
 		{ href: '/monitoring', label: () => (lang && t('monitoring')) as string, icon: Activity },
 		{ href: '/watchlist', label: () => (lang && t('watchlist')) as string, icon: List },
-		{ href: '/strategy', label: () => (lang && t('strategy_builder')) as string, icon: GitBranch }
+		{ href: '/strategy', label: () => (lang && t('strategy_builder')) as string, icon: GitBranch },
+		{ href: '/manual', label: () => (lang && t('user_manual')) as string || 'User Manual', icon: BookOpen }
 	];
 
 	function currentSidebarConfig(): SidebarConfigDraft {
