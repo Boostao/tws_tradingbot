@@ -26,6 +26,10 @@ export function GetStrategy() {
   return window['go']['main']['App']['GetStrategy']();
 }
 
+export function GetTWSConnection() {
+  return window['go']['main']['App']['GetTWSConnection']();
+}
+
 export function GetWatchlist() {
   return window['go']['main']['App']['GetWatchlist']();
 }
@@ -52,4 +56,8 @@ export function UpdateConfig(arg1) {
 
 export function UpdateStrategy(arg1) {
   return window['go']['main']['App']['UpdateStrategy'](arg1);
+}
+
+export function UpdateTWSConnection(arg1, arg2, arg3) {
+  return window['go']['main']['App']['UpdateTWSConnection'](arg1, arg2, arg3);
 }

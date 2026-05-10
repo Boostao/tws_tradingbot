@@ -1,23 +1,114 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
-	import { connectTws, disconnectTws, formatApiError, getConfig, startBot, stopBot, updateConfig, type BotState, type ConfigResponse } from '$lib/api';
-	import { language, setLanguage, t } from '$lib/i18n';
-	import { refreshRuntimeState, runtimeState } from '$lib/stores/runtime';
-	import { Activity, BookOpen, Compass, GitBranch, Languages, LayoutGrid, List, Plug, Power } from 'lucide-svelte';
+	import { t } from '$lib/i18n';
+	import { GetTWSConnection, UpdateTWSConnection } from '../../../wailsjs/go/main/App';
+    import { onMount } from 'svelte';
 
-	$: currentLang = $language;
-	$: lang = $language;
+    let isExpanded = true;
+    
+    let twsHost = '127.0.0.1';
+    let twsPort = 7497;
+    let twsClient = 1;
 
-	type SidebarConfigDraft = {
-		ib: {
-			host: string;
-			port: number;
-			client_id: number;
-			account: string;
-			trading_mode: string;
-		};
-		runtime: {
-			fixed_notional: number;
+    onMount(async () => {
+        const config = await GetTWSConnection();
+        twsHost = config.host;
+        twsPort = config.port;
+        twsClient = config.client_id;
+    });
+
+    async function saveTwsConnection() {
+        try {
+            await UpdateTWSConnection(twsHost, parseInt(twsPort, 10), parseInt(twsClient, 10));
+            alert("TWS Connection Updated & Reconnected!");
+        } catch(e) {
+            alert("Failed: " + e);
+        }
+    }
+</script>
+
+<aside class="sidebar" class:expanded={isExpanded}>
+	<div class="sidebar-header">
+		<h2>TWS Config</h2>
+		<button class="toggle-btn" on:click={() => isExpanded = !isExpanded}>☰</button>
+	</div>
+
+    {#if isExpanded}
+	<div class="settings-block">
+        <label>Gateway Host</label>
+        <input type="text" bind:value={twsHost} />
+        
+        <label>Port (Live: 7496, Paper: 7497)</label>
+        <input type="number" bind:value={twsPort} />
+        
+        <label>Client ID</label>
+        <input type="number" bind:value={twsClient} />
+        
+        <button on:click={saveTwsConnection}>Connect to TWS</button>
+	</div>
+    {/if}
+</aside>
+
+<style>
+.sidebar {
+    width: 250px;
+    background: #1e1e1e;
+    border-right: 1px solid #333;
+    display: flex;
+    flex-direction: column;
+    padding: 10px;
+    transition: width 0.2s;
+    height: 100vh;
+}
+.sidebar:not(.expanded) {
+    width: 50px;
+}
+.sidebar-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid #444;
+    padding-bottom: 10px;
+    margin-bottom: 15px;
+}
+.sidebar:not(.expanded) h2 {
+    display: none;
+}
+.toggle-btn {
+    background: none;
+    border: none;
+    color: white;
+    cursor: pointer;
+    font-size: 1.5rem;
+}
+label {
+    display: block;
+    margin-top: 10px;
+    font-size: 0.85rem;
+    color: #aaa;
+}
+input {
+    width: 100%;
+    padding: 5px;
+    margin-top: 5px;
+    background: #2a2a2a;
+    border: 1px solid #444;
+    color: white;
+    border-radius: 4px;
+}
+button {
+    width: 100%;
+    margin-top: 15px;
+    padding: 8px;
+    background: #2196F3;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+}
+button:hover {
+    background: #1976D2;
+}
+</style>
 			bracket_enabled: boolean;
 			stop_loss_pct: number;
 			take_profit_pct: number;

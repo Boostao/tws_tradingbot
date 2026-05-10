@@ -14,6 +14,8 @@ export function GetRuntimeState():Promise<models.BotState>;
 
 export function GetStrategy():Promise<Record<string, any>>;
 
+export function GetTWSConnection():Promise<Record<string, any>>;
+
 export function GetWatchlist():Promise<models.WatchlistResponse>;
 
 export function Greet(arg1:string):Promise<string>;
@@ -27,3 +29,5 @@ export function UpdateCockpitState(arg1:models.CockpitStateResponse):Promise<mod
 export function UpdateConfig(arg1:Record<string, any>):Promise<Record<string, any>>;
 
 export function UpdateStrategy(arg1:Record<string, any>):Promise<Record<string, any>>;
+
+export function UpdateTWSConnection(arg1:string,arg2:number,arg3:number):Promise<void>;

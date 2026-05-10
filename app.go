@@ -43,14 +43,60 @@ func (a *App) startup(ctx context.Context) {
 	// engine is accessible globally or stored on app, we would inject ctx here
 	a.engine.AttachContext(ctx)
 
-	// Automatically connect to TWS on startup (Paper trading uses 7497)
+	// Fetch connection settings from DB or use defaults
+	host := "127.0.0.1"
+	port := 7497
+	clientID := 1
+
+	config, err := a.db.LoadSystemConfig("tws_connection")
+	if err == nil && config != nil {
+		if h, ok := config["host"].(string); ok { host = h }
+		if p, ok := config["port"].(float64); ok { port = int(p) }
+		if c, ok := config["client_id"].(float64); ok { clientID = int(c) }
+	} else {
+		// Save default if not found
+		_ = a.db.SaveSystemConfig("tws_connection", map[string]interface{}{
+			"host": host,
+			"port": port,
+			"client_id": clientID,
+		})
+	}
+
+	// Automatically connect to TWS on startup
 	go func() {
-		// clientID 1 is standard
-		err := a.ibkrClient.Connect("127.0.0.1", 7497, 1)
+		err := a.ibkrClient.Connect(host, port, clientID)
 		if err != nil {
 			log.Printf("TWS Connect Error: %v\n", err)
 		}
 	}()
+}
+
+// GetTWSConnection returns the current TWS connection settings from the DB
+func (a *App) GetTWSConnection() map[string]interface{} {
+	config, err := a.db.LoadSystemConfig("tws_connection")
+	if err != nil || config == nil {
+		return map[string]interface{}{
+			"host": "127.0.0.1",
+			"port": 7497,
+			"client_id": 1,
+		}
+	}
+	return config
+}
+
+// UpdateTWSConnection saves new settings, disconnects the current TWS session, and reconnects
+func (a *App) UpdateTWSConnection(host string, port int, clientID int) error {
+	err := a.db.SaveSystemConfig("tws_connection", map[string]interface{}{
+		"host": host,
+		"port": port,
+		"client_id": clientID,
+	})
+	if err != nil {
+		return err
+	}
+
+	a.ibkrClient.Disconnect()
+	return a.ibkrClient.Connect(host, port, clientID)
 }
 
 // GetWatchlist replaces the FastAPI GET /api/watchlist endpoint
