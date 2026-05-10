@@ -6,6 +6,10 @@ export function AddWatchlistSymbol(arg1:string):Promise<models.WatchlistResponse
 
 export function GetCockpitState():Promise<models.CockpitStateResponse>;
 
+export function GetConfig():Promise<Record<string, any>>;
+
+export function GetStrategy():Promise<Record<string, any>>;
+
 export function GetWatchlist():Promise<models.WatchlistResponse>;
 
 export function Greet(arg1:string):Promise<string>;
@@ -15,3 +19,7 @@ export function ImportTradingViewWatchlist(arg1:string):Promise<models.Watchlist
 export function RemoveWatchlistSymbol(arg1:string):Promise<models.WatchlistResponse>;
 
 export function UpdateCockpitState(arg1:models.CockpitStateResponse):Promise<models.CockpitStateResponse>;
+
+export function UpdateConfig(arg1:Record<string, any>):Promise<Record<string, any>>;
+
+export function UpdateStrategy(arg1:Record<string, any>):Promise<Record<string, any>>;

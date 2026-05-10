@@ -349,15 +349,24 @@ export type ConfigResponse = {
 export type Strategy = Record<string, unknown>;
 
 export async function getStrategy(force = false): Promise<Strategy> {
-	return fetchCachedJson<Strategy>('strategy', cachePolicy.strategy, 'strategy.get', `${API_BASE}/api/v1/strategy`, 'Strategy fetch', force);
+	if (typeof window !== 'undefined' && (window as any).go) {
+                return (await WailsApp.GetStrategy()) as unknown as Strategy;
+        }
+        return fetchCachedJson<Strategy>('strategy', cachePolicy.strategy, 'strategy.get', `${API_BASE}/api/v1/strategy`, 'Strategy fetch', force);
 }
 
 export async function getConfig(force = false): Promise<ConfigResponse> {
-	return fetchCachedJson<ConfigResponse>('config', cachePolicy.config, 'config.get', `${API_BASE}/api/v1/config`, 'Config fetch', force);
+	if (typeof window !== 'undefined' && (window as any).go) {
+                return (await WailsApp.GetConfig()) as unknown as ConfigResponse;
+        }
+        return fetchCachedJson<ConfigResponse>('config', cachePolicy.config, 'config.get', `${API_BASE}/api/v1/config`, 'Config fetch', force);
 }
 
 export async function updateConfig(updates: Record<string, Record<string, unknown>>): Promise<ConfigResponse> {
-	const response = await timedFetch('config.update', `${API_BASE}/api/v1/config`, {
+	if (typeof window !== 'undefined' && (window as any).go) {
+                return (await WailsApp.UpdateConfig(updates as any)) as unknown as ConfigResponse;
+        }
+        const response = await timedFetch('config.update', `${API_BASE}/api/v1/config`, {
 		method: 'PUT',
 		headers: { 'Content-Type': 'application/json' },
 		body: JSON.stringify({ updates })
@@ -561,11 +570,17 @@ export async function deleteStrategyPreset(strategyId: string): Promise<void> {
 }
 
 export async function getWatchlist(force = false): Promise<WatchlistResponse> {
-	return fetchCachedJson<WatchlistResponse>('watchlist', cachePolicy.watchlist, 'watchlist.get', `${API_BASE}/api/v1/watchlist`, 'Watchlist fetch', force);
+	if (typeof window !== 'undefined' && (window as any).go) {
+                return (await WailsApp.GetWatchlist()) as unknown as WatchlistResponse;
+        }
+        return fetchCachedJson<WatchlistResponse>('watchlist', cachePolicy.watchlist, 'watchlist.get', `${API_BASE}/api/v1/watchlist`, 'Watchlist fetch', force);
 }
 
 export async function getCockpit(force = false): Promise<CockpitState> {
-	return fetchCachedJson<CockpitState>('cockpit', cachePolicy.cockpit, 'cockpit.get', `${API_BASE}/api/v1/cockpit`, 'Cockpit fetch', force);
+	if (typeof window !== 'undefined' && (window as any).go) {
+                return (await WailsApp.GetCockpitState()) as unknown as CockpitState;
+        }
+        return fetchCachedJson<CockpitState>('cockpit', cachePolicy.cockpit, 'cockpit.get', `${API_BASE}/api/v1/cockpit`, 'Cockpit fetch', force);
 }
 
 export async function saveCockpit(payload: {

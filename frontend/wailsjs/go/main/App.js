@@ -10,6 +10,14 @@ export function GetCockpitState() {
   return window['go']['main']['App']['GetCockpitState']();
 }
 
+export function GetConfig() {
+  return window['go']['main']['App']['GetConfig']();
+}
+
+export function GetStrategy() {
+  return window['go']['main']['App']['GetStrategy']();
+}
+
 export function GetWatchlist() {
   return window['go']['main']['App']['GetWatchlist']();
 }
@@ -28,4 +36,12 @@ export function RemoveWatchlistSymbol(arg1) {
 
 export function UpdateCockpitState(arg1) {
   return window['go']['main']['App']['UpdateCockpitState'](arg1);
+}
+
+export function UpdateConfig(arg1) {
+  return window['go']['main']['App']['UpdateConfig'](arg1);
+}
+
+export function UpdateStrategy(arg1) {
+  return window['go']['main']['App']['UpdateStrategy'](arg1);
 }
