@@ -31,6 +31,8 @@ func NewApp() *App {
 // so we can call the runtime methods
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
+	// Assume engine is accessible globally or stored on app, we would inject ctx here
+	// botEngine.AttachContext(ctx)
 }
 
 // GetWatchlist replaces the FastAPI GET /api/watchlist endpoint

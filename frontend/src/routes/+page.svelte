@@ -1,11 +1,38 @@
 <script lang="ts">
-    import { onMount } from 'svelte';
+    import { onMount, onDestroy } from 'svelte';
     import { getWatchlist } from '$lib/api';
+    import { EventsOn, EventsOff } from '../../wailsjs/runtime/runtime';
     
     let watchlist = null;
+    let pulseFeeds = {};
+    let matrixData = {};
+    let ledgerEntries = [
+        "[SYSTEM] Listening to Wails Native Events...",
+    ];
 
     onMount(async () => {
         watchlist = await getWatchlist();
+        
+        EventsOn("pulse_tick", (data) => {
+            pulseFeeds[data.symbol] = data.time;
+            pulseFeeds = pulseFeeds; // trigger reactivity
+        });
+        
+        EventsOn("matrix_update", (data) => {
+            if (!matrixData[data.symbol]) matrixData[data.symbol] = {};
+            matrixData[data.symbol][data.rule] = data.active;
+            matrixData = matrixData; // trigger reactivity
+        });
+        
+        EventsOn("ledger_entry", (msg) => {
+            ledgerEntries = [msg, ...ledgerEntries].slice(0, 50); // Keep last 50
+        });
+    });
+
+    onDestroy(() => {
+        EventsOff("pulse_tick");
+        EventsOff("matrix_update");
+        EventsOff("ledger_entry");
     });
 </script>
 
@@ -17,7 +44,7 @@
                 <div class="watchlist-group">
                     <h3>{group.name}</h3>
                     {#each group.items as item}
-                        <div class="watchlist-item">
+                        <div class="watchlist-item {pulseFeeds[item.symbol] ? 'pulsing' : ''}">
                             <span class="symbol">{item.symbol}</span>
                             <span class="exchange">{item.exchange}</span>
                             <label class="switch">
@@ -35,15 +62,25 @@
         <h2>The Cockpit Matrix</h2>
         <p>Heatmap overlaying Active Strategies × Rule Conditions</p>
         <div class="matrix-grid">
-            <!-- Grid representation -->
+            {#each Object.entries(matrixData) as [symbol, rules]}
+                <div class="matrix-row">
+                    <div class="matrix-symbol">{symbol}</div>
+                    {#each Object.entries(rules) as [rule, active]}
+                        <div class="matrix-cell {active ? 'active' : 'inactive'}" title={rule}>
+                            {rule}
+                        </div>
+                    {/each}
+                </div>
+            {/each}
         </div>
     </div>
 
     <div class="panel bottom-panel execution-terminal">
         <h2>Terminal / Execution Ledger</h2>
         <div class="ledger-scroller">
-            <p>[10:02:45] BOUGHT 100 TSLA @ 145.20</p>
-            <p>[10:03:12] SOLD 50 MSFT @ 180.30</p>
+            {#each ledgerEntries as entry}
+                <p>{entry}</p>
+            {/each}
         </div>
     </div>
 </div>
@@ -81,6 +118,38 @@ h2 {
     font-size: 1.1rem;
     border-bottom: 1px solid #444;
     padding-bottom: 5px;
+}
+
+/* Matrix Styling */
+.matrix-row {
+    display: flex;
+    align-items: center;
+    border-bottom: 1px solid #333;
+    padding: 4px 0;
+}
+.matrix-symbol {
+    width: 60px;
+    font-weight: bold;
+}
+.matrix-cell {
+    padding: 4px 8px;
+    margin: 0 4px;
+    border-radius: 4px;
+    font-size: 0.8rem;
+    background: #333;
+    color: #888;
+}
+.matrix-cell.active {
+    background: #4caf50;
+    color: white;
+    box-shadow: 0 0 8px #4caf50;
+}
+.watchlist-item.pulsing .symbol {
+    animation: flash 1s ease-out;
+}
+@keyframes flash {
+    0% { color: #2196F3; text-shadow: 0 0 8px #2196F3; }
+    100% { color: inherit; }
 }
 
 /* Switches */
