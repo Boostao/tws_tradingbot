@@ -9,7 +9,6 @@ on:
 
 jobs:
   test:
-    if: github.event_name == 'pull_request'
     name: Run Tests
     runs-on: ubuntu-latest
     steps:
@@ -105,13 +104,42 @@ jobs:
           cd build/bin
           zip -r tws_traderbot-macos-universal.zip *.app
 
-      - name: Release
+      - name: Upload Artifact (Linux)
+        if: runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: binary-linux
+          path: build/bin/tws_traderbot*-linux-amd64
+
+      - name: Upload Artifact (Windows)
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: binary-windows
+          path: build/bin/tws_traderbot*-windows-amd64.exe
+
+      - name: Upload Artifact (macOS)
+        if: runner.os == 'macOS'
+        uses: actions/upload-artifact@v4
+        with:
+          name: binary-macos
+          path: build/bin/tws_traderbot*-macos-universal.zip
+
+  publish:
+    needs: [tag, build]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release_assets
+          merge-multiple: true
+
+      - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ needs.tag.outputs.version }}
-          files: |
-            build/bin/tws_traderbot*-linux-amd64
-            build/bin/tws_traderbot*-windows-amd64.exe
-            build/bin/tws_traderbot*-macos-universal.zip
+          files: release_assets/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
