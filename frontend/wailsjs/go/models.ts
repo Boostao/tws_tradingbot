@@ -1,5 +1,17 @@
 export namespace models {
 	
+	export class BotState {
+	    running: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new BotState(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.running = source["running"];
+	    }
+	}
 	export class WatchlistFeed {
 	    provider: string;
 	    url: string;

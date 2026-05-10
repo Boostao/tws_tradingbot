@@ -6,12 +6,20 @@ export function AddWatchlistSymbol(arg1) {
   return window['go']['main']['App']['AddWatchlistSymbol'](arg1);
 }
 
+export function FailsafeStop() {
+  return window['go']['main']['App']['FailsafeStop']();
+}
+
 export function GetCockpitState() {
   return window['go']['main']['App']['GetCockpitState']();
 }
 
 export function GetConfig() {
   return window['go']['main']['App']['GetConfig']();
+}
+
+export function GetRuntimeState() {
+  return window['go']['main']['App']['GetRuntimeState']();
 }
 
 export function GetStrategy() {

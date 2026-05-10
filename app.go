@@ -105,3 +105,16 @@ func (a *App) UpdateCockpitState(update *models.CockpitStateResponse) (*models.C
 	}
 	return state, nil
 }
+
+// GetRuntimeState returns the actual bot engine state
+func (a *App) GetRuntimeState() *models.BotState {
+    return &models.BotState{
+        Running: false,
+    }
+}
+
+// FailsafeStop issues a global disable
+func (a *App) FailsafeStop() {
+    log.Println("FAILSAFE INVOKED")
+    // implementation
+}

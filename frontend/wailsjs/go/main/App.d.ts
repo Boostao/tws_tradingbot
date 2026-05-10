@@ -4,9 +4,13 @@ import {models} from '../models';
 
 export function AddWatchlistSymbol(arg1:string):Promise<models.WatchlistResponse>;
 
+export function FailsafeStop():Promise<void>;
+
 export function GetCockpitState():Promise<models.CockpitStateResponse>;
 
 export function GetConfig():Promise<Record<string, any>>;
+
+export function GetRuntimeState():Promise<models.BotState>;
 
 export function GetStrategy():Promise<Record<string, any>>;
 
