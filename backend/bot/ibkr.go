@@ -36,6 +36,15 @@ func NewIBKRClient(engine *Engine) *IBKRClient {
 	}
 }
 
+// Error override to suppress meaningless IBKR "OK" farm connection logs
+func (w *IBWrapper) Error(reqID int64, errTime int64, errCode int64, errString string, advancedOrderRejectJson string) {
+	// 2104, 2106, 2158 are just "data farm is OK" informational messages
+	if errCode == 2104 || errCode == 2106 || errCode == 2158 {
+		return
+	}
+	fmt.Printf("IBKR Error (ReqID: %d, Code: %d): %s\n", reqID, errCode, errString)
+}
+
 // Connect starts the TCP socket to TWS dynamically using arguments.
 func (c *IBKRClient) Connect(host string, port int, clientID int) error {
 	if host == "" {
@@ -97,8 +106,6 @@ func (w *IBWrapper) HistoricalDataEnd(reqID int64, startDateStr string, endDateS
 // ExecuteAction constructs and places a market order via the IBKR connection
 func (w *IBWrapper) ExecuteAction(symbol string, actionType string) {
 	if w.engine == nil { return } // Safety
-	
-	// Create contract
 	contract := &ibapi.Contract{
 		Symbol:       symbol,
 		SecType:      "STK",
