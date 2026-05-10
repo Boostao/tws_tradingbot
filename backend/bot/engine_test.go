@@ -2,7 +2,7 @@ package bot
 
 import (
 	"testing"
-	"tws_traderbot_go/backend/models"
+	"tws_traderbot/backend/models"
 )
 
 func TestEngineEvaluation(t *testing.T) {

@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"tws_traderbot_go/backend/models"
+	"tws_traderbot/backend/models"
 )
 
 // Runner ties the IBKR Client and the Engine together

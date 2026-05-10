@@ -3,7 +3,7 @@ package strategy
 import (
 	"math"
 	"testing"
-	"tws_traderbot_go/backend/models"
+	"tws_traderbot/backend/models"
 )
 
 func TestSMA(t *testing.T) {

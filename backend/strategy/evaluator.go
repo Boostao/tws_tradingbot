@@ -1,7 +1,7 @@
 package strategy
 
 import (
-	"tws_traderbot_go/backend/models"
+	"tws_traderbot/backend/models"
 )
 
 func CrossAbove(seriesA, seriesB []float64) bool {

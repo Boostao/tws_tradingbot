@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"tws_traderbot_go/backend/models"
+	"tws_traderbot/backend/models"
 )
 
 // In TWS Traderbot, watchlist state was loaded entirely via a JSON block on disk/db

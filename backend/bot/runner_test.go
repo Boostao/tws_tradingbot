@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"testing"
-	"tws_traderbot_go/backend/models"
+	"tws_traderbot/backend/models"
     "time"
     "fmt"
     "github.com/scmhub/ibapi"

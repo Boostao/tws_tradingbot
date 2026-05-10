@@ -2,7 +2,7 @@ package db
 
 import (
 	"testing"
-	"tws_traderbot_go/backend/models"
+	"tws_traderbot/backend/models"
 )
 
 func TestWatchlistState_Persistence(t *testing.T) {

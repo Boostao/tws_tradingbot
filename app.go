@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"log"
 
-	"tws_traderbot_go/backend/db"
-	"tws_traderbot_go/backend/models"
+	"tws_traderbot/backend/db"
+	"tws_traderbot/backend/models"
 )
 
 // App struct

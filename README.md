@@ -76,7 +76,7 @@ When you boot the app, the Bot Runner initializes automatically.
 One of the vital milestones of the Go rewrite is generating cross-platform binary distributions for releases, ensuring you no longer need Python environments to run the bot.
 
 ### Local Build
-To create a standalone production executable (e.g., `tws_traderbot_go.exe`, `.app`, or `.bin` depending on your OS):
+To create a standalone production executable (e.g., `tws_traderbot.exe`, `.app`, or `.bin` depending on your OS):
 ```bash
 wails build -clean -m
 ```

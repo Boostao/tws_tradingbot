@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"tws_traderbot_go/backend/models"
+	"tws_traderbot/backend/models"
 )
 
 var tvPayloadRegex = regexp.MustCompile(`(?s)<script type="application/prs\.init-data\+json">\s*(\{.*?\})\s*</script>`)

@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"tws_traderbot_go/backend/models"
+	"tws_traderbot/backend/models"
 )
 
 func (db *Database) LoadCockpitState() (*models.CockpitStateResponse, error) {

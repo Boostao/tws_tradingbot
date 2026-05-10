@@ -3,8 +3,8 @@ package bot
 import (
 	"fmt"
 	"time"
-	"tws_traderbot_go/backend/models"
-	"tws_traderbot_go/backend/strategy"
+	"tws_traderbot/backend/models"
+	"tws_traderbot/backend/strategy"
 )
 
 // The Engine abstracts the execution loop reading IBKR bars and firing strategies.

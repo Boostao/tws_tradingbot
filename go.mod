@@ -1,4 +1,4 @@
-module tws_traderbot_go
+module tws_traderbot
 
 go 1.26
 

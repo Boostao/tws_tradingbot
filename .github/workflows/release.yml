@@ -21,6 +21,8 @@ jobs:
 
       - name: Run Go Tests
         run: |
+          mkdir -p frontend/dist
+          touch frontend/dist/.gitkeep
           go mod tidy
           go test -v ./...
 
@@ -87,7 +89,7 @@ jobs:
         run: |
           export PATH=$PATH:$(go env GOPATH)/bin
           CC=gcc wails build -tags webkit2_41 -platform linux/amd64
-          mv build/bin/tws_traderbot build/bin/tws_traderbot-linux-amd64 || mv build/bin/tws_traderbot_go build/bin/tws_traderbot_go-linux-amd64 || true
+          mv build/bin/tws_traderbot build/bin/tws_traderbot-linux-amd64 || mv build/bin/tws_traderbot build/bin/tws_traderbot-linux-amd64 || true
 
       - name: Build App (Windows)
         if: runner.os == 'Windows'

@@ -2,7 +2,7 @@ package db
 
 import (
 	"testing"
-	"tws_traderbot_go/backend/models"
+	"tws_traderbot/backend/models"
 )
 
 func setupTestDB(t *testing.T) *Database {
