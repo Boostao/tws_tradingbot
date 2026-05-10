@@ -14,9 +14,10 @@ type Runner struct {
 }
 
 func NewRunner() *Runner {
+	engine := NewEngine()
 	return &Runner{
-		Engine: NewEngine(),
-		Client: NewIBKRClient(),
+		Engine: engine,
+		Client: NewIBKRClient(engine),
 	}
 }
 

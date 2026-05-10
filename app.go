@@ -5,14 +5,17 @@ import (
 	"fmt"
 	"log"
 
+	"tws_traderbot/backend/bot"
 	"tws_traderbot/backend/db"
 	"tws_traderbot/backend/models"
 )
 
 // App struct
 type App struct {
-	ctx context.Context
-	db  *db.Database
+	ctx        context.Context
+	db         *db.Database
+	engine     *bot.Engine
+	ibkrClient *bot.IBKRClient
 }
 
 // NewApp creates a new App application struct
@@ -22,8 +25,14 @@ func NewApp() *App {
 		log.Fatalf("Database connection failed: %v", err)
 	}
 
+	engine := bot.NewEngine()
+	// TWS Paper Trading Client
+	ibkrClient := bot.NewIBKRClient(engine)
+
 	return &App{
-		db: database,
+		db:         database,
+		engine:     engine,
+		ibkrClient: ibkrClient,
 	}
 }
 
@@ -31,8 +40,17 @@ func NewApp() *App {
 // so we can call the runtime methods
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
-	// Assume engine is accessible globally or stored on app, we would inject ctx here
-	// botEngine.AttachContext(ctx)
+	// engine is accessible globally or stored on app, we would inject ctx here
+	a.engine.AttachContext(ctx)
+
+	// Automatically connect to TWS on startup (Paper trading uses 7497)
+	go func() {
+		// clientID 1 is standard
+		err := a.ibkrClient.Connect("127.0.0.1", 7497, 1)
+		if err != nil {
+			log.Printf("TWS Connect Error: %v\n", err)
+		}
+	}()
 }
 
 // GetWatchlist replaces the FastAPI GET /api/watchlist endpoint
@@ -111,12 +129,14 @@ func (a *App) UpdateCockpitState(update *models.CockpitStateResponse) (*models.C
 // GetRuntimeState returns the actual bot engine state
 func (a *App) GetRuntimeState() *models.BotState {
     return &models.BotState{
-        Running: false,
+        Running: a.engine.IsRunning,
     }
 }
 
 // FailsafeStop issues a global disable
 func (a *App) FailsafeStop() {
-    log.Println("FAILSAFE INVOKED")
-    // implementation
+    log.Println("FAILSAFE INVOKED - Disconnecting TWS and stopping Engine")
+	a.engine.StopBot()
+	a.ibkrClient.Disconnect()
 }
+

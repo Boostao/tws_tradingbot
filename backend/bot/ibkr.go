@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/scmhub/ibapi"
+	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 type IBKRClient struct {
@@ -16,15 +17,18 @@ type IBKRClient struct {
 type IBWrapper struct {
 	ibapi.Wrapper
 	engine       *Engine
+	client       *ibapi.EClient
 	marketData   map[string][]float64
 	currentReqID int64
 }
 
-func NewIBKRClient() *IBKRClient {
+func NewIBKRClient(engine *Engine) *IBKRClient {
 	wrapper := &IBWrapper{
+		engine:     engine,
 		marketData: make(map[string][]float64),
 	}
 	client := ibapi.NewEClient(wrapper)
+	wrapper.client = client
 
 	return &IBKRClient{
 		client:  client,
@@ -71,7 +75,7 @@ func (w *IBWrapper) HistoricalDataEnd(reqID int64, startDateStr string, endDateS
 	fmt.Printf("IBKR: Finished streaming historical data block for %d. Starting evaluation...\n", reqID)
 
 	if w.engine != nil && w.engine.IsRunning {
-		symbol := fmt.Sprintf("SYM_%d", reqID)
+		symbol := fmt.Sprintf("SYM_%d", reqID) // In reality map reqID -> symbol
 
 		normMap := map[string][]float64{}
 		normMap["Close"] = w.marketData[fmt.Sprintf("Close_%d", reqID)]
@@ -81,8 +85,58 @@ func (w *IBWrapper) HistoricalDataEnd(reqID int64, startDateStr string, endDateS
 
 		if len(actions) > 0 {
 			fmt.Printf(">>> TRADING RULES TRIGGERED for %s: %v\n", symbol, actions)
+			for _, action := range actions {
+				w.ExecuteAction(symbol, string(action))
+			}
 		} else {
 			fmt.Printf(">>> No rules triggered for %s.\n", symbol)
 		}
+	}
+}
+
+// ExecuteAction constructs and places a market order via the IBKR connection
+func (w *IBWrapper) ExecuteAction(symbol string, actionType string) {
+	if w.engine == nil { return } // Safety
+	
+	// Create contract
+	contract := &ibapi.Contract{
+		Symbol:       symbol,
+		SecType:      "STK",
+		Exchange:     "SMART",
+		Currency:     "USD",
+	}
+
+	// Figure out order type based on ActionType
+	actionMap := map[string]string{
+		"BUY":  "BUY",
+		"SELL": "SELL",
+		// Add "SHORT" / "COVER" handling if needed based on models
+	}
+
+	ibAction, exists := actionMap[actionType]
+	if !exists { return } // unhandled action
+
+	// Build the Order
+	order := &ibapi.Order{
+		Action:        ibAction,
+		OrderType:     "MKT",
+		TotalQuantity: ibapi.StringToDecimal("100"), // Fixed 100 size for testing - this should be dynamic!
+		TIF:           "DAY",
+		Transmit:      true,
+	}
+
+	w.currentReqID++
+	orderId := w.currentReqID
+
+	fmt.Printf("Executing %s order for %s (OrderID: %d)\n", ibAction, symbol, orderId)
+	
+	// Actually send the order to IBKR
+	w.client.PlaceOrder(orderId, contract, order)
+
+	// Emit the execution out to Svelte!
+	if w.engine != nil && w.engine.Ctx != nil {
+		msg := fmt.Sprintf("[%s] EXECUTING %s %d %s @ MKT (OrderID: %d)", time.Now().Format("15:04:05"), ibAction, order.TotalQuantity.Int(), symbol, orderId)
+		// We hook into Wails runtime to emit this directly to the ledger
+		runtime.EventsEmit(w.engine.Ctx, "ledger_entry", msg)
 	}
 }
