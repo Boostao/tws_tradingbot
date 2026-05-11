@@ -3,9 +3,9 @@
     import { getWatchlist } from '$lib/api';
     import { EventsOn, EventsOff } from '../../wailsjs/runtime/runtime';
     
-    let watchlist = null;
-    let pulseFeeds = {};
-    let matrixData = {};
+    let watchlist: any = null;
+    let pulseFeeds: Record<string, any> = {};
+    let matrixData: Record<string, any> = {};
     let ledgerEntries = [
         "[SYSTEM] Listening to Wails Native Events...",
     ];

@@ -6,6 +6,18 @@ export function AddWatchlistSymbol(arg1) {
   return window['go']['main']['App']['AddWatchlistSymbol'](arg1);
 }
 
+export function ConnectTws(arg1, arg2, arg3) {
+  return window['go']['main']['App']['ConnectTws'](arg1, arg2, arg3);
+}
+
+export function DisconnectTws() {
+  return window['go']['main']['App']['DisconnectTws']();
+}
+
+export function ExportStrategyFile(arg1) {
+  return window['go']['main']['App']['ExportStrategyFile'](arg1);
+}
+
 export function FailsafeStop() {
   return window['go']['main']['App']['FailsafeStop']();
 }
@@ -38,12 +50,24 @@ export function Greet(arg1) {
   return window['go']['main']['App']['Greet'](arg1);
 }
 
+export function ImportStrategyFile() {
+  return window['go']['main']['App']['ImportStrategyFile']();
+}
+
 export function ImportTradingViewWatchlist(arg1) {
   return window['go']['main']['App']['ImportTradingViewWatchlist'](arg1);
 }
 
 export function RemoveWatchlistSymbol(arg1) {
   return window['go']['main']['App']['RemoveWatchlistSymbol'](arg1);
+}
+
+export function StartBot() {
+  return window['go']['main']['App']['StartBot']();
+}
+
+export function StopBot() {
+  return window['go']['main']['App']['StopBot']();
 }
 
 export function UpdateCockpitState(arg1) {

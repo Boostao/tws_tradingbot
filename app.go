@@ -186,3 +186,31 @@ func (a *App) FailsafeStop() {
 	a.ibkrClient.Disconnect()
 }
 
+
+
+func (a *App) ConnectTws(host string, port int, clientID int) map[string]interface{} {
+        err := a.UpdateTWSConnection(host, port, clientID)
+        if err != nil {
+                return map[string]interface{}{"status": "error", "message": err.Error()}
+        }
+        return map[string]interface{}{"status": "ok"}
+}
+
+func (a *App) DisconnectTws() map[string]interface{} {
+        a.ibkrClient.Disconnect()
+        return map[string]interface{}{"status": "ok"}
+}
+
+func (a *App) StartBot() map[string]interface{} {
+        // Just empty strategy for now, since we only need the boolean state
+        err := a.engine.StartBot(&models.Strategy{})
+        if err != nil {
+                return map[string]interface{}{"status": "error"}
+        }
+        return map[string]interface{}{"status": "ok"}
+}
+
+func (a *App) StopBot() map[string]interface{} {
+        a.engine.StopBot()
+        return map[string]interface{}{"status": "ok"}
+}

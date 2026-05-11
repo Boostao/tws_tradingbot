@@ -4,6 +4,12 @@ import {models} from '../models';
 
 export function AddWatchlistSymbol(arg1:string):Promise<models.WatchlistResponse>;
 
+export function ConnectTws(arg1:string,arg2:number,arg3:number):Promise<Record<string, any>>;
+
+export function DisconnectTws():Promise<Record<string, any>>;
+
+export function ExportStrategyFile(arg1:Record<string, any>):Promise<void>;
+
 export function FailsafeStop():Promise<void>;
 
 export function GetCockpitState():Promise<models.CockpitStateResponse>;
@@ -20,9 +26,15 @@ export function GetWatchlist():Promise<models.WatchlistResponse>;
 
 export function Greet(arg1:string):Promise<string>;
 
+export function ImportStrategyFile():Promise<Record<string, any>>;
+
 export function ImportTradingViewWatchlist(arg1:string):Promise<models.WatchlistResponse>;
 
 export function RemoveWatchlistSymbol(arg1:string):Promise<models.WatchlistResponse>;
+
+export function StartBot():Promise<Record<string, any>>;
+
+export function StopBot():Promise<Record<string, any>>;
 
 export function UpdateCockpitState(arg1:models.CockpitStateResponse):Promise<models.CockpitStateResponse>;
 

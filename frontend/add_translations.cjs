@@ -3,7 +3,7 @@ let content = fs.readFileSync('src/lib/i18n/translations.ts', 'utf8');
 
 const enKeys = `
     manual_tws_config_title: "TWS Connection Configuration",
-    manual_tws_config_p1: "Before the bot can execute any trades or read market data, it must be securely connected to Interactive Brokers' Trader Workstation (TWS) or IB Gateway. You can configure this connection directly from the bottom-left corner of the sidebar under the \"Connection\" tab.",
+    manual_tws_config_p1: "Before the bot can execute any trades or read market data, it must be securely connected to Interactive Brokers' Trader Workstation (TWS) or IB Gateway. You can configure this connection directly from the bottom-left corner of the sidebar under the \\\"Connection\\\" tab.",
     manual_tws_config_host: "Host:",
     manual_tws_config_host_desc: "Usually 127.0.0.1 locally.",
     manual_tws_config_port: "Port:",
@@ -13,7 +13,7 @@ const enKeys = `
     manual_tws_config_trading_mode: "Trading Mode:",
     manual_tws_config_trading_mode_desc: "Important! Ensure this matches your TWS session (Paper vs. Live) to prevent accidental real-money orders.",
     manual_tws_config_settings_title: "Important TWS Settings:",
-    manual_tws_config_settings_desc: "For the bot to connect, TWS must be configured to accept API connections. Inside TWS, go to File → Global Configuration → API → Settings, and ensure \"Enable ActiveX and Socket Clients\" is checked.",
+    manual_tws_config_settings_desc: "For the bot to connect, TWS must be configured to accept API connections. Inside TWS, go to File → Global Configuration → API → Settings, and ensure \\\"Enable ActiveX and Socket Clients\\\" is checked.",
     manual_tws_config_read_docs: "Read the official IBKR TWS API Configuration Guide",
 
     manual_cockpit_title: "Cockpit",
@@ -23,9 +23,9 @@ const enKeys = `
     manual_cockpit_slots: "Slots (Symbol Rows):",
     manual_cockpit_slots_desc: "Each row represents a specific market symbol (e.g., AAPL). For each symbol, you can manually assign a strategy that the bot will use.",
     manual_cockpit_strategy_act: "Strategy Activation:",
-    manual_cockpit_strategy_act_desc: "The small \"play/pause\" toggle next to each strategy allows you to enable or suspend the strategy for that specific symbol. It gives you fine-grained control if you want to sit out of a market temporarily.",
+    manual_cockpit_strategy_act_desc: "The small \\\"play/pause\\\" toggle next to each strategy allows you to enable or suspend the strategy for that specific symbol. It gives you fine-grained control if you want to sit out of a market temporarily.",
     manual_cockpit_global: "Global System Toggle:",
-    manual_cockpit_global_desc: "The large toggle at the top right acts as a master \"kill switch.\" If it's disabled, no trades will go through anywhere. Turn this on when you are ready to let the bot operate freely based on your assigned strategies.",
+    manual_cockpit_global_desc: "The large toggle at the top right acts as a master \\\"kill switch.\\\" If it's disabled, no trades will go through anywhere. Turn this on when you are ready to let the bot operate freely based on your assigned strategies.",
 
     manual_monitoring_title: "Monitoring",
     manual_monitoring_p1: "The Monitoring page provides a bird's-eye view of your account health and the bot's real-time actions.",
@@ -61,7 +61,7 @@ const enKeys = `
 
 const frKeys = `
     manual_tws_config_title: "Configuration de la connexion TWS",
-    manual_tws_config_p1: "Avant que le robot puisse exécuter des transactions ou lire des données de marché, il doit être connecté en toute sécurité à l'Interactive Brokers Trader Workstation (TWS) ou à la passerelle IB (IB Gateway). Vous pouvez configurer cette connexion directement dans le coin inférieur gauche de la barre latérale, sous l'onglet \"Connexion\".",
+    manual_tws_config_p1: "Avant que le robot puisse exécuter des transactions ou lire des données de marché, il doit être connecté en toute sécurité à l'Interactive Brokers Trader Workstation (TWS) ou à la passerelle IB (IB Gateway). Vous pouvez configurer cette connexion directement dans le coin inférieur gauche de la barre latérale, sous l'onglet \\\"Connexion\\\".",
     manual_tws_config_host: "Hôte :",
     manual_tws_config_host_desc: "Généralement 127.0.0.1 en local.",
     manual_tws_config_port: "Port :",
@@ -71,7 +71,7 @@ const frKeys = `
     manual_tws_config_trading_mode: "Mode de trading :",
     manual_tws_config_trading_mode_desc: "Important ! Assurez-vous que cela correspond à votre session TWS (Paper ou Direct) pour éviter des ordres avec de l'argent réel accidentels.",
     manual_tws_config_settings_title: "Paramètres TWS importants :",
-    manual_tws_config_settings_desc: "Pour que le robot puisse se connecter, TWS doit être configuré pour accepter les connexions API. Dans TWS, allez dans Fichier → Configuration globale → API → Paramètres, et assurez-vous que \"Activer les clients ActiveX et Socket\" est coché.",
+    manual_tws_config_settings_desc: "Pour que le robot puisse se connecter, TWS doit être configuré pour accepter les connexions API. Dans TWS, allez dans Fichier → Configuration globale → API → Paramètres, et assurez-vous que \\\"Activer les clients ActiveX et Socket\\\" est coché.",
     manual_tws_config_read_docs: "Lire le guide de configuration officiel de l'API TWS d'IBKR",
 
     manual_cockpit_title: "Cockpit",
@@ -81,7 +81,7 @@ const frKeys = `
     manual_cockpit_slots: "Lignes (Symboles) :",
     manual_cockpit_slots_desc: "Chaque ligne représente un symbole de marché spécifique (par exemple, AAPL). Pour chaque symbole, vous pouvez attribuer manuellement une stratégie que le robot utilisera.",
     manual_cockpit_strategy_act: "Activation de la stratégie :",
-    manual_cockpit_strategy_act_desc: "Le petit commutateur \"lecture/pause\" à côté de chaque stratégie vous permet d'activer ou de suspendre la stratégie pour ce symbole spécifique. Cela vous donne un contrôle précis si vous souhaitez rester en dehors d'un marché temporairement.",
+    manual_cockpit_strategy_act_desc: "Le petit commutateur \\\"lecture/pause\\\" à côté de chaque stratégie vous permet d'activer ou de suspendre la stratégie pour ce symbole spécifique. Cela vous donne un contrôle précis si vous souhaitez rester en dehors d'un marché temporairement.",
     manual_cockpit_global: "Bouton du système global :",
     manual_cockpit_global_desc: "Le grand commutateur en haut à droite agit comme un interrupteur principal. S'il est désactivé, aucune transaction ne passera. Activez-le lorsque vous êtes prêt à laisser le robot fonctionner librement en fonction des stratégies assignées.",
 

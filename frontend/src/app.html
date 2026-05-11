@@ -1,6 +1,21 @@
 <!doctype html>
 <html lang="en">
 	<head>
+<script>
+window.onerror = function(m, u, l, c, e) {
+    var err = document.createElement('div');
+    err.style = 'color:red;font-size:20px;z-index:9999;position:fixed;background:black;top:0;left:0;padding:20px;width:100%;height:100%;overflow:auto;';
+    err.innerText = m + ' | ' + u + ':' + l + ':' + c + '\n' + (e ? e.stack : '');
+    document.body.appendChild(err);
+};
+window.onunhandledrejection = function(e) {
+    var err = document.createElement('div');
+    err.style = 'color:red;font-size:20px;z-index:9999;position:fixed;background:black;top:0;left:0;padding:20px;width:100%;height:100%;overflow:auto;';
+    err.innerText = 'Promise rejected: ' + (e.reason ? e.reason.stack || e.reason : 'unknown');
+    document.body.appendChild(err);
+};
+</script>
+
 		<meta charset="utf-8" />
 		<meta name="viewport" content="width=device-width, initial-scale=1" />
 		%sveltekit.head%
