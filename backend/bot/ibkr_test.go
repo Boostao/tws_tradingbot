@@ -11,7 +11,8 @@ func TestIBKRConnection(t *testing.T) {
 		t.Skip("Skipping TWS connection test in CI environment")
 	}
 
-	client := NewIBKRClient()
+	eng := NewEngine()
+	client := NewIBKRClient(eng)
 	err := client.Connect("127.0.0.1", 7497, 1)
 	if err != nil {
 		t.Logf("Failed to connect (TWS might be off, but code works): %v", err)
