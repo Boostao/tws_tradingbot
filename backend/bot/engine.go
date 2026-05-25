@@ -1,19 +1,19 @@
 package bot
 
 import (
-	"context"
 	"fmt"
 	"time"
 	"tws_traderbot/backend/models"
 	"tws_traderbot/backend/strategy"
-	"github.com/wailsapp/wails/v2/pkg/runtime"
+
+	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
 // The Engine abstracts the execution loop reading IBKR bars and firing strategies.
 type Engine struct {
 	ActiveStrategy *models.Strategy
 	IsRunning      bool
-	Ctx            context.Context
+	App            *application.App
 }
 
 func NewEngine() *Engine {
@@ -22,9 +22,9 @@ func NewEngine() *Engine {
 	}
 }
 
-// AttachContext gives the engine access to Wails runtime events
-func (e *Engine) AttachContext(ctx context.Context) {
-	e.Ctx = ctx
+// AttachApp gives the engine access to Wails runtime events
+func (e *Engine) AttachApp(app *application.App) {
+	e.App = app
 }
 
 // EvaluateTick receives live IBKR bar frames and runs rules to decide buy/sell actions
@@ -34,12 +34,12 @@ func (e *Engine) EvaluateTick(symbol string, marketData map[string][]float64) []
 	}
 
 	var actions []models.ActionType
-	
+
 	// Emit a pulse event so the UI knows we are actively scanning this symbol
-	if e.Ctx != nil {
-		runtime.EventsEmit(e.Ctx, "pulse_tick", map[string]interface{}{
+	if e.App != nil {
+		e.App.Event.Emit("pulse_tick", map[string]interface{}{
 			"symbol": symbol,
-			"time": time.Now().Format(time.RFC3339),
+			"time":   time.Now().Format(time.RFC3339),
 		})
 	}
 
@@ -49,27 +49,27 @@ func (e *Engine) EvaluateTick(symbol string, marketData map[string][]float64) []
 		}
 
 		if rule.Scope == models.ScopeSymbol && rule.Name != symbol { // Simplistic matching
-            		// Ignore if rules explicitly tied to other symbols
+			// Ignore if rules explicitly tied to other symbols
 		}
 
 		active := strategy.EvaluateConditions(rule.Condition, marketData)
-		
+
 		// Map rule evaluation to the UI Matrix Heatmap
-		if e.Ctx != nil {
-			runtime.EventsEmit(e.Ctx, "matrix_update", map[string]interface{}{
+		if e.App != nil {
+			e.App.Event.Emit("matrix_update", map[string]interface{}{
 				"symbol": symbol,
-				"rule": rule.Name,
+				"rule":   rule.Name,
 				"active": active,
 			})
 		}
-		
+
 		if active {
 			actions = append(actions, rule.Action)
-			
+
 			// Broadcast execution intent to UI Ledger
-			if e.Ctx != nil {
+			if e.App != nil {
 				msg := fmt.Sprintf("[%s] %s Action triggered by rule: %s", time.Now().Format("15:04:05"), rule.Action, rule.Name)
-				runtime.EventsEmit(e.Ctx, "ledger_entry", msg)
+				e.App.Event.Emit("ledger_entry", msg)
 			}
 		}
 	}

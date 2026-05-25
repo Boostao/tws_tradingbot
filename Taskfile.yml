@@ -1,0 +1,52 @@
+version: '3'
+
+vars:
+  APP_NAME: "tws_traderbot"
+  BIN_DIR: "bin"
+  VITE_PORT: '{{.WAILS_VITE_PORT | default 9245}}'
+
+tasks:
+  build:
+    summary: Builds the application
+    cmds:
+      - task: "{{OS}}:build"
+
+  linux:build:
+    summary: Builds the application for Linux
+    cmds:
+      - task: build:frontend
+      - go build -buildvcs=false -o {{.BIN_DIR}}/{{.APP_NAME}} .
+    env:
+      CGO_ENABLED: "1"
+
+  build:frontend:
+    summary: Installs frontend deps and builds the Svelte frontend
+    dir: frontend
+    cmds:
+      - npm install
+      - npm run build
+
+  generate:bindings:
+    summary: Generates TypeScript bindings for the frontend
+    cmds:
+      - wails3 generate bindings
+
+  dev:
+    summary: Runs the application in development mode
+    cmds:
+      - wails3 dev -config ./build/config.yml -port {{.VITE_PORT}}
+
+  linux:run:
+    summary: Runs the built binary
+    cmds:
+      - ./{{.BIN_DIR}}/{{.APP_NAME}}
+
+  run:
+    summary: Runs the application
+    cmds:
+      - task: "{{OS}}:run"
+
+  test:backend:
+    summary: Runs Go backend unit tests
+    cmds:
+      - go test -v ./backend/...

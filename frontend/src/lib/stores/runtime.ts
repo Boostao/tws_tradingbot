@@ -1,5 +1,5 @@
 import { writable } from 'svelte/store';
-import { EventsOn } from '../../../wailsjs/runtime/runtime';
+import { Events } from '@wailsio/runtime';
 import { getState, type BotState } from '$lib/api';
 
 const runtimeStateStore = writable<BotState | null>(null);
@@ -23,8 +23,8 @@ export function startRuntimePolling(): () => void {
     refreshRuntimeState();
 
     // Listen to Wails events instead of polling
-    EventsOn('state_update', (nextState: BotState) => {
-        runtimeStateStore.set(nextState);
+    Events.On('state_update', (event) => {
+        runtimeStateStore.set(event.data as BotState);
     });
 
 	return () => {

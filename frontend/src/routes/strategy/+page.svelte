@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { ImportStrategyFile, ExportStrategyFile } from '$lib/../../wailsjs/go/main/App';
+	import { ImportStrategyFile, ExportStrategyFile } from '../../../bindings/tws_traderbot/app';
 	import {
 		API_BASE,
 		applyStrategyPreset,

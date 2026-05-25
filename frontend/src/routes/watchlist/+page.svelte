@@ -6,6 +6,8 @@
 		importTradingViewWatchlist,
 		refreshWatchlistFeed,
 		replaceWatchlist,
+		exportWatchlistFile,
+		importWatchlistFile,
 		type SymbolRecord,
 		type WatchlistFeed,
 		type WatchlistGroup,
@@ -14,12 +16,11 @@
 	} from '$lib/api';
 	import { t, language } from '$lib/i18n';
 	import SymbolSearch from '$lib/components/SymbolSearch.svelte';
-	import { ChevronDown, ChevronRight, List, Plus, RefreshCcw, Trash2 } from 'lucide-svelte';
+	import { ChevronDown, ChevronRight, Download, List, Plus, RefreshCcw, Trash2, Upload } from 'lucide-svelte';
 
 	let watchlist: WatchlistResponse = { symbols: [], groups: [], feed: null, updated_at: null };
 	let message = '';
 	let saving = false;
-	let fileInput: HTMLInputElement | null = null;
 	import { watchlistDraftUrl } from "$lib/stores/ui";
 	$: tradingViewUrl = $watchlistDraftUrl;
 	function updateDraft(e: any) { watchlistDraftUrl.set(e.target.value); }
@@ -121,33 +122,11 @@
 		}
 	}
 
-	async function handleFileChange(event: Event) {
-		const target = event.target as HTMLInputElement;
-		const file = target.files?.[0];
-		if (!file) return;
+	async function handleExportFile() {
 		message = '';
 		saving = true;
 		try {
-			const text = await file.text();
-			const next = parseSymbols(text);
-			const manualGroup = createManualGroup();
-			manualGroup.items = next.map((entry) => parseEntry(entry));
-			normalizeWatchlist(await replaceWatchlist({ groups: [manualGroup], feed: null }));
-			message = t('saved');
-		} catch (err) {
-			message = formatApiError(err);
-		} finally {
-			saving = false;
-			if (fileInput) fileInput.value = '';
-		}
-	}
-
-	async function handleClearAll() {
-		message = '';
-		saving = true;
-		try {
-			normalizeWatchlist(await replaceWatchlist({ groups: [createManualGroup()], feed: null }));
-			message = t('clear_all');
+			await exportWatchlistFile();
 		} catch (err) {
 			message = formatApiError(err);
 		} finally {
@@ -155,17 +134,20 @@
 		}
 	}
 
-	function handleDownload() {
-		const payload = watchlist.symbols.join('\n');
-		const blob = new Blob([payload], { type: 'text/plain' });
-		const url = URL.createObjectURL(blob);
-		const link = document.createElement('a');
-		link.href = url;
-		link.download = 'watchlist.txt';
-		document.body.appendChild(link);
-		link.click();
-		link.remove();
-		URL.revokeObjectURL(url);
+	async function handleImportFile() {
+		message = '';
+		saving = true;
+		try {
+			const result = await importWatchlistFile();
+			if (result) {
+				normalizeWatchlist(result);
+				message = t('saved');
+			}
+		} catch (err) {
+			message = formatApiError(err);
+		} finally {
+			saving = false;
+		}
 	}
 
 	async function handleImportTradingView() {
@@ -175,6 +157,19 @@
 		try {
 			normalizeWatchlist(await importTradingViewWatchlist(tradingViewUrl.trim()));
 			message = t('saved');
+		} catch (err) {
+			message = formatApiError(err);
+		} finally {
+			saving = false;
+		}
+	}
+
+	async function handleClearAll() {
+		message = '';
+		saving = true;
+		try {
+			normalizeWatchlist(await replaceWatchlist({ groups: [createManualGroup()], feed: null }));
+			message = t('clear_all');
 		} catch (err) {
 			message = formatApiError(err);
 		} finally {
@@ -295,13 +290,6 @@
 <div class="card">
 	<div class="watchlist-toolbar">
 		<input
-			type="file"
-			accept=".txt,.csv"
-			bind:this={fileInput}
-			on:change={handleFileChange}
-			style="display: none;"
-		/>
-		<input
 			type="url"
 			value={tradingViewUrl} on:input={updateDraft}
 			placeholder={t('watchlist_feed_url_placeholder')}
@@ -312,8 +300,14 @@
 			<RefreshCcw size={14} strokeWidth={1.8} />
 			<span>{t('refresh')}</span>
 		</button>
-		<button class="secondary" on:click={() => fileInput?.click()}>{t('reload_from_file')}</button>
-		<button class="secondary" on:click={handleDownload}>{t('download')}</button>
+		<button class="secondary" on:click={handleImportFile}>
+			<Upload size={14} strokeWidth={1.8} />
+			<span>{t('watchlist_import_file')}</span>
+		</button>
+		<button class="secondary" on:click={handleExportFile}>
+			<Download size={14} strokeWidth={1.8} />
+			<span>{t('watchlist_export_file')}</span>
+		</button>
 		<button class="secondary" on:click={() => (addingToManual = !addingToManual)}>
 			<Plus size={14} strokeWidth={1.8} />
 			<span>{t('watchlist_add_ticker')}</span>

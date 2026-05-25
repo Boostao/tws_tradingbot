@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"github.com/scmhub/ibapi"
-	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 type IBKRClient struct {
@@ -51,9 +50,9 @@ func (c *IBKRClient) Connect(host string, port int, clientID int) error {
 		host = "127.0.0.1"
 	}
 	if port == 0 {
-		port = 7497 
+		port = 7497
 	}
-	
+
 	err := c.client.Connect(host, port, int64(clientID))
 	if err != nil {
 		return fmt.Errorf("failed to connect to TWS on %s:%d (clientID: %d): %w", host, port, clientID, err)
@@ -105,12 +104,14 @@ func (w *IBWrapper) HistoricalDataEnd(reqID int64, startDateStr string, endDateS
 
 // ExecuteAction constructs and places a market order via the IBKR connection
 func (w *IBWrapper) ExecuteAction(symbol string, actionType string) {
-	if w.engine == nil { return } // Safety
+	if w.engine == nil {
+		return
+	} // Safety
 	contract := &ibapi.Contract{
-		Symbol:       symbol,
-		SecType:      "STK",
-		Exchange:     "SMART",
-		Currency:     "USD",
+		Symbol:   symbol,
+		SecType:  "STK",
+		Exchange: "SMART",
+		Currency: "USD",
 	}
 
 	// Figure out order type based on ActionType
@@ -121,7 +122,9 @@ func (w *IBWrapper) ExecuteAction(symbol string, actionType string) {
 	}
 
 	ibAction, exists := actionMap[actionType]
-	if !exists { return } // unhandled action
+	if !exists {
+		return
+	} // unhandled action
 
 	// Build the Order
 	order := &ibapi.Order{
@@ -136,14 +139,14 @@ func (w *IBWrapper) ExecuteAction(symbol string, actionType string) {
 	orderId := w.currentReqID
 
 	fmt.Printf("Executing %s order for %s (OrderID: %d)\n", ibAction, symbol, orderId)
-	
+
 	// Actually send the order to IBKR
 	w.client.PlaceOrder(orderId, contract, order)
 
 	// Emit the execution out to Svelte!
-	if w.engine != nil && w.engine.Ctx != nil {
+	if w.engine != nil && w.engine.App != nil {
 		msg := fmt.Sprintf("[%s] EXECUTING %s %d %s @ MKT (OrderID: %d)", time.Now().Format("15:04:05"), ibAction, order.TotalQuantity.Int(), symbol, orderId)
 		// We hook into Wails runtime to emit this directly to the ledger
-		runtime.EventsEmit(w.engine.Ctx, "ledger_entry", msg)
+		w.engine.App.Event.Emit("ledger_entry", msg)
 	}
 }

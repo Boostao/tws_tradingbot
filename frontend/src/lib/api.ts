@@ -4,7 +4,7 @@ import {
     GetWatchlist, GetCockpitState,
     StartBot, StopBot, ConnectTws, DisconnectTws,
     GetRuntimeState
-} from '../../wailsjs/go/main/App';
+} from '../../bindings/tws_traderbot/app';
 const DEFAULT_API_BASE = import.meta.env.DEV ? 'http://localhost:8000' : '';
 
 export const API_BASE =
@@ -613,7 +613,7 @@ export async function replaceWatchlist(
 	return data;
 }
 
-import { ImportTradingViewWatchlist } from '../../wailsjs/go/main/App';
+import { ImportTradingViewWatchlist, ExportWatchlistFile, ImportWatchlistFile } from '../../bindings/tws_traderbot/app';
 
 export async function importTradingViewWatchlist(url: string): Promise<WatchlistResponse> {
 	try {
@@ -622,6 +622,30 @@ export async function importTradingViewWatchlist(url: string): Promise<Watchlist
 		return data;
 	} catch (e) {
 		const err = new ApiError(`TradingView watchlist import failed: ${e}`, 500, 'Server Error', String(e));
+		lastApiError = err;
+		throw err;
+	}
+}
+
+export async function exportWatchlistFile(): Promise<void> {
+	try {
+		await ExportWatchlistFile();
+	} catch (e) {
+		const err = new ApiError(`Watchlist export failed: ${e}`, 500, 'Server Error', String(e));
+		lastApiError = err;
+		throw err;
+	}
+}
+
+export async function importWatchlistFile(): Promise<WatchlistResponse> {
+	try {
+		const data = await ImportWatchlistFile();
+		if (data) {
+			setCached('watchlist', data, cachePolicy.watchlist);
+		}
+		return data as unknown as WatchlistResponse;
+	} catch (e) {
+		const err = new ApiError(`Watchlist import failed: ${e}`, 500, 'Server Error', String(e));
 		lastApiError = err;
 		throw err;
 	}

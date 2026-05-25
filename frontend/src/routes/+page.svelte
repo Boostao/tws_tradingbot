@@ -1,7 +1,7 @@
 <script lang="ts">
     import { onMount, onDestroy } from 'svelte';
     import { getWatchlist } from '$lib/api';
-    import { EventsOn, EventsOff } from '../../wailsjs/runtime/runtime';
+    import { Events } from '@wailsio/runtime';
     
     let watchlist: any = null;
     let pulseFeeds: Record<string, any> = {};
@@ -13,26 +13,27 @@
     onMount(async () => {
         watchlist = await getWatchlist();
         
-        EventsOn("pulse_tick", (data) => {
+        Events.On("pulse_tick", (event) => {
+            const data = event.data as { symbol: string; time: string };
             pulseFeeds[data.symbol] = data.time;
             pulseFeeds = pulseFeeds; // trigger reactivity
         });
         
-        EventsOn("matrix_update", (data) => {
+        Events.On("matrix_update", (event) => {
+            const data = event.data as { symbol: string; rule: string; active: boolean };
             if (!matrixData[data.symbol]) matrixData[data.symbol] = {};
             matrixData[data.symbol][data.rule] = data.active;
             matrixData = matrixData; // trigger reactivity
         });
         
-        EventsOn("ledger_entry", (msg) => {
+        Events.On("ledger_entry", (event) => {
+            const msg = event.data as string;
             ledgerEntries = [msg, ...ledgerEntries].slice(0, 50); // Keep last 50
         });
     });
 
     onDestroy(() => {
-        EventsOff("pulse_tick");
-        EventsOff("matrix_update");
-        EventsOff("ledger_entry");
+        Events.Off("pulse_tick", "matrix_update", "ledger_entry");
     });
 </script>
 

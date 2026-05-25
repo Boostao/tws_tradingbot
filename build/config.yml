@@ -1,0 +1,35 @@
+version: '3'
+
+info:
+  companyName: "Boostao"
+  productName: "TWS Trader Bot"
+  productIdentifier: "ca.boostao.tws_traderbot"
+  description: "Local TWS/IBKR trading bot with Svelte UI"
+  copyright: "(c) 2025, Bruno Tremblay"
+  version: "0.1.0"
+
+dev_mode:
+  root_path: .
+  log_level: warn
+  debounce: 1000
+  ignore:
+    dir:
+      - .git
+      - node_modules
+      - frontend
+      - bin
+    file:
+      - .DS_Store
+      - .gitignore
+    watched_extension:
+      - "*.go"
+    git_ignore: true
+  executes:
+    - cmd: wails3 task build:frontend
+      type: once
+    - cmd: go mod tidy
+      type: blocking
+    - cmd: wails3 task build
+      type: blocking
+    - cmd: wails3 task run
+      type: primary

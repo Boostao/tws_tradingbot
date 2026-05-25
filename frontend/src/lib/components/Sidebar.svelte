@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { formatApiError, getConfig, updateConfig, connectTws, disconnectTws, startBot, stopBot, type BotState, type ConfigResponse } from '$lib/api';
-import { GetTWSConnection, UpdateTWSConnection } from '../../../wailsjs/go/main/App';
+import { GetTWSConnection, UpdateTWSConnection } from '../../../bindings/tws_traderbot/app';
 type ConfigResponse = any; // Mock response type
 	import { language, setLanguage, t } from '$lib/i18n';
 	import { refreshRuntimeState, runtimeState } from '$lib/stores/runtime';

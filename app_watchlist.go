@@ -6,11 +6,14 @@ import (
 	"html"
 	"io"
 	"net/http"
+	"os"
 	"regexp"
 	"strings"
 	"time"
 
 	"tws_traderbot/backend/models"
+
+	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
 var tvPayloadRegex = regexp.MustCompile(`(?s)<script type="application/prs\.init-data\+json">\s*(\{.*?\})\s*</script>`)
@@ -181,6 +184,53 @@ func (a *App) ImportTradingViewWatchlist(url string) (*models.WatchlistResponse,
 	return res, nil
 }
 
+// ExportWatchlistFile exports the current watchlist as a JSON file chosen via native save dialog.
+func (a *App) ExportWatchlistFile() error {
+	state := a.GetWatchlist()
+	data, err := json.MarshalIndent(state, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to serialise watchlist: %v", err)
+	}
+
+	selectedPath, err := a.app.Dialog.SaveFileWithOptions(&application.SaveFileDialogOptions{
+		Title:    "Export Watchlist",
+		Filename: "watchlist.json",
+		Filters:  []application.FileFilter{{DisplayName: "JSON Files", Pattern: "*.json"}},
+	}).PromptForSingleSelection()
+	if err != nil || selectedPath == "" {
+		return err
+	}
+
+	return os.WriteFile(selectedPath, data, 0644)
+}
+
+// ImportWatchlistFile reads a watchlist JSON file chosen via native open dialog and replaces the current watchlist.
+func (a *App) ImportWatchlistFile() (*models.WatchlistResponse, error) {
+	selectedPath, err := a.app.Dialog.OpenFileWithOptions(&application.OpenFileDialogOptions{
+		Title:   "Import Watchlist",
+		Filters: []application.FileFilter{{DisplayName: "JSON Files", Pattern: "*.json"}},
+	}).PromptForSingleSelection()
+	if err != nil || selectedPath == "" {
+		return nil, err
+	}
+
+	data, err := os.ReadFile(selectedPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read watchlist file: %v", err)
+	}
+
+	var watchlist models.WatchlistResponse
+	if err := json.Unmarshal(data, &watchlist); err != nil {
+		return nil, fmt.Errorf("invalid watchlist JSON: %v", err)
+	}
+
+	if err := a.db.SaveWatchlistState(&watchlist); err != nil {
+		return nil, fmt.Errorf("failed to save imported watchlist: %v", err)
+	}
+
+	return &watchlist, nil
+}
+
 // AddWatchlistSymbol adds a new symbol to the manual group
 func (a *App) AddWatchlistSymbol(symbol string) (*models.WatchlistResponse, error) {
 	state, err := a.db.LoadWatchlistState()
@@ -196,7 +246,7 @@ func (a *App) AddWatchlistSymbol(symbol string) (*models.WatchlistResponse, erro
 	}
 
 	state.Symbols = append(state.Symbols, symbol)
-	
+
 	// Find or create manual group
 	manualFound := false
 	for i, g := range state.Groups {

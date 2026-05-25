@@ -37,9 +37,10 @@ The previous stack relied on a split FastAPI server and a separate React/Svelte 
 
 ### Prerequisites (Development / Compiling)
 If you wish to build the app from source or modify the code, you will need:
-- **Go**: 1.25+ (`go version`)
+- **Go**: 1.22+ (`go version`)
 - **Node.js**: 18+ (For compiling the Svelte frontend during builds)
-- **Wails v2**: Installed correctly globally (`go install github.com/wailsapp/wails/v2/cmd/wails@latest`)
+- **GTK4 + WebKitGTK 6.0** (Linux only): `sudo dnf install gtk4-devel webkitgtk6.0-devel` on Fedora/RHEL; `sudo apt install libgtk-4-dev libwebkitgtk-6.0-dev` on Debian/Ubuntu
+- **Wails v3 CLI**: `go install github.com/wailsapp/wails/v3/cmd/wails3@latest`
 
 ### Dynamic Reloading & Execution Logic
 Because the app is a single static binary, dynamic execution is actually **faster and safer** than the old Python script. 
@@ -49,11 +50,27 @@ In Go, the UI and the Bot Engine share the same memory space:
 - **No Restarts Required**: The `EvaluateTick` loop dynamically checks the current in-memory configurations for active tickers and strategy rules on every single tick, without needing to boot up or restart the internal IBKR socket.
 
 ### Development Mode
-To run the application with hot-reloading for both the Go backend and Svelte frontend:
+Wails v3 uses an interactive task-based dev loop. Every time a `.go` file changes, the binary is recompiled and relaunched. Svelte hot-reloads are handled by the Vite dev server running in the background.
+
 ```bash
-wails dev
+# Install the wails3 CLI once (if not already installed)
+go install github.com/wailsapp/wails/v3/cmd/wails3@latest
+
+# Start the interactive dev loop (requires build/config.yml)
+wails3 dev -config ./build/config.yml
 ```
-*This spins up the Svelte dev server and the Go application hook simultaneously. If you edit Go files, the bot logic recompiles. If you edit Svelte files, the UI refreshes instantly.*
+
+The dev loop:
+1. Installs frontend npm dependencies (once)
+2. Starts the Vite dev server in the background
+3. Builds and launches the Go binary
+4. Watches `.go` files — recompiles and relaunches on change
+5. The Svelte UI reloads automatically via the Vite HMR websocket
+
+> **Note:** `wails3` must be on your `PATH`. If installed via `go install`, add `$HOME/go/bin` to `PATH`:
+> ```bash
+> export PATH="$HOME/go/bin:$PATH"
+> ```
 
 ### Testing the Bot Engine
 The mathematical trading evaluator is unit-tested without needing TWS connections:
@@ -76,11 +93,22 @@ When you boot the app, the Bot Runner initializes automatically.
 One of the vital milestones of the Go rewrite is generating cross-platform binary distributions for releases, ensuring you no longer need Python environments to run the bot.
 
 ### Local Build
-To create a standalone production executable (e.g., `tws_traderbot.exe`, `.app`, or `.bin` depending on your OS):
+To create a standalone production executable:
 ```bash
-wails build -clean -m
+export PATH="$HOME/go/bin:$PATH"   # if wails3 is not already on PATH
+wails3 build
 ```
-*The resulting executable is housed in the `build/bin/` folder. It bundles the Svelte assets directly inside the Go binary. You can port this file to any machine with TWS.*
+
+This runs the following steps automatically via `Taskfile.yml`:
+1. `npm install` + `npm run build` — produces the static Svelte assets in `frontend/dist/`
+2. `go build` — embeds those assets and links everything into a single binary
+
+The resulting binary is placed in `bin/tws_traderbot`. It bundles the Svelte assets directly inside the Go binary — no external files needed at runtime. You can copy this file to any machine with TWS.
+
+To regenerate the TypeScript/JS bindings after changing Go service methods:
+```bash
+wails3 generate bindings
+```
 
 ### Deploying via GitHub Actions
 A robust CI/CD workflow is provided inside `.github/workflows/release.yml`. It has been adapted specifically to replace the Python checks with native Golang validations.

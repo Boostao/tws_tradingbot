@@ -4,9 +4,9 @@ import (
 	"encoding/json"
 	"os"
 	"tws_traderbot/backend/models"
-	"github.com/wailsapp/wails/v2/pkg/runtime"
-)
 
+	"github.com/wailsapp/wails/v3/pkg/application"
+)
 
 // GetConfig returns the system configuration from SQLite
 func (a *App) GetConfig() map[string]interface{} {
@@ -24,7 +24,7 @@ func (a *App) GetConfig() map[string]interface{} {
 // UpdateConfig updates the system configuration
 func (a *App) UpdateConfig(update map[string]interface{}) (map[string]interface{}, error) {
 	state := a.GetConfig()
-	
+
 	// Merge updates
 	for k, v := range update {
 		state[k] = v
@@ -55,7 +55,7 @@ func (a *App) UpdateStrategy(update map[string]interface{}) (map[string]interfac
 	if err != nil {
 		return nil, err
 	}
-	
+
 	// Convert to JSON and parse as models.Strategy to hot-reload in memory
 	b, err := json.Marshal(update)
 	if err == nil {
@@ -66,23 +66,21 @@ func (a *App) UpdateStrategy(update map[string]interface{}) (map[string]interfac
 			}
 		}
 	}
-	
+
 	return update, nil
 }
 
 // ImportStrategyFile allows user to pick a Strategy JSON file and load it
 func (a *App) ImportStrategyFile() (map[string]interface{}, error) {
-	filepath, err := runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
-		Title: "Import Strategy JSON",
-		Filters: []runtime.FileFilter{
-			{DisplayName: "JSON Files", Pattern: "*.json"},
-		},
-	})
-	if err != nil || filepath == "" {
+	selectedPath, err := a.app.Dialog.OpenFileWithOptions(&application.OpenFileDialogOptions{
+		Title:   "Import Strategy JSON",
+		Filters: []application.FileFilter{{DisplayName: "JSON Files", Pattern: "*.json"}},
+	}).PromptForSingleSelection()
+	if err != nil || selectedPath == "" {
 		return nil, err
 	}
 
-	data, err := os.ReadFile(filepath)
+	data, err := os.ReadFile(selectedPath)
 	if err != nil {
 		return nil, err
 	}
@@ -97,14 +95,12 @@ func (a *App) ImportStrategyFile() (map[string]interface{}, error) {
 
 // ExportStrategyFile allows user to save current strategy to disk
 func (a *App) ExportStrategyFile(strategy map[string]interface{}) error {
-	filepath, err := runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
-		Title: "Export Strategy JSON",
-		DefaultFilename: "strategy.json",
-		Filters: []runtime.FileFilter{
-			{DisplayName: "JSON Files", Pattern: "*.json"},
-		},
-	})
-	if err != nil || filepath == "" {
+	selectedPath, err := a.app.Dialog.SaveFileWithOptions(&application.SaveFileDialogOptions{
+		Title:    "Export Strategy JSON",
+		Filename: "strategy.json",
+		Filters:  []application.FileFilter{{DisplayName: "JSON Files", Pattern: "*.json"}},
+	}).PromptForSingleSelection()
+	if err != nil || selectedPath == "" {
 		return err
 	}
 
@@ -113,5 +109,5 @@ func (a *App) ExportStrategyFile(strategy map[string]interface{}) error {
 		return err
 	}
 
-	return os.WriteFile(filepath, data, 0644)
+	return os.WriteFile(selectedPath, data, 0644)
 }
