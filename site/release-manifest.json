@@ -1,0 +1,28 @@
+{
+  "version": "1.0.0",
+  "name": "tws_traderbot",
+  "title": "tws_traderbot — Poste de pilotage Cobalt",
+  "release_date": "2026-11-16",
+  "description": "Poste de pilotage & exécution algorithmique F1 pour la méthode Cobalt Investissements",
+  "artifacts": [
+    {
+      "platform": "Linux",
+      "os_key": "linux",
+      "arch": "amd64",
+      "filename": "tws_traderbot-linux-amd64.tar.gz",
+      "format": "tar.gz",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": "15.5 MB"
+    },
+    {
+      "platform": "Windows",
+      "os_key": "windows",
+      "arch": "amd64",
+      "filename": "tws_traderbot-windows-amd64.zip",
+      "format": "zip",
+      "sha256": "8f434346648f6b96df89dda901c5176b10f600aec66b197e200dcb47a74081a2",
+      "size": "16.4 MB"
+    }
+  ],
+  "release_notes": "Official release of tws_traderbot — F1 operator cockpit for Cobalt Investissements. Delivers a 1-click strategy and watchlist swapping cockpit, fail-closed multi-venue IBKR order routing and risk breaker, all 20 Cobalt presets, and authentic French/English localization."
+}

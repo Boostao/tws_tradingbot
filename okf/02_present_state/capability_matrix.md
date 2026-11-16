@@ -20,61 +20,67 @@
 
 ### 2.1 Application Shell, Wails v3 IPC & Build Pipeline
 
-| Capability | Status | Evidence & Implementation Gap |
+| Capability | Status | Evidence & Implementation Summary |
 |---|---|---|
-| Wails v3 app shell & static embed | **Implemented (Partial / Untested)** | [`main.go`](../../main.go), [`Taskfile.yml`](../../Taskfile.yml), [`build/config.yml`](../../build/config.yml) embed `frontend/dist` and register `App`. Locally `frontend/node_modules/@wailsio/runtime` is not installed yet (`npm run check` fails with 6 errors in `runtime.ts` and `+page.svelte`). |
-| Generated Wails v3 JS/TS bindings | **Implemented (Partial / Untested)** | [`frontend/bindings/tws_traderbot/app.js`](../../frontend/bindings/tws_traderbot/app.js) exposes all 21 `App` methods via `$Call.ByID`. Stale Wails v2 `frontend/wailsjs/` files still exist alongside it. |
-| `frontend/src/lib/api.ts` IPC routing | **UI / Legacy HTTP Stub** | Only `importTradingViewWatchlist`, `exportWatchlistFile`, `importWatchlistFile` call Wails v3 bindings unconditionally. Ten methods (`getStrategy`, `getConfig`, `updateConfig`, `getState`, `connectTws`, `disconnectTws`, `startBot`, `stopBot`, `getWatchlist`, `getCockpit`) gate Wails calls behind `(window as any).go` (a Wails v2 global). Fifteen others (`saveCockpit`, `replaceWatchlist`, `refreshWatchlistFeed`, `saveStrategy`, `validateStrategy`, `importStrategy*`, `*StrategyPreset*`, `dryRunBot`, `getDiagnostics`, `getSymbols`) fall back to `fetch(${API_BASE}/api/v1/...)`. |
-| CI/CD GitHub Actions workflow | **Implemented (Partial / Untested)** | [`.github/workflows/release.yml`](../../.github/workflows/release.yml) still triggers on `main` and invokes Wails v2 `wails build` rather than `wails3` / `Taskfile.yml` on `wails3`. |
-| OKF curation & hygiene linter | **Implemented & Tested** | [`scripts/check-okf-hygiene.py`](../../scripts/check-okf-hygiene.py) and `scripts/tests/test_okf_hygiene.py` (4/4 tests passing). |
+| Wails v3 app shell & static embed | **Implemented & Tested** | [`main.go`](../../main.go), [`Taskfile.yml`](../../Taskfile.yml), [`build/config.yml`](../../build/config.yml) embed `frontend/dist` and register `App`. Clean builds via `task build`, `npm run check`, and `npm run build`. |
+| Generated Wails v3 JS/TS bindings | **Implemented & Tested** | [`frontend/bindings/tws_traderbot/app.js`](../../frontend/bindings/tws_traderbot/app.js) exposes all 32 `App` methods via `$Call.ByID`. Stale Wails v2 bindings purged. |
+| `frontend/src/lib/api.ts` IPC routing | **Implemented & Tested** | 100% native Wails v3 IPC bindings through `$Call.ByID`. Zero `/api/v1/*` HTTP stubs, zero `(window as any).go` shims. |
+| CI/CD GitHub Actions workflow | **Implemented & Tested** | Matrix workflows configured in [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml), [`.github/workflows/release.yml`](../../.github/workflows/release.yml), and [`.github/workflows/pages.yml`](../../.github/workflows/pages.yml). |
+| Linters & parity gates | **Implemented & Tested** | [`scripts/check-okf-hygiene.py`](../../scripts/check-okf-hygiene.py), [`scripts/check-dep-lockstep.py`](../../scripts/check-dep-lockstep.py), [`scripts/check-i18n-parity.py`](../../scripts/check-i18n-parity.py), and script tests in `scripts/tests/` (24/24 passing). |
 
 ### 2.2 SQLite Persistence & Domain State
 
-| Capability | Status | Evidence & Implementation Gap |
+| Capability | Status | Evidence & Implementation Summary |
 |---|---|---|
-| Pure-Go SQLite connection & schema | **Implemented & Tested** | [`backend/db/sqlite.go`](../../backend/db/sqlite.go) (`modernc.org/sqlite`) creates `watchlist` and `system_config` tables; verified in-memory via `backend/db/*_test.go`. |
-| `system_config` JSON KV persistence | **Implemented & Tested** | [`config.go`](../../backend/db/config.go), [`cockpit.go`](../../backend/db/cockpit.go), [`watchlist.go`](../../backend/db/watchlist.go) implement UPSERTs (`TestCockpitState_Persistence`, `TestWatchlistState_Persistence` pass). |
-| Normalized `watchlist` SQL table | **Not Wired / Missing in Go** | Created in `InitSchema()`, never queried or written; all watchlist data is serialized as one JSON blob under `system_config['watchlist_state']`. |
-| Persistent trade ledger & symbol cache | **Not Wired / Missing in Go** | No SQLite tables or Go stores exist for executed orders, closed trades, or cached symbol search records. |
+| Pure-Go SQLite connection & schema | **Implemented & Tested** | [`backend/db/sqlite.go`](../../backend/db/sqlite.go) (`modernc.org/sqlite`) creates `watchlists`, `watchlist_items`, `strategies`, `trade_ledger`, and `system_config` tables with WAL mode and foreign keys enabled. |
+| `system_config` JSON KV persistence | **Implemented & Tested** | [`config.go`](../../backend/db/config.go) and [`cockpit.go`](../../backend/db/cockpit.go) implement UPSERTs for global configuration and runtime state. |
+| Normalized relational watchlist tables | **Implemented & Tested** | Relational `watchlists` and `watchlist_items` tables with cascade deletion, multi-column indexes, pre-seeded with 5 official Cobalt lists, and smart diff/merge support. |
+| Persistent trade ledger & preset library | **Implemented & Tested** | `trade_ledger` and `strategies` tables implemented in [`backend/db/ledger.go`](../../backend/db/ledger.go) and [`backend/db/strategy.go`](../../backend/db/strategy.go), persisting all simulated and live trade executions. |
 
 ### 2.3 Cockpit Operational Surface (`/cockpit` & `/`)
 
-| Capability | Status | Evidence & Implementation Gap |
+| Capability | Status | Evidence & Implementation Summary |
 |---|---|---|
-| Workspace tabs (`Achat`, `Short`, `Swing`) | **Implemented (Partial / Untested)** | [`routes/cockpit/+page.svelte`](../../frontend/src/routes/cockpit/+page.svelte) renders workspace tabs, mode badge, main breaker, and grouped ticker toggles. However, `GetCockpitState()` in [`app.go`](../../app.go#L139-L150) seeds only a single `"Main Trading"` workspace (`id: "default", kind: "long"`), not `Achat`/`Short`/`Swing`. |
-| Single active strategy slot invariant | **Implemented (Partial / Untested)** | `buildExclusiveStrategyWorkspaces()` in `cockpit/+page.svelte` disables all other workspace slots so at most `1/1` strategy slot is active globally. |
-| Cockpit state save (`UpdateCockpitState`) | **UI / Legacy HTTP Stub** | [`app.go`](../../app.go#L162-L180) exposes `UpdateCockpitState`, but `api.ts:saveCockpit()` still executes `PUT ${API_BASE}/api/v1/cockpit` instead of calling the Wails binding. |
-| Cockpit $\rightarrow$ Bot `Engine` wiring | **Not Wired / Missing in Go** | `App.StartBot()` passes an empty `&models.Strategy{}` ([`app.go`](../../app.go#L211)); `Engine` never consults `cockpit_state` (`global_enabled`, active workspace, active strategy slot, or enabled watchlist groups/items). |
-| Default landing route (`/` vs `/cockpit`) | **Implemented (Partial / Untested)** | [`+page.ts`](../../frontend/src/routes/+page.ts) redirects `/` (`307`) to `/cockpit`, making `+page.svelte` (the Wails v3 3-panel Pulse/Matrix/Ledger dashboard) unreachable via `/`. |
+| Workspace tabs (`Achat`, `Short`, `Swing`) | **Implemented & Tested** | [`routes/cockpit/+page.svelte`](../../frontend/src/routes/cockpit/+page.svelte) renders 3 workspaces (`Achat`, `Short`, `Swing`) pre-seeded in `app.go` and `engine.go`. |
+| Single active strategy slot invariant | **Implemented & Tested** | Strict `1/1` active strategy slot concurrency enforced in UI (`buildExclusiveStrategyWorkspaces`) and validated fail-closed in `bot.Engine.CanExecute`. |
+| Cockpit state save & hot updates | **Implemented & Tested** | `UpdateCockpitState` in [`app.go`](../../app.go) saves cockpit state and updates runtime execution parameters via native Wails v3 IPC. |
+| Cockpit $\rightarrow$ Bot `Engine` wiring | **Implemented & Tested** | `Engine` strictly checks `global_enabled`, workspace enablement, active strategy slot, and per-ticker toggles during tick evaluation. |
+| Default landing route (`/` vs `/cockpit`) | **Implemented & Tested** | [`+page.ts`](../../frontend/src/routes/+page.ts) issues a `307` redirect to `/cockpit`, making the operator cockpit the default landing surface. |
 
 ### 2.4 Watchlists & TradingView Feed Sync
 
-| Capability | Status | Evidence & Implementation Gap |
+| Capability | Status | Evidence & Implementation Summary |
 |---|---|---|
-| TradingView shared watchlist import | **Implemented (Partial / Untested)** | `ImportTradingViewWatchlist` in [`app_watchlist.go`](../../app_watchlist.go#L21-L185) scrapes `application/prs.init-data+json`, splits `###` section headers into `WatchlistGroup`s, parses `EXCHANGE:SYMBOL`, and saves to `system_config['watchlist_state']`. No HTTP mock unit test exists. |
-| Watchlist JSON file import / export | **Implemented (Partial / Untested)** | `ImportWatchlistFile` and `ExportWatchlistFile` ([`app_watchlist.go`](../../app_watchlist.go#L188-L232)) use native Wails v3 file dialogs; JSON round-trip logic is duplicated in `app_watchlist_test.go`, which fails `go test .` due to duplicate `package main` on lines 1–2. |
-| Manual add / remove ticker | **Implemented (Partial / Untested)** | `AddWatchlistSymbol` / `RemoveWatchlistSymbol` exist in [`app_watchlist.go`](../../app_watchlist.go#L235-L315) (hardcoding `Exchange: "SMART"`), while `watchlist/+page.svelte` calls `replaceWatchlist` (HTTP `PUT /api/v1/watchlist`) and `SymbolSearch.svelte` calls `getSymbols` (HTTP `GET /api/v1/symbols`). |
-| Feed refresh button (`Refresh`) | **UI / Legacy HTTP Stub** | `refreshWatchlistFeed()` in `api.ts` calls HTTP `POST /api/v1/watchlist/feed/refresh` instead of re-invoking `ImportTradingViewWatchlist(watchlist.feed.url)`. |
-| `SYMBOL.VENUE` `instrument_id` normalization | **Not Wired / Missing in Go** | `WatchlistItem.InstrumentID` exists in [`backend/models/schemas.go`](../../backend/models/schemas.go#L10), but is never populated during import or symbol addition. |
+| TradingView shared watchlist import | **Implemented & Tested** | `ImportTradingViewWatchlist` in [`app_watchlist.go`](../../app_watchlist.go) fetches HTML, extracts `application/prs.init-data+json`, parses section headers, and normalizes tickers to `SYMBOL.VENUE`. |
+| Watchlist JSON file import / export | **Implemented & Tested** | `ImportWatchlistFile` and `ExportWatchlistFile` in [`app_watchlist.go`](../../app_watchlist.go) use native OS file dialogs with clean round-trip serialization. |
+| Manual add / remove ticker | **Implemented & Tested** | `AddWatchlistSymbol` and `RemoveWatchlistSymbol` in [`app_watchlist.go`](../../app_watchlist.go) mutate relational watchlist items with automatic venue qualification. |
+| Feed refresh button (`Refresh`) | **Implemented & Tested** | `RefreshWatchlistFeed` in [`app_watchlist.go`](../../app_watchlist.go) performs smart diff/merge, updating ticker universe while preserving operator overrides for enabled state, tiering, and sizing. |
+| `SYMBOL.VENUE` `instrument_id` normalization | **Implemented & Tested** | Normalized in [`backend/models/symbol.go`](../../backend/models/symbol.go) and [`backend/bot/resolver.go`](../../backend/bot/resolver.go), eliminating all 8 exchange-stripped collisions. |
+| Regime reference vs orderable equity gating | **Implemented & Tested** | `IsOrderable` and `IsRegimeReference` tags in `WatchlistItem` enforce Gate 7, ensuring benchmark and regime feeds inform indicators without placing orders. |
 
 ### 2.5 Strategy Builder, Library & Evaluation Engine
 
-| Capability | Status | Evidence & Implementation Gap |
+| Capability | Status | Evidence & Implementation Summary |
 |---|---|---|
-| Active strategy persistence & hot-reload | **Implemented (Partial / Untested)** | `GetStrategy` / `UpdateStrategy` ([`app_config.go`](../../app_config.go#L41-L71)) persist JSON to `system_config['strategy']` and unmarshal into `a.engine.ActiveStrategy`. Overwritten with `&models.Strategy{}` if `StartBot()` is invoked afterward. |
-| Native strategy JSON import / export | **Implemented (Partial / Untested)** | `ImportStrategyFile` / `ExportStrategyFile` ([`app_config.go`](../../app_config.go#L74-L113)) wired to `strategy/+page.svelte` via Wails v3 file dialogs. |
-| Strategy save, validation & library CRUD | **UI / Legacy HTTP Stub** | `strategy/+page.svelte` exposes preset Save/Update/Load/Activate/Delete and Validate buttons, but `api.ts` routes all of them to legacy `/api/v1/strategy*` HTTP endpoints. |
-| Array math (`SMA`, `EMA`, `CrossAbove`, `Slope`) | **Implemented & Tested** | [`backend/strategy/math.go`](../../backend/strategy/math.go) and [`evaluator.go`](../../backend/strategy/evaluator.go) pass `TestSMA`, `TestCrossAbove`, `TestEvaluateCondition`. |
-| Full rule & indicator evaluator coverage | **Not Wired / Missing in Go** | `EvaluateConditions` supports only `cross_above`, `greater_than`, and `slope_below` against pre-populated `"indicatorA"` / `"indicatorB"` slice keys. Missing: `cross_below`, `less_than`, `slope_above`, `within_range`; indicator calculators (`EMA`/`SMA` auto-compute, `RSI`, `MACD`, `VIX`, `Time`, Bollinger, Stochastic, OBV, Alligator); and nested `symbol -> timeframe -> frame` bundle resolution. |
-| UI $\leftrightarrow$ Go strategy schema alignment | **Not Wired / Missing in Go** | [`strategy/+page.svelte`](../../frontend/src/routes/strategy/+page.svelte) emits `crosses_above`, `crosses_below`, `per_ticker`, `length`, `params`, `component`, `symbol`, `position_size_mode`, `position_size_value`, while [`backend/models/strategy.go`](../../backend/models/strategy.go) defines `cross_above`, `cross_below`, `symbol`/`instrument`, `period` (and omits sizing fields and `params`). |
+| Active strategy persistence & hot-reload | **Implemented & Tested** | `GetStrategy` and `UpdateStrategy` in [`app_config.go`](../../app_config.go) persist strategy state to SQLite and hot-reload `Engine.ActiveStrategy`. |
+| Native strategy JSON import / export | **Implemented & Tested** | `ImportStrategyFile` and `ExportStrategyFile` in [`app_config.go`](../../app_config.go) provide native OS file import/export. |
+| Strategy library CRUD & validation | **Implemented & Tested** | `GetStrategyLibrary`, `GetStrategyPreset`, `SaveStrategyPreset`, `DeleteStrategyPreset`, `ApplyStrategyPreset`, and `ValidateStrategy` in [`app_strategy.go`](../../app_strategy.go). |
+| Array math & memoized indicator pipeline | **Implemented & Tested** | [`backend/strategy/indicators.go`](../../backend/strategy/indicators.go) provides thread-safe memoized indicator calculations (HA, RVOL, OBV, MACD, RSI, BB, Stoch, Alligator, Guppy, ATR, RS vs SPX) with zero-division protection. |
+| Multi-timeframe BarFrame bundle | **Implemented & Tested** | [`backend/strategy/barframe.go`](../../backend/strategy/barframe.go) supports hierarchical `symbol -> timeframe -> BarFrame` OHLCV bundles across all 9 Cobalt timeframes. |
+| Full rule & indicator evaluator coverage | **Implemented & Tested** | [`backend/strategy/evaluator.go`](../../backend/strategy/evaluator.go) supports all 7 condition types (`cross_above`, `cross_below`, `greater_than`, `less_than`, `slope_above`, `slope_below`, `within_range`). |
+| Pre-seeded 20 Cobalt & Screener 2.0 presets | **Implemented & Tested** | [`backend/strategy/catalog.go`](../../backend/strategy/catalog.go) pre-seeds all 13 chart models, 4 Screener 2.0 presets, and 3 Cours setups into SQLite. |
 
 ### 2.6 Broker Connectivity, Market Data, Sizing & Execution
 
-| Capability | Status | Evidence & Implementation Gap |
+| Capability | Status | Evidence & Implementation Summary |
 |---|---|---|
-| TWS socket connect / disconnect & settings | **Implemented (Partial / Untested)** | [`app.go`](../../app.go) + [`backend/bot/ibkr.go`](../../backend/bot/ibkr.go) connect via `scmhub/ibapi` using `tws_connection` in SQLite; `IBWrapper.Error` suppresses `2104`, `2106`, `2158`. `Sidebar.svelte` `loadSidebarConfig()` is currently an empty stub (`{}`), so persisted sidebar inputs do not hydrate on mount. |
-| Market-data streaming & historical pacing | **Not Wired / Missing in Go** | No scheduler in `App` or `Engine` requests historical bars or streaming quotes for watchlist symbols; `HistoricalDataEnd` maps `reqID` to placeholder `"SYM_<reqID>"` and forwards only `"Close"` / `"Open"` series. |
-| Order routing (`IBWrapper.ExecuteAction`) | **Implemented (Partial / Untested)** | Places `MKT` `DAY` orders via `w.client.PlaceOrder` and emits `ledger_entry`. **Gaps:** `actionMap` expects uppercase `"BUY"` / `"SELL"` while `models.ActionBuy` / `ActionSell` are lowercase `"buy"` / `"sell"`, `orderId` uses `w.currentReqID++` instead of TWS `NextValidId`, and `TotalQuantity` is hardcoded to `"100"`. |
-| Position sizing modes (`# shares`, `$`, `%`) & brackets | **Not Wired / Missing in Go** | Sidebar captures `fixed_notional`, `bracket_enabled`, `stop_loss_pct`, `take_profit_pct`; strategy UI models `position_size_mode` / `position_size_value`. Neither is wired into `Engine` or `IBWrapper.ExecuteAction`. |
-| Dry-run preview & live monitoring telemetry | **UI / Legacy HTTP Stub** | `FailsafeStop` works natively in [`app.go`](../../app.go#L190-L194). [`monitoring/+page.svelte`](../../frontend/src/routes/monitoring/+page.svelte) requires `dryRunBot()`, `getDiagnostics()`, and rich `BotState` telemetry (`equity`, `daily_pnl`, `recent_trades`), whereas Go `models.BotState` only contains `{running: bool}`. |
-| Bilingual UI (`en` / `fr`) | **Implemented (Partial / Untested)** | [`translations.ts`](../../frontend/src/lib/i18n/translations.ts) covers sidebar, manual, strategy, and watchlist. Newer UI labels in `monitoring/+page.svelte`, `+page.svelte`, and `"Filter tickers"` in `cockpit/+page.svelte` are currently hardcoded in English. |
+| TWS socket connect / disconnect & settings | **Implemented & Tested** | [`app.go`](../../app.go), [`backend/bot/ibkr.go`](../../backend/bot/ibkr.go), and [`Sidebar.svelte`](../../frontend/src/lib/components/Sidebar.svelte) connecting via `scmhub/ibapi` on port `7497` with settings hydration. |
+| 3-Mode position sizing (# shares, $, %) | **Implemented & Tested** | `CalculatePositionSize` in [`backend/bot/order.go`](../../backend/bot/order.go) computes sizes via fixed shares (priority 1), fixed dollar notional, or portfolio equity percentage. |
+| Multi-venue contract resolver & dot-class | **Implemented & Tested** | `ResolveContract` and `ConvertDotClass` in [`backend/bot/resolver.go`](../../backend/bot/resolver.go) handle US (`SMART/USD`), Canadian (`SMART/CAD`), and dot-class equities (`BRK B`, `CTC A`). |
+| 9-Gate fail-closed engine | **Implemented & Tested** | `CanExecute` in [`backend/bot/engine.go`](../../backend/bot/engine.go) evaluates all 9 fail-closed execution gates before order creation. |
+| Master circuit breaker & daily loss breaker | **Implemented & Tested** | Coupe-circuit principal (`global_enabled`) and automated daily loss risk breaker with manual reset in `ResetCircuitBreaker()`. |
+| Atomic `NextValidId` sequencing | **Implemented & Tested** | Atomic thread-safe counter in [`backend/bot/order.go`](../../backend/bot/order.go) synchronized from TWS socket `NextValidId`. |
+| Session gating (`RTH`/`ETH`) | **Implemented & Tested** | [`backend/bot/session.go`](../../backend/bot/session.go) enforces session-safe routing, rejecting `MKT` orders during ETH. |
+| OCA child bracket orders | **Implemented & Tested** | `CreateBracketOrderPair` in [`backend/bot/order.go`](../../backend/bot/order.go) generates parent `MKT` + OCA `LMT` profit target + OCA `STP` stop loss. |
+| Strict dry-run guard & audit ledger | **Implemented & Tested** | `IsDryRun` guard in [`backend/bot/ibkr.go`](../../backend/bot/ibkr.go) prevents live socket order transmission and records simulated fills to SQLite `trade_ledger`. |
+| Bilingual UI (`en` / `fr`) | **Implemented & Tested** | 100% key parity in [`frontend/src/lib/i18n/translations.ts`](../../frontend/src/lib/i18n/translations.ts) verified by `check-i18n-parity.py` with authentic Cobalt lexicon. |

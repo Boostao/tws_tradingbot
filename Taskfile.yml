@@ -2,7 +2,7 @@ version: '3'
 
 vars:
   APP_NAME: "tws_traderbot"
-  BIN_DIR: "bin"
+  BIN_DIR: "build/bin"
   VITE_PORT: '{{.WAILS_VITE_PORT | default 9245}}'
 
 tasks:
@@ -15,9 +15,35 @@ tasks:
     summary: Builds the application for Linux
     cmds:
       - task: build:frontend
+      - mkdir -p {{.BIN_DIR}}
       - go build -buildvcs=false -o {{.BIN_DIR}}/{{.APP_NAME}} .
     env:
       CGO_ENABLED: "1"
+
+  linux:package:
+    summary: Packages Linux binary with SHA-256 checksum
+    cmds:
+      - task: linux:build
+      - tar -czf {{.BIN_DIR}}/{{.APP_NAME}}-linux-amd64.tar.gz -C {{.BIN_DIR}} {{.APP_NAME}}
+      - cd {{.BIN_DIR}} && sha256sum {{.APP_NAME}}-linux-amd64.tar.gz > {{.APP_NAME}}-linux-amd64.tar.gz.sha256
+
+  windows:build:
+    summary: Builds the application for Windows
+    cmds:
+      - task: build:frontend
+      - mkdir -p {{.BIN_DIR}}
+      - go build -buildvcs=false -o {{.BIN_DIR}}/{{.APP_NAME}}.exe .
+    env:
+      GOOS: "windows"
+      GOARCH: "amd64"
+      CGO_ENABLED: '{{.CGO_ENABLED | default "0"}}'
+
+  windows:package:
+    summary: Packages Windows binary with SHA-256 checksum
+    cmds:
+      - task: windows:build
+      - zip -j {{.BIN_DIR}}/{{.APP_NAME}}-windows-amd64.zip {{.BIN_DIR}}/{{.APP_NAME}}.exe
+      - cd {{.BIN_DIR}} && sha256sum {{.APP_NAME}}-windows-amd64.zip > {{.APP_NAME}}-windows-amd64.zip.sha256
 
   build:frontend:
     summary: Installs frontend deps and builds the Svelte frontend
@@ -50,3 +76,8 @@ tasks:
     summary: Runs Go backend unit tests
     cmds:
       - go test -v ./backend/...
+
+  test:e2e:
+    summary: Runs the hermetic E2E test suite (Tiers 1-4)
+    cmds:
+      - go test -v -count=1 ./tests/e2e/...

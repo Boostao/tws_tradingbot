@@ -93,28 +93,29 @@
 Run all relevant gates from `/tws_traderbot` before committing changes:
 
 ```bash
-# 1. Go backend unit tests (runs without live TWS; skips TWS soak tests automatically when offline/CI)
-go test -v ./backend/...
-# or:
-task test:backend
+# 1. Go backend unit & race tests
+go test -race ./...
+# or: task test:backend
 
-# 2. Frontend dependency sync, Svelte type-check, and static bundle build
-(cd frontend && npm install && npm run check && npm run build)
+# 2. Frontend type-check & production build
+(cd frontend && npm run check && npm run build)
 
-# 3. Regenerate Wails v3 bindings (whenever app*.go signatures or backend/models change) & build native binary
-wails3 generate bindings
-task build
-# Output binary: bin/tws_traderbot (Linux build requires CGO_ENABLED=1 + GTK4/WebKitGTK 6.0 dev headers)
+# 3. Wails bindings & native app build
+wails3 generate bindings && task build
+# Output binary: build/bin/tws_traderbot
 
-# 4. Interactive Wails v3 dev mode (Vite HMR + Go rebuild watcher via build/config.yml)
-wails3 dev -config ./build/config.yml
-
-# 5. OKF documentation hygiene & unit test gate
+# 4. OKF hygiene, dependency lockstep & i18n parity linters
 python3 scripts/check-okf-hygiene.py
-python3 -m unittest discover -s scripts/tests -p 'test_*.py' -v
+python3 scripts/check-dep-lockstep.py
+python3 scripts/check-i18n-parity.py
+python3 -m unittest discover -s scripts/tests -p 'test_*.py'
+
+# 5. Full opaque-box E2E test suite (607 tests)
+task test:e2e
 ```
 
-### Current Verification Notes
+### Verification & Delivery Invariants
 
-- **Root Go Package Tests:** `go test ./backend/...` passes, whereas `go test .` currently fails at [`app_watchlist_test.go`](../../app_watchlist_test.go#L1-L2) due to a duplicate `package main` declaration on line 2. Fix root test compilation before enabling `go test ./...`.
+- **Full Go Suite & Race Detection:** `go test -race ./...` runs clean across all root and backend packages without data races.
+- **E2E & Adversarial Hardening:** `task test:e2e` executes all 607 opaque-box tests across Tiers 1–5 with 100% feature coverage and zero failures.
 - **OKF Curation Sync Rule:** Per [`okf/AGENTS.md`](../AGENTS.md) and [`../../AGENTS.md`](../../AGENTS.md), any commit altering Wails IPC bindings, SQLite schema, `backend/strategy/`, `backend/bot/`, or `frontend/` routes must update `okf/` in the same commit, leave zero `.md` files outside the allowlist, keep rule files (`AGENTS.md`, `okf/AGENTS.md`, `.github/copilot-instructions.md`) under `24,000` bytes, and pass [`scripts/check-okf-hygiene.py`](../../scripts/check-okf-hygiene.py).

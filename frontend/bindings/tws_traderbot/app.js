@@ -27,6 +27,17 @@ export function AddWatchlistSymbol($symbol) {
 }
 
 /**
+ * ApplyStrategyPreset binds a strategy preset to a workspace slot and updates active engine
+ * @param {string} workspaceId
+ * @param {string} slotId
+ * @param {string} strategyId
+ * @returns {$CancellablePromise<void>}
+ */
+export function ApplyStrategyPreset(workspaceId, slotId, strategyId) {
+    return $Call.ByID(2035409989, workspaceId, slotId, strategyId);
+}
+
+/**
  * @param {string} host
  * @param {number} port
  * @param {number} clientID
@@ -39,11 +50,30 @@ export function ConnectTws(host, port, clientID) {
 }
 
 /**
+ * DeleteStrategyPreset removes a preset from the database
+ * @param {string} id
+ * @returns {$CancellablePromise<void>}
+ */
+export function DeleteStrategyPreset(id) {
+    return $Call.ByID(2913756012, id);
+}
+
+/**
  * @returns {$CancellablePromise<{ [_ in string]?: any }>}
  */
 export function DisconnectTws() {
     return $Call.ByID(2813878687).then(/** @type {($result: any) => any} */(($result) => {
         return $$createType2($result);
+    }));
+}
+
+/**
+ * DryRunBot performs simulated execution against current market data
+ * @returns {$CancellablePromise<models$0.BotDryRun | null>}
+ */
+export function DryRunBot() {
+    return $Call.ByID(2767157764).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType4($result);
     }));
 }
 
@@ -73,12 +103,12 @@ export function FailsafeStop() {
 }
 
 /**
- * GetCockpitState replaces the FastAPI GET /api/cockpit/state endpoint
+ * GetCockpitState returns the current cockpit state from SQLite
  * @returns {$CancellablePromise<models$0.CockpitStateResponse | null>}
  */
 export function GetCockpitState() {
     return $Call.ByID(1652565109).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType4($result);
+        return $$createType6($result);
     }));
 }
 
@@ -93,12 +123,32 @@ export function GetConfig() {
 }
 
 /**
+ * GetDiagnostics returns system, runtime, and symbol telemetry
+ * @returns {$CancellablePromise<models$0.DiagnosticsResponse | null>}
+ */
+export function GetDiagnostics() {
+    return $Call.ByID(2811458213).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType8($result);
+    }));
+}
+
+/**
+ * GetRecentTrades returns recent execution records from the SQLite trade ledger
+ * @returns {$CancellablePromise<models$0.TradeRecord[]>}
+ */
+export function GetRecentTrades() {
+    return $Call.ByID(1907987451).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType10($result);
+    }));
+}
+
+/**
  * GetRuntimeState returns the actual bot engine state
  * @returns {$CancellablePromise<models$0.BotState | null>}
  */
 export function GetRuntimeState() {
     return $Call.ByID(3201211474).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType6($result);
+        return $$createType12($result);
     }));
 }
 
@@ -113,6 +163,38 @@ export function GetStrategy() {
 }
 
 /**
+ * GetStrategyLibrary returns all strategy presets stored in SQLite
+ * @returns {$CancellablePromise<models$0.CockpitStrategySummary[]>}
+ */
+export function GetStrategyLibrary() {
+    return $Call.ByID(2233467349).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType14($result);
+    }));
+}
+
+/**
+ * GetStrategyPreset retrieves a single strategy preset by ID
+ * @param {string} id
+ * @returns {$CancellablePromise<models$0.Strategy | null>}
+ */
+export function GetStrategyPreset(id) {
+    return $Call.ByID(2538167625, id).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType16($result);
+    }));
+}
+
+/**
+ * GetSymbols returns matching symbols from the watchlist universe
+ * @param {models$0.SymbolQuery} query
+ * @returns {$CancellablePromise<models$0.SymbolsResponse | null>}
+ */
+export function GetSymbols(query) {
+    return $Call.ByID(2798504988, query).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType18($result);
+    }));
+}
+
+/**
  * GetTWSConnection returns the current TWS connection settings from the DB
  * @returns {$CancellablePromise<{ [_ in string]?: any }>}
  */
@@ -123,12 +205,33 @@ export function GetTWSConnection() {
 }
 
 /**
- * GetWatchlist replaces the FastAPI GET /api/watchlist endpoint
+ * GetWatchlist returns the current default watchlist state
  * @returns {$CancellablePromise<models$0.WatchlistResponse | null>}
  */
 export function GetWatchlist() {
     return $Call.ByID(3248948658).then(/** @type {($result: any) => any} */(($result) => {
         return $$createType1($result);
+    }));
+}
+
+/**
+ * GetWatchlistById returns full details for a specific watchlist
+ * @param {string} id
+ * @returns {$CancellablePromise<models$0.WatchlistResponse | null>}
+ */
+export function GetWatchlistById(id) {
+    return $Call.ByID(758109094, id).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType1($result);
+    }));
+}
+
+/**
+ * GetWatchlists returns list of all watchlists for Cockpit and Sidebar dropdowns
+ * @returns {$CancellablePromise<models$0.WatchlistSummary[]>}
+ */
+export function GetWatchlists() {
+    return $Call.ByID(2599292627).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType20($result);
     }));
 }
 
@@ -152,11 +255,13 @@ export function ImportStrategyFile() {
 }
 
 /**
+ * ImportTradingViewWatchlist fetches and parses a public TradingView watchlist
  * @param {string} url
+ * @param {string[]} targetWatchlistID
  * @returns {$CancellablePromise<models$0.WatchlistResponse | null>}
  */
-export function ImportTradingViewWatchlist(url) {
-    return $Call.ByID(1864221651, url).then(/** @type {($result: any) => any} */(($result) => {
+export function ImportTradingViewWatchlist(url, ...targetWatchlistID) {
+    return $Call.ByID(1864221651, url, targetWatchlistID).then(/** @type {($result: any) => any} */(($result) => {
         return $$createType1($result);
     }));
 }
@@ -172,6 +277,17 @@ export function ImportWatchlistFile() {
 }
 
 /**
+ * RefreshWatchlistFeed re-fetches the TradingView feed and merges relationally
+ * @param {string} watchlistID
+ * @returns {$CancellablePromise<models$0.WatchlistResponse | null>}
+ */
+export function RefreshWatchlistFeed(watchlistID) {
+    return $Call.ByID(293401603, watchlistID).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType1($result);
+    }));
+}
+
+/**
  * RemoveWatchlistSymbol removes a symbol from all groups
  * @param {string} $symbol
  * @returns {$CancellablePromise<models$0.WatchlistResponse | null>}
@@ -180,6 +296,45 @@ export function RemoveWatchlistSymbol($symbol) {
     return $Call.ByID(4277182020, $symbol).then(/** @type {($result: any) => any} */(($result) => {
         return $$createType1($result);
     }));
+}
+
+/**
+ * ReplaceWatchlist updates or replaces watchlist groups with smart diff/merge
+ * @param {models$0.ReplaceWatchlistRequest | null} req
+ * @returns {$CancellablePromise<models$0.WatchlistResponse | null>}
+ */
+export function ReplaceWatchlist(req) {
+    return $Call.ByID(430335174, req).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType1($result);
+    }));
+}
+
+/**
+ * ResetCircuitBreaker manually re-arms the execution engine
+ * @returns {$CancellablePromise<void>}
+ */
+export function ResetCircuitBreaker() {
+    return $Call.ByID(20713433);
+}
+
+/**
+ * SaveStrategyPreset saves or updates a strategy preset in the library
+ * @param {models$0.Strategy | null} strat
+ * @returns {$CancellablePromise<models$0.CockpitStrategySummary | null>}
+ */
+export function SaveStrategyPreset(strat) {
+    return $Call.ByID(2868857102, strat).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType21($result);
+    }));
+}
+
+/**
+ * SaveWatchlist writes the watchlist state relationally with smart diff/merge
+ * @param {models$0.WatchlistResponse | null} wl
+ * @returns {$CancellablePromise<void>}
+ */
+export function SaveWatchlist(wl) {
+    return $Call.ByID(1093620323, wl);
 }
 
 /**
@@ -201,15 +356,13 @@ export function StopBot() {
 }
 
 /**
- * UpdateCockpitState replaces the FastAPI PUT /api/cockpit endpoint
- * Instead of a partial 'UpdateRequest' struct, we can just accept the full state payload
- * from the frontend, or selectively update the existing state.
+ * UpdateCockpitState updates the global cockpit state in SQLite
  * @param {models$0.CockpitStateResponse | null} update
  * @returns {$CancellablePromise<models$0.CockpitStateResponse | null>}
  */
 export function UpdateCockpitState(update) {
     return $Call.ByID(3742451386, update).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType4($result);
+        return $$createType6($result);
     }));
 }
 
@@ -246,11 +399,39 @@ export function UpdateTWSConnection(host, port, clientID) {
     return $Call.ByID(1224866830, host, port, clientID);
 }
 
+/**
+ * ValidateStrategy performs structural validation on strategy rules and indicators
+ * @param {models$0.Strategy | null} strat
+ * @returns {$CancellablePromise<models$0.ValidationResult | null>}
+ */
+export function ValidateStrategy(strat) {
+    return $Call.ByID(1369221750, strat).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType23($result);
+    }));
+}
+
 // Private type creation functions
 const $$createType0 = models$0.WatchlistResponse.createFrom;
 const $$createType1 = $Create.Nullable($$createType0);
 const $$createType2 = $Create.Map($Create.Any, $Create.Any);
-const $$createType3 = models$0.CockpitStateResponse.createFrom;
+const $$createType3 = models$0.BotDryRun.createFrom;
 const $$createType4 = $Create.Nullable($$createType3);
-const $$createType5 = models$0.BotState.createFrom;
+const $$createType5 = models$0.CockpitStateResponse.createFrom;
 const $$createType6 = $Create.Nullable($$createType5);
+const $$createType7 = models$0.DiagnosticsResponse.createFrom;
+const $$createType8 = $Create.Nullable($$createType7);
+const $$createType9 = models$0.TradeRecord.createFrom;
+const $$createType10 = $Create.Array($$createType9);
+const $$createType11 = models$0.BotState.createFrom;
+const $$createType12 = $Create.Nullable($$createType11);
+const $$createType13 = models$0.CockpitStrategySummary.createFrom;
+const $$createType14 = $Create.Array($$createType13);
+const $$createType15 = models$0.Strategy.createFrom;
+const $$createType16 = $Create.Nullable($$createType15);
+const $$createType17 = models$0.SymbolsResponse.createFrom;
+const $$createType18 = $Create.Nullable($$createType17);
+const $$createType19 = models$0.WatchlistSummary.createFrom;
+const $$createType20 = $Create.Array($$createType19);
+const $$createType21 = $Create.Nullable($$createType13);
+const $$createType22 = models$0.ValidationResult.createFrom;
+const $$createType23 = $Create.Nullable($$createType22);

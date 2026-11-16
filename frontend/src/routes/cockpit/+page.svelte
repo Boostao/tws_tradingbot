@@ -1,17 +1,23 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import {
+		applyStrategyPreset,
 		formatApiError,
 		getCockpit,
 		getWatchlist,
+		getWatchlistById,
+		getWatchlists,
+		refreshWatchlistFeed,
 		replaceWatchlist,
+		resetCircuitBreaker,
 		saveCockpit,
 		type CockpitState,
 		type CockpitStrategySlot,
 		type CockpitWorkspace,
 		type WatchlistGroup,
 		type WatchlistItem,
-		type WatchlistResponse
+		type WatchlistResponse,
+		type WatchlistSummary
 	} from '$lib/api';
 	import { language, t } from '$lib/i18n';
 	import { runtimeState } from '$lib/stores/runtime';
@@ -19,12 +25,18 @@
 
 	let cockpit: CockpitState | null = null;
 	let masterWatchlist: WatchlistResponse | null = null;
+	let availableWatchlists: WatchlistSummary[] = [];
+	let activeWatchlistId = 'cobalt-telegram';
 	let saving = false;
 	let message = '';
 	let collapsedGroups = new Set<string>();
 	let tickerFilter = '';
 
 	$: botState = $runtimeState;
+	$: pnl = botState?.daily_pnl ?? 0;
+	$: pnlPct = botState?.daily_pnl_percent ?? 0;
+	$: lossLimit = botState?.daily_loss_limit ?? 500;
+	$: nearBreach = pnl <= -lossLimit * 0.9;
 
 	$: _lang = $language;
 	$: activeWorkspace = cockpit?.workspaces.find((workspace) => workspace.id === cockpit?.active_workspace_id) ?? cockpit?.workspaces[0] ?? null;
@@ -86,12 +98,19 @@
 
 	async function loadCockpit(force = false) {
 		try {
-			const [nextCockpit, nextWatchlist] = await Promise.all([
+			const [nextCockpit, nextWatchlists, nextWatchlist] = await Promise.all([
 				getCockpit(force),
+				getWatchlists(),
 				getWatchlist(force)
 			]);
 			cockpit = nextCockpit;
+			availableWatchlists = (nextWatchlists ?? []) as WatchlistSummary[];
 			masterWatchlist = nextWatchlist;
+			if (masterWatchlist?.feed?.external_id) {
+				activeWatchlistId = masterWatchlist.feed.external_id;
+			} else if (availableWatchlists.length > 0) {
+				activeWatchlistId = availableWatchlists[0].id;
+			}
 		} catch (err) {
 			message = formatApiError(err);
 		}
@@ -100,6 +119,30 @@
 	onMount(() => {
 		void loadCockpit();
 	});
+
+	async function switchWatchlist(id: string) {
+		try {
+			saving = true;
+			activeWatchlistId = id;
+			masterWatchlist = await getWatchlistById(id);
+		} catch (err) {
+			message = formatApiError(err);
+		} finally {
+			saving = false;
+		}
+	}
+
+	async function handleRefreshFeed() {
+		try {
+			saving = true;
+			masterWatchlist = await refreshWatchlistFeed(activeWatchlistId);
+			cockpit = await getCockpit(true);
+		} catch (err) {
+			message = formatApiError(err);
+		} finally {
+			saving = false;
+		}
+	}
 
 	async function persist(next: CockpitState) {
 		saving = true;
@@ -169,6 +212,13 @@
 		if (!cockpit || !activeWorkspace) return;
 		const nextWorkspaces = buildExclusiveStrategyWorkspaces(activeWorkspace.id, slot.id, Boolean(strategyId), strategyId || null);
 		await persist({ ...cockpit, active_workspace_id: activeWorkspace.id, workspaces: nextWorkspaces });
+		if (strategyId) {
+			try {
+				await applyStrategyPreset(strategyId, activeWorkspace.id, slot.id);
+			} catch (err) {
+				message = formatApiError(err);
+			}
+		}
 	}
 
 	async function setAllTickers(enabled: boolean) {
@@ -198,6 +248,35 @@
 			};
 		});
 		await persistMasterGroups(nextGroups);
+	}
+
+	async function updateTickerSizing(groupId: string, ticker: WatchlistItem, mode: string, value: number) {
+		if (!masterWatchlist) return;
+		const nextGroups = cloneGroups(masterWatchlist.groups).map((group) => {
+			if (group.id !== groupId) return group;
+			return {
+				...group,
+				items: group.items.map((item) => {
+					if (itemKey(item) === itemKey(ticker)) {
+						return { ...item, size_mode: mode, size_value: value };
+					}
+					return item;
+				})
+			};
+		});
+		await persistMasterGroups(nextGroups);
+	}
+
+	async function handleResetBreaker() {
+		try {
+			await resetCircuitBreaker();
+			if (cockpit) {
+				await setGlobalEnabled(true);
+			}
+			await loadCockpit(true);
+		} catch (err) {
+			message = formatApiError(err);
+		}
 	}
 
 	function toggleGroup(groupId: string) {
@@ -280,6 +359,82 @@
 						<span class="cockpit-meta-subtle">{t('watchlist_last_refreshed', { value: formatTimestamp(masterWatchlist?.feed?.last_refreshed_at ?? masterWatchlist?.updated_at ?? cockpit.updated_at) })}</span>
 					</div>
 				</div>
+				{#if availableWatchlists.length > 0}
+					<div class="cockpit-watchlist-pillbar">
+						<span class="cockpit-meta-label">{t('watchlist')}:</span>
+						{#each availableWatchlists as wl}
+							<button
+								class="secondary cockpit-pill"
+								class:active-pill={wl.id === activeWatchlistId}
+								on:click={() => switchWatchlist(wl.id)}
+							>
+								{wl.name}
+							</button>
+						{/each}
+						<button class="secondary cockpit-pill-refresh" on:click={handleRefreshFeed} title={t('reload')}>
+							<RefreshCcw size={13} strokeWidth={1.8} />
+						</button>
+					</div>
+				{/if}
+			</div>
+
+			<!-- Telemetry & Breaker HUD Strip -->
+			<div class="cockpit-hud-strip card" class:hud-breaker-tripped={botState?.circuit_breaker_tripped || !cockpit.global_enabled}>
+				<!-- TWS Connection Indicator -->
+				<div class="hud-item hud-connection" title="IBKR TWS Socket">
+					<span class="hud-dot" class:is-connected={botState?.tws_connected}></span>
+					<span class="hud-label">{botState?.tws_connected ? t('tws_connected_status') : (t('tws_disconnected') || 'TWS Déconnecté')}</span>
+				</div>
+
+				<!-- Heartbeat Pulse -->
+				<div class="hud-item hud-heartbeat" title="Heartbeat">
+					<span class="hud-pulse-glyph">●</span>
+					<span class="hud-value">{botState?.last_heartbeat ? new Date(botState.last_heartbeat).toLocaleTimeString() : '--'}</span>
+				</div>
+
+				<!-- Portfolio Equity -->
+				<div class="hud-item hud-equity">
+					<span class="hud-label">{t('equity')}</span>
+					<strong class="hud-value font-mono">
+						${(botState?.equity ?? 100000).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+					</strong>
+				</div>
+
+				<!-- Daily P&L & P&L % -->
+				<div class="hud-item hud-pnl" class:is-positive={pnl >= 0} class:is-negative={pnl < 0}>
+					<span class="hud-label">{t('daily_pnl')}</span>
+					<strong class="hud-value font-mono">
+						{pnl >= 0 ? '+' : ''}${pnl.toFixed(2)} ({pnlPct >= 0 ? '+' : ''}{pnlPct.toFixed(2)}%)
+					</strong>
+				</div>
+
+				<!-- Daily Loss Limit -->
+				<div class="hud-item hud-limit" class:is-near-breach={nearBreach}>
+					<span class="hud-label">{t('cockpit_hud_loss_limit') || 'Limite Perte'}</span>
+					<span class="hud-value font-mono">-${lossLimit.toFixed(2)}</span>
+					{#if nearBreach}
+						<span class="hud-warning-badge" title="Perte proche de la limite (90%)">⚠️ 90%</span>
+					{/if}
+				</div>
+
+				<!-- Master Breaker Status Badge & Reset Action -->
+				<div class="hud-item hud-breaker-action">
+					{#if botState?.circuit_breaker_tripped || !cockpit.global_enabled}
+						<span class="hud-badge breaker-tripped">
+							<ShieldAlert size={14} />
+							{botState?.circuit_breaker_tripped ? (t('cockpit_hud_breaker_tripped') || 'COUPE-CIRCUIT DÉCLENCHÉ') : (t('cockpit_breaker_off') || 'COUPÉ')}
+						</span>
+						<button class="danger hud-reset-btn" on:click={handleResetBreaker}>
+							<Power size={13} strokeWidth={2} />
+							<span>{t('cockpit_hud_reset_breaker') || 'Réarmer coupe-circuit'}</span>
+						</button>
+					{:else}
+						<span class="hud-badge breaker-armed">
+							<Power size={14} />
+							{t('cockpit_hud_breaker_armed') || 'ARMÉ'}
+						</span>
+					{/if}
+				</div>
 			</div>
 
 			<div class="cockpit-grid">
@@ -335,8 +490,8 @@
 								type="text"
 								value={tickerFilter}
 								on:input={(event) => (tickerFilter = (event.currentTarget as HTMLInputElement).value)}
-								placeholder="Filter tickers"
-								aria-label="Filter tickers"
+								placeholder={t('filter_tickers')}
+								aria-label={t('filter_tickers')}
 							/>
 						</label>
 						<button
@@ -344,7 +499,7 @@
 							class="secondary cockpit-filter-clear"
 							on:click={() => (tickerFilter = '')}
 							disabled={!tickerFilter}
-							aria-label="Clear ticker filter"
+							aria-label={t('clear_ticker_filter')}
 						>
 							<X size={14} strokeWidth={2} />
 						</button>
@@ -370,19 +525,68 @@
 								{#if !collapsedGroups.has(group.id)}
 									<div class="cockpit-ticker-list">
 										{#each filteredGroup.items as item}
-											<div class="cockpit-ticker-row">
-												<div class="cockpit-ticker-line">
-													<span class="cockpit-ticker-symbol">{item.symbol}</span>
-													<span class="cockpit-ticker-subtle">{item.exchange || '—'}</span>
+											<div class="cockpit-ticker-row {item.enabled ? 'is-enabled' : 'is-disabled'}" class:is-holding={item.is_holding || group.id === 'holding'}>
+												<!-- 1. Normalized SYMBOL.VENUE badge & details -->
+												<div class="ticker-identity">
+													<span class="ticker-symbol font-mono">{item.symbol}</span>
+													<span class="ticker-badge venue-badge font-mono">
+														{item.venue || item.exchange || 'SMART'}
+													</span>
+													{#if item.instrument_id && item.instrument_id !== item.symbol}
+														<span class="ticker-instrument-norm font-mono">{item.instrument_id}</span>
+													{/if}
 													{#if item.name}
-														<span class="cockpit-ticker-subtle cockpit-ticker-name">{item.name}</span>
+														<span class="cockpit-ticker-subtle cockpit-ticker-name" title={item.name}>{item.name}</span>
 													{/if}
 												</div>
-												<label class="toggle">
-													<input type="checkbox" checked={item.enabled} on:change={(event) => setTickerEnabled(group.id, item, (event.currentTarget as HTMLInputElement).checked)} />
-													<span class="toggle-slider"></span>
-													<span class="toggle-label">{t('enabled')}</span>
-												</label>
+
+												<!-- 2. Méthode 8.8 Tier badge -->
+												<div class="ticker-tier">
+													{#if item.tier}
+														<span class="ticker-badge tier-badge tier-{item.tier.slice(0, 1)}">
+															{item.tier}
+														</span>
+													{/if}
+												</div>
+
+												<!-- 3. Holding indicator ($$$$) -->
+												<div class="ticker-holding">
+													{#if item.is_holding || group.id === 'holding' || (item.instrument_id && masterWatchlist?.feed?.external_id === 'positions-detenues')}
+														<span class="ticker-badge holding-badge font-mono" title="Position Détenue ($$$$)">$$$$</span>
+													{/if}
+												</div>
+
+												<!-- 4. Inline position sizing control -->
+												<div class="ticker-sizing">
+													<select
+														class="ticker-sizing-select font-mono"
+														value={item.size_mode || 'shares'}
+														on:change={(e) => updateTickerSizing(group.id, item, (e.currentTarget as HTMLSelectElement).value, item.size_value || 100)}
+														aria-label="Mode de dimensionnement"
+													>
+														<option value="shares">#</option>
+														<option value="dollar">$</option>
+														<option value="percent">%</option>
+													</select>
+													<input
+														type="number"
+														class="ticker-sizing-input font-mono"
+														value={item.size_value ?? 100}
+														min="1"
+														step={item.size_mode === 'percent' ? '0.5' : item.size_mode === 'dollar' ? '100' : '1'}
+														on:change={(e) => updateTickerSizing(group.id, item, item.size_mode || 'shares', parseFloat((e.currentTarget as HTMLInputElement).value) || 100)}
+														aria-label="Valeur de dimensionnement"
+													/>
+												</div>
+
+												<!-- 5. Enable/Disable toggle -->
+												<div class="ticker-toggle">
+													<label class="toggle">
+														<input type="checkbox" checked={item.enabled} on:change={(e) => setTickerEnabled(group.id, item, (e.currentTarget as HTMLInputElement).checked)} />
+														<span class="toggle-slider"></span>
+														<span class="toggle-label sr-only">{t('enabled')}</span>
+													</label>
+												</div>
 											</div>
 										{/each}
 									</div>

@@ -18,7 +18,59 @@ import (
 
 var tvPayloadRegex = regexp.MustCompile(`(?s)<script type="application/prs\.init-data\+json">\s*(\{.*?\})\s*</script>`)
 
-func (a *App) ImportTradingViewWatchlist(url string) (*models.WatchlistResponse, error) {
+// GetWatchlists returns list of all watchlists for Cockpit and Sidebar dropdowns
+func (a *App) GetWatchlists() ([]models.WatchlistSummary, error) {
+	return a.db.GetWatchlists()
+}
+
+// GetWatchlistById returns full details for a specific watchlist
+func (a *App) GetWatchlistById(id string) (*models.WatchlistResponse, error) {
+	return a.db.GetWatchlistByID(id)
+}
+
+// SaveWatchlist writes the watchlist state relationally with smart diff/merge
+func (a *App) SaveWatchlist(wl *models.WatchlistResponse) error {
+	return a.db.SaveWatchlistState(wl)
+}
+
+// ReplaceWatchlist updates or replaces watchlist groups with smart diff/merge
+func (a *App) ReplaceWatchlist(req *models.ReplaceWatchlistRequest) (*models.WatchlistResponse, error) {
+	if req == nil {
+		return nil, fmt.Errorf("request cannot be nil")
+	}
+	id := req.WatchlistID
+	if id == "" {
+		id = "cobalt-telegram"
+	}
+	name := req.Name
+	if name == "" {
+		name = id
+	}
+	return a.db.MergeAndSaveWatchlist(id, name, "", req.Feed, req.Groups, false)
+}
+
+// RefreshWatchlistFeed re-fetches the TradingView feed and merges relationally
+func (a *App) RefreshWatchlistFeed(watchlistID string) (*models.WatchlistResponse, error) {
+	if watchlistID == "" {
+		watchlistID = "cobalt-telegram"
+	}
+	wl, err := a.db.GetWatchlistByID(watchlistID)
+	if err != nil {
+		return nil, err
+	}
+	if wl.Feed == nil || wl.Feed.URL == "" {
+		return nil, fmt.Errorf("watchlist %s has no feed URL", watchlistID)
+	}
+	return a.ImportTradingViewWatchlist(wl.Feed.URL, watchlistID)
+}
+
+// GetSymbols returns matching symbols from the watchlist universe
+func (a *App) GetSymbols(query models.SymbolQuery) (*models.SymbolsResponse, error) {
+	return a.db.GetSymbols(query)
+}
+
+// ImportTradingViewWatchlist fetches and parses a public TradingView watchlist
+func (a *App) ImportTradingViewWatchlist(url string, targetWatchlistID ...string) (*models.WatchlistResponse, error) {
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("bad request: %v", err)
@@ -113,28 +165,24 @@ func (a *App) ImportTradingViewWatchlist(url string) (*models.WatchlistResponse,
 				startGroup(fallbackName)
 			}
 
-			var exchange, symbol string
-			parts := strings.SplitN(s, ":", 2)
-			if len(parts) == 2 {
-				exchange = strings.TrimSpace(parts[0])
-				symbol = strings.TrimSpace(parts[1])
-			} else {
-				symbol = strings.TrimSpace(s)
-				exchange = ""
-			}
-
-			if symbol == "" {
+			norm := models.NormalizeSymbol(s)
+			if norm.Symbol == "" {
 				continue
 			}
 
 			item := models.WatchlistItem{
-				Symbol:   strings.ToUpper(symbol),
-				Exchange: strings.ToUpper(exchange),
-				Name:     "",
-				Enabled:  true,
+				Symbol:            norm.Symbol,
+				Exchange:          norm.Exchange,
+				Venue:             norm.Venue,
+				InstrumentID:      norm.InstrumentID,
+				Name:              norm.Symbol,
+				Enabled:           true,
+				Tier:              "2-Croissance",
+				IsOrderable:       norm.IsOrderable,
+				IsRegimeReference: norm.IsRegimeReference,
 			}
 			groups[currentGroupIndex].Items = append(groups[currentGroupIndex].Items, item)
-			symbols = append(symbols, item.Symbol)
+			symbols = append(symbols, item.InstrumentID)
 		}
 	}
 
@@ -155,11 +203,24 @@ func (a *App) ImportTradingViewWatchlist(url string) (*models.WatchlistResponse,
 		}
 	}
 
-	id := ""
+	externalID := ""
 	if strID, ok := list["id"].(string); ok {
-		id = strID
+		externalID = strID
 	} else if numID, ok := list["id"].(float64); ok {
-		id = fmt.Sprintf("%.0f", numID)
+		externalID = fmt.Sprintf("%.0f", numID)
+	}
+
+	id := externalID
+	if len(targetWatchlistID) > 0 && targetWatchlistID[0] != "" {
+		id = targetWatchlistID[0]
+		if existing, err := a.db.GetWatchlistByID(id); err == nil && existing != nil && existing.Name != "" {
+			if name == "TradingView Import" || name == "" {
+				name = existing.Name
+			}
+		}
+	}
+	if id == "" {
+		id = "tradingview-import"
 	}
 
 	now := time.Now().UTC().Format(time.RFC3339)
@@ -167,18 +228,14 @@ func (a *App) ImportTradingViewWatchlist(url string) (*models.WatchlistResponse,
 		Provider:        "tradingview",
 		URL:             url,
 		Title:           name,
-		ExternalID:      id,
+		ExternalID:      externalID,
 		LastRefreshedAt: now,
 	}
 
-	res := &models.WatchlistResponse{
-		Symbols: symbols,
-		Groups:  finalGroups,
-		Feed:    feed,
-	}
-
-	if err := a.db.SaveWatchlistState(res); err != nil {
+	res, err := a.db.MergeAndSaveWatchlist(id, name, "", feed, finalGroups, true)
+	if err != nil {
 		fmt.Printf("Warning: failed to save imported watchlist state: %v\n", err)
+		return nil, err
 	}
 
 	return res, nil
@@ -235,27 +292,32 @@ func (a *App) ImportWatchlistFile() (*models.WatchlistResponse, error) {
 func (a *App) AddWatchlistSymbol(symbol string) (*models.WatchlistResponse, error) {
 	state, err := a.db.LoadWatchlistState()
 	if err != nil || state == nil {
-		state = a.GetWatchlist() // load default
+		state = a.GetWatchlist()
 	}
 
-	// Check if already exists
+	norm := models.NormalizeSymbol(symbol)
+
 	for _, s := range state.Symbols {
-		if s == symbol {
-			return state, nil // Already there
+		if s == norm.InstrumentID || s == symbol {
+			return state, nil
 		}
 	}
 
-	state.Symbols = append(state.Symbols, symbol)
+	state.Symbols = append(state.Symbols, norm.InstrumentID)
 
-	// Find or create manual group
 	manualFound := false
 	for i, g := range state.Groups {
 		if g.ID == "manual" {
 			state.Groups[i].Items = append(state.Groups[i].Items, models.WatchlistItem{
-				Symbol:   symbol,
-				Exchange: "SMART",
-				Name:     symbol,
-				Enabled:  true,
+				Symbol:            norm.Symbol,
+				Exchange:          norm.Exchange,
+				Venue:             norm.Venue,
+				InstrumentID:      norm.InstrumentID,
+				Name:              norm.Symbol,
+				Enabled:           true,
+				Tier:              "2-Croissance",
+				IsOrderable:       norm.IsOrderable,
+				IsRegimeReference: norm.IsRegimeReference,
 			})
 			manualFound = true
 			break
@@ -268,7 +330,17 @@ func (a *App) AddWatchlistSymbol(symbol string) (*models.WatchlistResponse, erro
 			Name:   "Manual",
 			Source: "manual",
 			Items: []models.WatchlistItem{
-				{Symbol: symbol, Exchange: "SMART", Name: symbol, Enabled: true},
+				{
+					Symbol:            norm.Symbol,
+					Exchange:          norm.Exchange,
+					Venue:             norm.Venue,
+					InstrumentID:      norm.InstrumentID,
+					Name:              norm.Symbol,
+					Enabled:           true,
+					Tier:              "2-Croissance",
+					IsOrderable:       norm.IsOrderable,
+					IsRegimeReference: norm.IsRegimeReference,
+				},
 			},
 		})
 	}
@@ -287,20 +359,20 @@ func (a *App) RemoveWatchlistSymbol(symbol string) (*models.WatchlistResponse, e
 		return nil, fmt.Errorf("watchlist state not found")
 	}
 
-	// Filter symbols array
+	norm := models.NormalizeSymbol(symbol)
+
 	var newSymbols []string
 	for _, s := range state.Symbols {
-		if s != symbol {
+		if s != symbol && s != norm.InstrumentID {
 			newSymbols = append(newSymbols, s)
 		}
 	}
 	state.Symbols = newSymbols
 
-	// Filter items inside groups
 	for i, g := range state.Groups {
 		var newItems []models.WatchlistItem
 		for _, item := range g.Items {
-			if item.Symbol != symbol {
+			if item.Symbol != symbol && item.InstrumentID != norm.InstrumentID {
 				newItems = append(newItems, item)
 			}
 		}

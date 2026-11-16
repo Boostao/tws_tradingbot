@@ -34,8 +34,9 @@ func TestEngineEvaluation(t *testing.T) {
 	}
 
 	// 3. Start engine
+	eng.SetGlobalEnabled(true)
 	_ = eng.StartBot(strat)
-	if !eng.IsRunning {
+	if !eng.IsRunning() {
 		t.Errorf("Engine should be running")
 	}
 
@@ -51,7 +52,7 @@ func TestEngineEvaluation(t *testing.T) {
 	}
 
 	eng.StopBot()
-	if eng.IsRunning {
+	if eng.IsRunning() {
 		t.Errorf("Engine should be stopped")
 	}
 }

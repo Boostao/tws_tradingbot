@@ -1,0 +1,138 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint-and-parity:
+    name: Lint, OKF Hygiene & Parity Gates
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Run OKF Hygiene Check
+        run: python3 scripts/check-okf-hygiene.py
+
+      - name: Run Dependency Lockstep Check
+        run: python3 scripts/check-dep-lockstep.py
+
+      - name: Run i18n Parity Check
+        run: python3 scripts/check-i18n-parity.py
+
+      - name: Run Python Linter Unit Test Suites
+        run: python3 -m unittest discover -s scripts/tests -p 'test_*.py'
+
+  frontend-check:
+    name: Frontend Check & Build (Svelte 5 / TS)
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: 'frontend/package-lock.json'
+
+      - name: Check and Build Frontend Bundle
+        run: |
+          cd frontend
+          npm ci
+          npm run check
+          npm run build
+
+  backend-tests:
+    name: Backend Tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-latest]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Go 1.26
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+          cache: true
+
+      - name: Install Linux GTK4 & WebKitGTK Dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libgtk-4-dev libwebkitgtk-6.0-dev build-essential pkg-config
+
+      - name: Run Go Backend Tests
+        run: go test -v ./...
+
+      - name: Run Go Backend Tests with Race Detection
+        if: runner.os == 'Linux'
+        run: go test -v -race ./...
+
+  bindings-drift-check:
+    name: Wails v3 Bindings Drift Check
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Go 1.26
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+
+      - name: Install Linux GTK4 & WebKitGTK Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libgtk-4-dev libwebkitgtk-6.0-dev build-essential pkg-config
+
+      - name: Install Wails v3 CLI
+        run: |
+          go install github.com/wailsapp/wails/v3/cmd/wails3@v3.1.0
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: Generate TypeScript Bindings and Verify Zero Drift
+        run: |
+          wails3 generate bindings
+          git diff --exit-code -- frontend/bindings
+
+  portal-build:
+    name: Static Release Portal Build & Zero-Markdown Gate
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Build Static Portal
+        run: node site/build.mjs
+
+      - name: Verify Zero Markdown in Distribution Directory
+        run: |
+          test $(find site/dist -type f \( -name '*.md' -o -name '*.markdown' \) | wc -l) -eq 0

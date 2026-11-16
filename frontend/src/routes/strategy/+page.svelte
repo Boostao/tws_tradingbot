@@ -2,7 +2,6 @@
 	import { onMount } from 'svelte';
 	import { ImportStrategyFile, ExportStrategyFile } from '../../../bindings/tws_traderbot/app';
 	import {
-		API_BASE,
 		applyStrategyPreset,
 		clearCache,
 		deleteStrategyPreset,
@@ -436,7 +435,8 @@
 		message = '';
 		try {
 			const data = await ImportStrategyFile();
-			updateStrategy(data);
+			if (!data) return;
+			updateStrategy(data as Strategy);
 			setPresetLink(null, data.name || '');
 			resetForm();
 			status = 'imported from file';

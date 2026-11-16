@@ -1,10 +1,10 @@
 # `tws_traderbot` Operational Knowledge Framework (`okf`) — Master Manifest & Executive Summary
 
 **System:** `tws_traderbot` — Local Interactive Brokers (TWS) Trading Workstation & Cobalt Methodology Cockpit  
-**Engineering Stack:** Go `1.26` · Wails v3 (`v3.0.0-alpha.96`) · Svelte 5 (`runes: false`) · `scmhub/ibapi` (`v0.10.46`) · SQLite (`modernc.org/sqlite`)  
+**Engineering Stack:** Go `1.26` · Wails v3 (`v3.1.0`) · Svelte 5 (`runes: false`) · `scmhub/ibapi` (`v0.10.50`) · SQLite (`modernc.org/sqlite`)  
 **Broker Interface:** Interactive Brokers TWS / IB Gateway (`127.0.0.1:7497`, Socket API)  
-**Canonical Repository Path:** `okf/` (in-tree at root of `Boostao/tws_tradingbot`, branch `wails3` `HEAD` `22beb38`)  
-**Audit Baseline Date:** `2026-11-16`  
+**Canonical Repository Path:** `okf/` (in-tree at root of `Boostao/tws_tradingbot`, branch `wails3` `HEAD`)  
+**Audit Baseline Date:** `2026-11-16` (Milestones 1–7 Delivered, Features 1–55 Shipped & Verified)  
 
 ---
 
@@ -12,14 +12,14 @@
 
 `tws_traderbot` is a local desktop trading workstation connecting **TradingView shared watchlists** and **Cobalt Investissements rule methodologies** to **Interactive Brokers Trader Workstation (TWS)** on the trader's own hardware—designed for a "vibe trader" operating model where broad curated lists (120–687+ symbols) funnel down (`REGARD MATINAL` `3–4` pre-market focus tickers $\rightarrow$ `1–3` active trades/session) with instant, non-destructive on/off controls.
 
-Synthesizing forensic evidence across **all four git branches (`alpha`, `pinescript`, `main`, `wails3`)**, **Go/Svelte source files (`HEAD` `22beb38`)**, **local SQLite runtime state**, **Telegram coordination logs (`messages.html` `#1`–`#120+`, `10` screenshots, `2026-04-28` meeting summary, `12:16` client video walkthrough & `37` key frames)**, **three live TradingView shared feeds (`209453826` `687` symbols, `111426240` `123` symbols, `40576813` `54` regime symbols)**, and **authenticated `cobaltinvestissements.com` extractions** (`2025-11-17_Methode_de_travail_8_8.pdf`, `473` `/mon-compte/analyse` daily brief entries, `36` Vimeo course videos across `34` VTT + `2` Whisper transcripts, `14` targeted keyframes, `13` Lesson `213` TradingView styles, `Lesson 212` `MODÈLE ANALYSE`, `Screener 2.0`, `COBALT Ratios | PRO`, `Cours-01..06`, and `57`-module `trader_ibkr` curriculum), this framework establishes the unified Past, Present, and Future record:
+Synthesizing forensic evidence across **all four git branches (`alpha`, `pinescript`, `main`, `wails3`)**, **Go/Svelte source files (`HEAD`)**, **local SQLite runtime state**, **Telegram coordination logs (`messages.html` `#1`–`#120+`, `10` screenshots, `2026-04-28` meeting summary, `12:16` client video walkthrough & `37` key frames)**, **three live TradingView shared feeds (`209453826` `687` symbols, `111426240` `123` symbols, `40576813` `54` regime symbols)**, and **authenticated `cobaltinvestissements.com` extractions** (`2025-11-17_Methode_de_travail_8_8.pdf`, `473` `/mon-compte/analyse` daily brief entries, `36` Vimeo course videos across `34` VTT + `2` Whisper transcripts, `14` targeted keyframes, `13` Lesson `213` TradingView styles, `Lesson 212` `MODÈLE ANALYSE`, `Screener 2.0`, `COBALT Ratios | PRO`, `Cours-01..06`, and `57`-module `trader_ibkr` curriculum), this framework establishes the unified Past, Present, and Future record:
 
 1. **The Past (`alpha` & `pinescript` Python Eras):** Originating on the `alpha` branch as a multi-service Python research stack (`uv`, FastAPI, `nautilus_trader`, DuckDB/PostgreSQL, Optuna, `joblib`/`onnxruntime` ML signals), `tws_traderbot` pivoted on the `pinescript` branch to a 3-process local TWS cockpit (`uvicorn :8000`, SvelteKit `:5173`, `live_runner.py`, flat JSON/YAML configs, `pine_script.py`, `TWSDataWrapper` on port `7497`) shaped around the `cazpe.com` prototype (`Achat` / `Short` / `Swing` tabs, grouped TradingView imports, Main Breaker, and buy-first / manual-exit operation) ([Legacy & Migration](./01_history_and_evolution/legacy_and_migration.md)).
 2. **The Present (`2026` — `wails3` Native Go Desktop `HEAD` + Cobalt Methodology Baseline):**
-   - **Native Desktop Architecture (`wails3` `22beb38`):** Rewritten in Go `1.26` (`commit 4c59c54`) and upgraded to Wails v3 (`commit 22beb38`), exposing **21 exported `App` methods** over Wails v3 IPC, pure-Go `modernc.org/sqlite` persistence (`system_config` JSON KV), `scmhub/ibapi` socket integration (`IBWrapper` suppressing `2104`, `2106`, `2158`), pure-Go slice math (`SMA`, `EMA`, `CrossAbove`, `Slope`), TradingView HTML `init-data` scraping (`ImportTradingViewWatchlist`), and bilingual (`en`/`fr`) Svelte 5 views (`/cockpit`, `/watchlist`, `/strategy`, `/monitoring`, `/manual`) ([System Architecture](./02_present_state/system_architecture.md), [Engineering Playbook](./05_engineering_and_agents/engineering_playbook.md)).
+   - **Native Desktop Architecture (`wails3` `HEAD`):** Written in Go `1.26` and Wails v3, exposing **32 exported `App` methods** over Wails v3 IPC, pure-Go `modernc.org/sqlite` relational persistence (`watchlists`, `watchlist_items`, `strategies`, `trade_ledger`, `system_config`), `scmhub/ibapi` socket integration (`IBWrapper` suppressing benign codes `2104`, `2106`, `2158`), multi-timeframe bar bundles (`barframe.go`) across all 9 Cobalt intervals, memoized indicator pipeline (HA, RVOL, OBV, MACD, RSI, BB, Stoch, Alligator, Guppy, ATR, RS vs SPX), TradingView HTML `init-data` scraping (`ImportTradingViewWatchlist`), and bilingual (`en`/`fr`) Svelte 5 views (`/cockpit`, `/watchlist`, `/strategy`, `/monitoring`, `/manual`) with 100% key parity ([System Architecture](./02_present_state/system_architecture.md), [Engineering Playbook](./05_engineering_and_agents/engineering_playbook.md)).
    - **Cobalt Domain, Daily Cadence & Universe Baseline:** Captures `REGARD MATINAL` (`228` daily briefs narrowing to `3–4` focus stocks), `Méthode de travail 8.8` (`A -> A -> A`, 12 analysis + 5 execution steps, `1-Blue Chip / 2-Croissance / 3-Spéculatif / 4-Rejeté`, `($$$$)` owned list), `CANAL-Cobalt` (`CobaltAdmin_bot`, `09:00–13:30` transport), `✝️@ Cobalt- TELEGRAM` (`209453826`, `687` symbols / `16` prefixes), `⚾️@ Cobalt- Home Run` (`111426240`, `123` symbols / `7` prefixes), `CBLT - MARCHÉS` (`40576813`, `54` macro/regime benchmarks), per-ticker 3-mode sizing (`# shares` > `$` > `% portfolio`), suspend-without-deleting toggles, all **13 Lesson `213` templates**, **19-row `COBALT Ratios | PRO` (`v1.23`->`v1.33`)**, and **4 official `Screener 2.0` presets** ([Cobalt Trading Universe](./02_present_state/cobalt_trading_universe.md), [Cobalt Indicators & Courses](./02_present_state/cobalt_indicators_and_courses.md)).
-   - **Audited Readiness Gaps:** `frontend/src/lib/api.ts` retains Wails v2 `(window as any).go` guards and 15 `/api/v1/*` HTTP stubs; `App.StartBot()` passes `&models.Strategy{}` and `Engine` ignores `cockpit_state`/`watchlist_state` and lacks bar-level trigger deduplication; `ibkr.go` hardcodes `100` share quantity, `STK/SMART/USD`, `"SYM_<reqID>"`, and uppercase `"BUY"`/`"SELL"`; **8 ticker collisions** plus non-orderable `40576813` macro/yield/FX/TSX-index symbols require `SYMBOL.VENUE` + `regime_reference` gating; and strategy UI JSON diverges from `backend/models/strategy.go` ([Capability Matrix](./02_present_state/capability_matrix.md), [Decisions & Gaps](./04_evidence_and_sources/decisions_and_gaps.md)).
-3. **The Future (5-Phase Rebuild & Bootstrap Roadmap):** Executes a staged convergence roadmap—unblocking root tests/Wails v3 IPC (`Phase 0`), wiring `Achat`/`Short`/`Swing` + `watchlist_state` + `SYMBOL.VENUE` + `regime_reference` tags into `Engine` (`Phase 1`), implementing 3-mode sizing (`# shares` / `$` / `%`), multi-venue `IBKRContract` translation, `NextValidId`, `RTH`/`ETH` order types, bar-dedup, pacing, brackets, and SQLite trade ledger (`Phase 2`), unifying schemas (`1m..4h, D, W, M`) + implementing Cobalt indicators (`MACD`, `OBV`, `RSI`, `BB`, `Stoch`, `Alligator`, `Guppy`, `ATR`/`ADR`, `Ticker/SPX`, `COBALT Ratios`) and native SQLite Strategy Library / Screener 2.0 presets (`Phase 3`), and adding automated watchlist refresh/diffing plus optional Phase 2 webhook/alert bridge (`Phase 4`) ([Future Roadmap](./03_future_architecture/roadmap.md)).
+   - **Hardened Delivery & Gap Closure:** All legacy HTTP `/api/v1/*` stubs and `(window as any).go` guards completely eliminated in favor of strongly-typed Wails v3 IPC; `Engine` fully wired to 9-gate fail-closed pipeline with Coupe-circuit principal and daily loss risk breaker; 3-mode position sizing (`# shares`, `$ notional`, `% portfolio`) fully operational; multi-venue contract resolver handling US (`SMART/USD`), Canadian (`SMART/CAD` TSE/VENTURE/PURE), dot-class normalizations (`BRK B`, `CTC A`), and regime-reference filtering; 9 Cobalt timeframes and memoized indicator pipeline (11+ indicators) active; 20 Cobalt presets pre-seeded in SQLite; and strict dry-run ledger recording enforced ([Capability Matrix](./02_present_state/capability_matrix.md), [Decisions & Gaps](./04_evidence_and_sources/decisions_and_gaps.md)).
+3. **The Future (Post-v1 Evolutionary Horizons):** Phases 0–4 of the original rebuild roadmap have been fully delivered and verified in Milestone 7. The future architecture horizon shifts to post-v1 candidate enhancements: optional local TradingView alert/webhook receiver (`D-10`), multi-account fleet management, and advanced order algorithms (trailing stop-limit, volume-paced TWAP/VWAP) ([Future Roadmap](./03_future_architecture/roadmap.md)).
 
 ---
 
@@ -33,22 +33,19 @@ flowchart TB
         P1 -->|"Drop Nautilus/ML/Postgres<br/>Focus on TWS Cockpit"| P2
     end
 
-    subgraph Present["02. PRESENT (2026): wails3 Desktop HEAD (22beb38) & Cobalt Spec"]
-        C1["Native Go 1.26 + Wails v3 + Svelte 5 Binary<br/>21 App IPC Methods · modernc.org/sqlite<br/>scmhub/ibapi (:7497) · SMA/EMA/Slope"]
-        C2["Cobalt Domain & Methodology Baseline<br/>3 TV Lists (687 / 123 / 54 Regime) · Method 8.8<br/>13 Chart Styles · Ratios PRO · 473 Daily Briefs"]
-        C3["Audited Parity Gaps (D-02..D-12)<br/>api.ts HTTP stubs · Engine ignores cockpit_state<br/>100-share & USD stub · 8 collisions + 9 TFs"]
+    subgraph Present["02. PRESENT (2026): Native Go 1.26 + Wails v3 + Svelte 5 Single Binary"]
+        C1["Native Desktop Architecture<br/>32 App IPC Methods · Relational SQLite Schema<br/>5 Cobalt Watchlists · 20 Strategy Presets"]
+        C2["Fail-Closed Execution & Routing<br/>9-Gate Fail-Closed Pipeline · Master & Daily Loss Breakers<br/>US/Canadian Multi-Venue Resolver · 3-Mode Sizing"]
+        C3["Market Data & UI Cockpit<br/>9 Cobalt Timeframes · Memoized Indicator Pipeline<br/>F1 Cockpit (1/1 Concurrency) · 100% i18n Parity"]
         C1 --- C2 --- C3
     end
 
-    subgraph Future["03. FUTURE: 5-Phase Rebuild & Operational Readiness"]
-        F1["Phases 0–1: Pure Wails v3 IPC & Wiring<br/>Remove /api/v1/* & window.go · Achat/Short/Swing<br/>4-Gate Engine · SYMBOL.VENUE + regime_reference"]
-        F2["Phase 2: Sizing, Multi-Venue & Safety<br/># / $ / % Sizing · TSX/CAD & Dot-Class Resolver<br/>NextValidId · RTH/ETH · Bar Dedup · SQLite Ledger"]
-        F3["Phases 3–4: Cobalt Engine & Sync<br/>Multi-TF (1m..1M) · MACD/OBV/RSI/BB/Alligator/ATR<br/>Screener 2.0 Presets · TV Diff Sync & Alert Bridge"]
-        F1 --> F2 --> F3
+    subgraph Future["03. FUTURE: Post-v1 Architectural Horizons"]
+        F1["Post-v1 Candidate Initiatives<br/>Optional Local Webhook / TV Alert Bridge (D-10)<br/>Multi-Account Fleet Allocation · Algorithmic TWAP/VWAP"]
     end
 
-    Past ==>|"Commit 4c59c54 & 22beb38<br/>Single-Binary Go/Wails v3"| Present
-    Present ==>|"Staged Gap Closure<br/>(roadmap.md Phases 0–4)"| Future
+    Past ==>|"Single-Binary Go/Wails v3 Rewrite"| Present
+    Present ==>|"Milestones 1–7 Shipped & Verified"| Future
 ```
 
 ---

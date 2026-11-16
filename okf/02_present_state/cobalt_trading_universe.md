@@ -160,15 +160,14 @@ On `2026-05-25` and `2026-05-28` (`messages.html` `#108`, `#110`, `#111`), `Trad
 2. **`$` Dollar Notional (`montant d'argent`):** Fixed currency amount per trade converted to shares at current market price.
 3. **`%` of Portfolio (`% du portefeuille`):** Percentage of account equity per trade (e.g., `5%` per trade).
 
-### 5.2 Current Implementation vs. Gaps (`HEAD`)
+### 5.2 Current Implementation (`HEAD`)
 
-- **Sidebar Runtime Config (`frontend/src/lib/components/Sidebar.svelte`, `photo_9`, `photo_10`):**
-  - Exposes `Fixed Notional ($)` (`fixed_notional`, default `10000`), `Enable bracket protection` (`bracket_enabled`, default `false`), `Stop-loss %` (`stop_loss_pct`, default `2`), `Take-profit %` (`take_profit_pct`, default `4`), and `Trading Mode` (`paper` / `live`), persisted to SQLite under `system_config` key `config`.
-- **Legacy Alpha Defaults (`alpha:config/default.yaml`, `alpha:strategies/example_strategy.json`):**
-  - Defined portfolio-level risk parameters (`max_drawdown: 0.10`, `daily_loss_limit: 0.05`, `max_position_pct: 0.20`, `stop_loss_pct: 0.02`) and strategy-level sizing fields (`position_size_mode: "equal"`, `position_size_value: 0.2`, `max_positions: 5`), none of which exist in current Go `models.Strategy`.
-- **Go Execution Engine (`backend/bot/ibkr.go#L118-L136`):**
-  - Currently **ignores** sidebar `fixed_notional`, bracket percentages, and per-ticker sizing: every triggered order places a flat `TotalQuantity: ibapi.StringToDecimal("100")`, `OrderType: "MKT"`, `TIF: "DAY"`.
-  - Action routing handles only `"BUY"` and `"SELL"` (no `"SHORT"` / `"COVER"` mapping or workspace-mode validation for the `Short` tab yet).
+- **Sidebar Runtime Config (`frontend/src/lib/components/Sidebar.svelte`):**
+  - Exposes `Fixed Notional ($)` (`fixed_notional`, default `10000`), `Enable bracket protection` (`bracket_enabled`, default `false`), `Stop-loss %` (`stop_loss_pct`, default `2`), `Take-profit %` (`take_profit_pct`, default `4`), and `Trading Mode` (`paper` / `live`), persisted to SQLite under `system_config` key `config`. Hydrates automatically on mount via `GetConfig()`.
+- **Go Execution Engine (`backend/bot/`):**
+  - Evaluates per-ticker 3-mode sizing in `backend/bot/order.go` (`CalculatePositionSize`): supports fixed `# shares` (priority 1), fixed dollar notional `$`, and `% portfolio` equity.
+  - When brackets are enabled, attaches OCA `LMT` profit target and `STP` stop-loss child orders.
+  - Fail-closed dry-run guard intercepts orders and records simulated fills in SQLite `trade_ledger` without live socket submission.
 
 ---
 
@@ -176,9 +175,9 @@ On `2026-05-25` and `2026-05-28` (`messages.html` `#108`, `#110`, `#111`), `Trad
 
 | Capability | Client Requirement & Evidence | Current `HEAD` State (`tws_traderbot` `wails3`) |
 |---|---|---|
-| **TradingView Shared Feed Import** | Paste shared URL (`209453826`, `111426240`, `40576813`), auto-parse `###` groups, refresh timestamp (`bruno 1.m4a`, `NOTES.md`) | **Implemented** in `ImportTradingViewWatchlist` (`app_watchlist.go`); manual refresh action still points to legacy REST helper (`refreshWatchlistFeed` in `api.ts`) |
-| **Grouped Suspend / Resume Without Deleting** | Toggle all / group / individual ticker ON/OFF (`bruno 1.m4a`, `photo_3`, `photo_8`) | **Implemented in UI** (`cockpit/+page.svelte`, `watchlist/+page.svelte`); **not yet enforced** in Go `Engine.EvaluateTick()` |
-| **Workspaces (`Achat` / `Short` / `Swing`) & 4 Strategy Slots** | Separate workspace tabs with multiple active strategies per workspace (`bruno 1.m4a`, `photo_5`, `photo_8`) | Schema (`CockpitWorkspace`) supports multiple tabs & slots, but `app.go` seeds only `Main Trading` and `cockpit/+page.svelte` caps UI at 1 exclusive slot (`0/1` / `1/1`) |
-| **Per-Ticker Position Sizing (`# shares`, `$`, `%`)** | Selector per ticker row in ticker column (`messages.html` `#108`, `#110`, `#111`) | **Missing** in `WatchlistItem`, `Cockpit`, and `ibkr.go` (sidebar has global `Fixed Notional ($)` `10000`, `ibkr.go` hardcodes `100` shares) |
-| **Multi-Venue Contract & Regime-Feed Resolution** | Support `NASDAQ`, `NYSE`, `AMEX`, `CBOE`, `TSX`/`TSXV`/`CSE` (`CAD`), dot-class tickers (`BRK.B`), and non-orderable macro/regime symbols (`TVC:VIX`, `40576813`) | **Missing** in `ibkr.go` (hardcodes `STK` / `SMART` / `USD` and skips exchange disambiguation on flat symbol lists) |
-| **Buy-First / Manual-Exit & Main Breaker** | Automated `BUY` entry with manual TWS exits; global Main Breaker stops order routing (`bruno 1.m4a`, `NOTES.md`) | Main Breaker persists `global_enabled` in SQLite; `Engine` / `StartBot` / `StopBot` operate independently of `global_enabled` |
+| **TradingView Shared Feed Import** | Paste shared URL (`209453826`, `111426240`, `40576813`), auto-parse `###` groups, refresh timestamp (`bruno 1.m4a`, `NOTES.md`) | **Implemented & Tested** in `ImportTradingViewWatchlist` and `RefreshWatchlistFeed` (`app_watchlist.go`) with smart diff/merge. |
+| **Grouped Suspend / Resume Without Deleting** | Toggle all / group / individual ticker ON/OFF (`bruno 1.m4a`, `photo_3`, `photo_8`) | **Implemented & Enforced in Go** (`bot.Engine.CanExecute` Gate 6 preserves ticker feed while suspending execution). |
+| **Workspaces (`Achat` / `Short` / `Swing`) & Strategy Slots** | Separate workspace tabs with 1/1 exclusive active strategy concurrency (`bruno 1.m4a`, `photo_5`, `photo_8`, `AGENTS.md`) | **Implemented & Enforced in Go** (`Achat`, `Short`, `Swing` seeded in SQLite; strict `1/1` active slot concurrency enforced in UI and `bot.Engine` Gate 5). |
+| **Per-Ticker Position Sizing (`# shares`, `$`, `%`)** | Selector per ticker row in ticker column (`messages.html` `#108`, `#110`, `#111`) | **Implemented & Enforced in Go** (`CalculatePositionSize` in `backend/bot/order.go` evaluates `# shares` > `$` > `%`). |
+| **Multi-Venue Contract & Regime-Feed Resolution** | Support `NASDAQ`, `NYSE`, `AMEX`, `CBOE`, `TSX`/`TSXV`/`CSE` (`CAD`), dot-class tickers (`BRK.B`), and non-orderable macro/regime symbols (`TVC:VIX`, `40576813`) | **Implemented & Enforced in Go** (`ResolveContract` in `backend/bot/resolver.go` resolves US/CAD equities, converts dot-class tickers, and Gate 7 blocks regime feeds). |
+| **Buy-First / Manual-Exit & Main Breaker** | Automated `BUY` entry with manual TWS exits; global Main Breaker stops order routing (`bruno 1.m4a`, `NOTES.md`) | **Implemented & Enforced in Go** (Coupe-circuit principal `global_enabled` and automated daily loss breaker halt all entry orders fail-closed). |

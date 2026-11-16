@@ -18,17 +18,18 @@ Instructions are layered to avoid context bloat while preserving engineering inv
 
 ## 2. Repository Directory Layout
 
-- **`main.go`, `app.go`, `app_config.go`, `app_watchlist.go`** — Wails v3 application entry point, IPC service bindings, config, and watchlist management.
+- **`main.go`, `app.go`, `app_config.go`, `app_watchlist.go`, `app_strategy.go`, `app_diagnostics.go`** — Wails v3 application entry point, IPC service bindings (32 methods), config, watchlist management, strategy library, and diagnostics.
 - **`backend/`** — Go backend packages:
   - `api/` — Backend API context exposed to Wails.
-  - `bot/` — Execution engine (`Engine.EvaluateTick()`), order routing, and dry-run guards.
-  - `db/` — SQLite persistence (`system_config`, watchlists, runtime state).
-  - `models/` — Shared domain structs (with `json:"..."` tags for Wails TypeScript bindings).
-  - `strategy/` — Native Go array math evaluators (SMA, EMA, Crossover, Slope).
+  - `bot/` — Execution engine (`Engine.EvaluateTick()`), 9-gate fail-closed pipeline, order routing (`order.go`), multi-venue contract resolver (`resolver.go`), session gating (`session.go`), and dry-run guards.
+  - `db/` — SQLite persistence (`sqlite.go`, `watchlist.go`, `watchlist_seeds.go`, `strategy.go`, `cockpit.go`, `ledger.go`, `config.go`).
+  - `models/` — Shared domain structs (`symbol.go`, `watchlist.go`, `strategy.go`, `cockpit.go`, `diagnostics.go`, `ledger.go`, `runtime.go`) with `json:"..."` tags for Wails TypeScript bindings.
+  - `strategy/` — Multi-timeframe bar bundles (`barframe.go`), memoized indicator math (`math.go`, `indicators.go`), condition evaluator (`evaluator.go`), and 20 preset catalogs (`catalog.go`).
   - `wrapper/` — Custom `IBWrapper` embedding `ibapi.Wrapper` for TWS market data and execution.
-- **`frontend/`** — Svelte 5 + SvelteKit + TypeScript UI (`@wailsio/runtime`, `frontend/bindings/`, `frontend/src/lib/i18n/translations.ts`).
+- **`frontend/`** — Svelte 5 + SvelteKit + TypeScript UI (`@wailsio/runtime`, `frontend/bindings/`, `frontend/src/lib/i18n/translations.ts`, Cockpit, Watchlist, Strategy, Monitoring views).
+- **`site/`** — Static release portal generator (`build.mjs`, `release-manifest.json`, `styles.css`) outputting to `site/dist/`.
 - **`okf/`** — **Operational Knowledge Framework**: authoritative specifications across `01_history_and_evolution/`, `02_present_state/`, `03_future_architecture/`, `04_evidence_and_sources/`, and `05_engineering_and_agents/`, governed by [`okf/AGENTS.md`](./okf/AGENTS.md) (in-place sync on architectural/schema/strategy changes; zero stray `.md` files outside allowlisted paths).
-- **`scripts/`** — OKF hygiene linter (`check-okf-hygiene.py`) and test suites (`scripts/tests/`).
+- **`scripts/`** — Linters (`check-okf-hygiene.py`, `check-dep-lockstep.py`, `check-i18n-parity.py`) and test suites (`scripts/tests/`).
 - **`.agents/`** — Project skills (including [`okf-curator`](./.agents/skills/okf-curator/SKILL.md)).
 - **`.github/`** — CI workflows and Copilot instructions ([`.github/copilot-instructions.md`](./.github/copilot-instructions.md)).
 
@@ -57,8 +58,8 @@ Instructions are layered to avoid context bloat while preserving engineering inv
 ## 4. Quick Validation Matrix
 
 ```bash
-# 1. Go Backend Unit Tests
-go test -v ./backend/...
+# 1. Go Backend & Race Tests
+go test -race ./...
 # or: task test:backend
 
 # 2. Svelte Frontend Type-Check & Build
@@ -68,7 +69,12 @@ go test -v ./backend/...
 wails3 generate bindings
 task build
 
-# 4. OKF Hygiene & Markdown Allowlist Gate
+# 4. Linters & Parity Gates
 python3 scripts/check-okf-hygiene.py
+python3 scripts/check-dep-lockstep.py
+python3 scripts/check-i18n-parity.py
 python3 -m unittest discover -s scripts/tests -p 'test_*.py'
+
+# 5. E2E Test Suite
+task test:e2e
 ```

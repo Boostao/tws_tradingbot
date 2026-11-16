@@ -970,15 +970,295 @@ a {
 	gap: 6px;
 }
 
+/* Watchlist Swapper Pill Bar */
+.cockpit-watchlist-pillbar {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	flex-wrap: wrap;
+	padding: 8px 0;
+	border-top: 1px solid #1f2937;
+	margin-top: 8px;
+}
+
+.cockpit-pill {
+	padding: 4px 10px;
+	font-size: 12px;
+	border-radius: 6px;
+	background: #111418;
+	border: 1px solid #1f2937;
+	color: #94a3b8;
+	cursor: pointer;
+	transition: all 0.15s ease;
+}
+
+.cockpit-pill:hover {
+	background: #1e293b;
+	color: #ffffff;
+}
+
+.cockpit-pill.active-pill {
+	background: #1d4ed8;
+	border-color: #3b82f6;
+	color: #ffffff;
+	font-weight: 700;
+}
+
+.cockpit-pill-refresh {
+	padding: 4px 8px;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	border-radius: 6px;
+	background: #111418;
+	border: 1px solid #1f2937;
+	color: #94a3b8;
+	cursor: pointer;
+}
+.cockpit-pill-refresh:hover {
+	background: #1e293b;
+	color: #ffffff;
+}
+
+/* HUD Telemetry Strip */
+.cockpit-hud-strip {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+	padding: 8px 14px;
+	background: #050505;
+	border: 1px solid #1c1c1e;
+	border-radius: 8px;
+	flex-wrap: wrap;
+	margin-bottom: 14px;
+}
+
+.cockpit-hud-strip.hud-breaker-tripped {
+	border-color: #ff3b30;
+	background: linear-gradient(180deg, rgba(255, 59, 48, 0.12), #050505);
+}
+
+.hud-item {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	font-size: 13px;
+	white-space: nowrap;
+}
+
+.hud-dot {
+	width: 8px;
+	height: 8px;
+	border-radius: 50%;
+	background: #ff3b30;
+}
+.hud-dot.is-connected {
+	background: #30d158;
+	box-shadow: 0 0 6px rgba(48, 209, 88, 0.6);
+}
+
+.hud-pulse-glyph {
+	color: #0a84ff;
+	font-size: 10px;
+}
+
+.hud-pnl.is-positive .hud-value { color: #30d158; }
+.hud-pnl.is-negative .hud-value { color: #ff3b30; }
+
+.hud-limit.is-near-breach {
+	color: #ff9f0a;
+}
+.hud-warning-badge {
+	background: rgba(255, 159, 10, 0.2);
+	color: #ff9f0a;
+	padding: 2px 6px;
+	border-radius: 4px;
+	font-size: 11px;
+	font-weight: 700;
+}
+
+.hud-badge.breaker-armed {
+	background: rgba(48, 209, 88, 0.15);
+	color: #30d158;
+	border: 1px solid #30d158;
+	padding: 3px 8px;
+	border-radius: 4px;
+	font-weight: 700;
+	font-size: 12px;
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+}
+
+.hud-badge.breaker-tripped {
+	background: rgba(255, 59, 48, 0.2);
+	color: #ff3b30;
+	border: 1px solid #ff3b30;
+	padding: 3px 8px;
+	border-radius: 4px;
+	font-weight: 700;
+	font-size: 12px;
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+}
+
+.hud-reset-btn {
+	background: #ff3b30;
+	color: #ffffff;
+	border: none;
+	padding: 4px 10px;
+	border-radius: 6px;
+	font-size: 12px;
+	font-weight: 700;
+	cursor: pointer;
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	margin-left: 8px;
+}
+.hud-reset-btn:hover {
+	background: #d32f2f;
+}
+
 .cockpit-ticker-list {
 	display: grid;
-	gap: 6px;
+	gap: 4px;
 }
 
 .cockpit-ticker-row {
-	padding-top: 6px;
-	border-top: 1px solid #1f2937;
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+	padding: 4px 8px;
+	height: 38px;
+	min-height: 38px;
+	background: #050505;
+	border-bottom: 1px solid #141414;
+	white-space: nowrap;
 	flex-wrap: nowrap;
+}
+
+.cockpit-ticker-row:hover {
+	background: #0f0f0f;
+}
+
+.cockpit-ticker-row.is-disabled {
+	opacity: 0.65;
+}
+
+.ticker-identity {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	min-width: 0;
+	flex: 1 1 auto;
+}
+
+.ticker-symbol {
+	color: #ffffff;
+	font-weight: 700;
+	font-size: 13px;
+}
+
+.ticker-badge {
+	font-size: 11px;
+	font-weight: 600;
+	padding: 1px 5px;
+	border-radius: 4px;
+	text-transform: uppercase;
+}
+
+.venue-badge {
+	background: #1c1c1e;
+	color: #a1a1aa;
+	border: 1px solid #27272a;
+}
+
+.ticker-instrument-norm {
+	font-size: 11px;
+	color: #71717a;
+}
+
+/* Méthode 8.8 Tier Badges */
+.tier-badge.tier-1 {
+	background: rgba(10, 132, 255, 0.15);
+	color: #38bdf8;
+	border: 1px solid rgba(10, 132, 255, 0.4);
+}
+.tier-badge.tier-2 {
+	background: rgba(191, 90, 242, 0.15);
+	color: #c084fc;
+	border: 1px solid rgba(191, 90, 242, 0.4);
+}
+.tier-badge.tier-3 {
+	background: rgba(255, 159, 10, 0.15);
+	color: #fbbf24;
+	border: 1px solid rgba(255, 159, 10, 0.4);
+}
+
+/* Holding $$$$ Badge */
+.holding-badge {
+	background: rgba(48, 209, 88, 0.18);
+	color: #30d158;
+	border: 1px solid #30d158;
+	font-weight: 800;
+	letter-spacing: 1px;
+}
+
+/* Inline Position Sizing */
+.ticker-sizing {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+}
+
+.ticker-sizing-select {
+	background: #000000;
+	color: #e4e4e7;
+	border: 1px solid #27272a;
+	border-radius: 4px;
+	padding: 2px 4px;
+	font-size: 12px;
+	height: 26px;
+	cursor: pointer;
+}
+
+.ticker-sizing-input {
+	background: #000000;
+	color: #ffffff;
+	border: 1px solid #27272a;
+	border-radius: 4px;
+	padding: 2px 6px;
+	font-size: 12px;
+	width: 65px;
+	height: 26px;
+	text-align: right;
+}
+
+.ticker-sizing-input:focus,
+.ticker-sizing-select:focus {
+	border-color: #38bdf8;
+	outline: none;
+}
+
+.ticker-toggle {
+	display: inline-flex;
+	align-items: center;
+}
+
+.sr-only {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	padding: 0;
+	margin: -1px;
+	overflow: hidden;
+	clip: rect(0, 0, 0, 0);
+	white-space: nowrap;
+	border-width: 0;
 }
 
 .cockpit-ticker-line {

@@ -1,6 +1,6 @@
 # TWS TraderBot (Go / Wails Edition)
 
-TWS TraderBot Go is a fast, high-performance, single-binary trading application for Interactive Brokers (IBKR/TWS). It replaces the legacy Python FastAPI backend with a fully native Golang implementation using [Wails](https://wails.io/), while preserving the snappy Svelte SvelteKit frontend.
+TWS TraderBot Go is a fast, high-performance, single-binary trading application for Interactive Brokers (IBKR/TWS). It replaces the legacy Python REST backend with a fully native Golang implementation using [Wails](https://wails.io/), while preserving the snappy Svelte SvelteKit frontend.
 
 This architecture fundamentally redesigns the local execution workflow for production readiness and seamless deployments.
 
@@ -8,7 +8,7 @@ This architecture fundamentally redesigns the local execution workflow for produ
 
 ## 🏗️ Python to Go Translation Notes & Architecture
 
-The previous stack relied on a split FastAPI server and a separate React/Svelte Web UI server communicating via HTTP REST. The Go re-write bundles everything into a single desktop execution window.
+The previous stack relied on a split backend server and a separate React/Svelte Web UI server communicating via HTTP REST. The Go re-write bundles everything into a single desktop execution window.
 
 ### 1. Communication (REST ➔ Wails IPC)
 - **Legacy**: `GET /api/v1/cockpit`, `PUT /api/v1/watchlist` over `localhost:8000`.

@@ -6,18 +6,341 @@
 // @ts-ignore: Unused imports
 import { Create as $Create } from "@wailsio/runtime";
 
+/**
+ * @readonly
+ * @enum {string}
+ */
+export const ActionType = {
+    /**
+     * The Go zero value for the underlying type of the enum.
+     */
+    $zero: "",
+
+    ActionBuy: "buy",
+    ActionSell: "sell",
+    ActionFilter: "filter",
+    ActionAlert: "alert",
+};
+
+export class BotDryRun {
+    /**
+     * Creates a new BotDryRun instance.
+     * @param {Partial<BotDryRun>} [$$source = {}] - The source object to create the BotDryRun.
+     */
+    constructor($$source = {}) {
+        if (!("strategy" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["strategy"] = "";
+        }
+        if (!("workspace_kind" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["workspace_kind"] = "";
+        }
+        if (!("subscriptions" in $$source)) {
+            /**
+             * @member
+             * @type {BotDryRunSubscription[]}
+             */
+            this["subscriptions"] = [];
+        }
+        if (!("positions" in $$source)) {
+            /**
+             * @member
+             * @type {{ [_ in string]?: any }}
+             */
+            this["positions"] = {};
+        }
+        if (!("open_orders" in $$source)) {
+            /**
+             * @member
+             * @type {{ [_ in string]?: any }[]}
+             */
+            this["open_orders"] = [];
+        }
+        if (!("planned_orders" in $$source)) {
+            /**
+             * @member
+             * @type {{ [_ in string]?: any }[]}
+             */
+            this["planned_orders"] = [];
+        }
+        if (!("state" in $$source)) {
+            /**
+             * @member
+             * @type {BotState | null}
+             */
+            this["state"] = null;
+        }
+        if (!("generated_at" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["generated_at"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new BotDryRun instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {BotDryRun}
+     */
+    static createFrom($$source = {}) {
+        const $$createField2_0 = $$createType1;
+        const $$createField3_0 = $$createType2;
+        const $$createField4_0 = $$createType3;
+        const $$createField5_0 = $$createType3;
+        const $$createField6_0 = $$createType5;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("subscriptions" in $$parsedSource) {
+            $$parsedSource["subscriptions"] = $$createField2_0($$parsedSource["subscriptions"]);
+        }
+        if ("positions" in $$parsedSource) {
+            $$parsedSource["positions"] = $$createField3_0($$parsedSource["positions"]);
+        }
+        if ("open_orders" in $$parsedSource) {
+            $$parsedSource["open_orders"] = $$createField4_0($$parsedSource["open_orders"]);
+        }
+        if ("planned_orders" in $$parsedSource) {
+            $$parsedSource["planned_orders"] = $$createField5_0($$parsedSource["planned_orders"]);
+        }
+        if ("state" in $$parsedSource) {
+            $$parsedSource["state"] = $$createField6_0($$parsedSource["state"]);
+        }
+        return new BotDryRun(/** @type {Partial<BotDryRun>} */($$parsedSource));
+    }
+}
+
+export class BotDryRunSubscription {
+    /**
+     * Creates a new BotDryRunSubscription instance.
+     * @param {Partial<BotDryRunSubscription>} [$$source = {}] - The source object to create the BotDryRunSubscription.
+     */
+    constructor($$source = {}) {
+        if (!("symbol" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["symbol"] = "";
+        }
+        if (!("timeframe" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["timeframe"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new BotDryRunSubscription instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {BotDryRunSubscription}
+     */
+    static createFrom($$source = {}) {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new BotDryRunSubscription(/** @type {Partial<BotDryRunSubscription>} */($$parsedSource));
+    }
+}
+
 export class BotState {
     /**
      * Creates a new BotState instance.
      * @param {Partial<BotState>} [$$source = {}] - The source object to create the BotState.
      */
     constructor($$source = {}) {
-        if (!("running" in $$source)) {
+        if (!("status" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["status"] = "";
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {boolean | undefined}
+             */
+            this["running"] = undefined;
+        }
+        if (!("tws_connected" in $$source)) {
             /**
              * @member
              * @type {boolean}
              */
-            this["running"] = false;
+            this["tws_connected"] = false;
+        }
+        if (!("equity" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["equity"] = 0;
+        }
+        if (!("daily_pnl" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["daily_pnl"] = 0;
+        }
+        if (!("daily_pnl_percent" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["daily_pnl_percent"] = 0;
+        }
+        if (!("total_pnl" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["total_pnl"] = 0;
+        }
+        if (!("daily_loss_limit" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["daily_loss_limit"] = 0;
+        }
+        if (!("circuit_breaker_tripped" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["circuit_breaker_tripped"] = false;
+        }
+        if (!("active_strategy" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["active_strategy"] = "";
+        }
+        if (!("open_positions_count" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["open_positions_count"] = 0;
+        }
+        if (!("pending_orders_count" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["pending_orders_count"] = 0;
+        }
+        if (!("trades_today" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["trades_today"] = 0;
+        }
+        if (!("win_rate_today" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["win_rate_today"] = 0;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["last_update"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["last_heartbeat"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string[] | undefined}
+             */
+            this["recent_logs"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {{ [_ in string]?: any }[] | undefined}
+             */
+            this["recent_orders"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {{ [_ in string]?: any }[] | undefined}
+             */
+            this["recent_trades"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {{ [_ in string]?: any } | undefined}
+             */
+            this["last_dry_run"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["last_runtime_reload_at"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["last_runtime_reload_reason"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["last_disconnect_at"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["last_disconnect_reason"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["error_message"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {boolean | undefined}
+             */
+            this["runner_active"] = undefined;
         }
 
         Object.assign(this, $$source);
@@ -29,7 +352,23 @@ export class BotState {
      * @returns {BotState}
      */
     static createFrom($$source = {}) {
+        const $$createField16_0 = $$createType6;
+        const $$createField17_0 = $$createType3;
+        const $$createField18_0 = $$createType3;
+        const $$createField19_0 = $$createType2;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("recent_logs" in $$parsedSource) {
+            $$parsedSource["recent_logs"] = $$createField16_0($$parsedSource["recent_logs"]);
+        }
+        if ("recent_orders" in $$parsedSource) {
+            $$parsedSource["recent_orders"] = $$createField17_0($$parsedSource["recent_orders"]);
+        }
+        if ("recent_trades" in $$parsedSource) {
+            $$parsedSource["recent_trades"] = $$createField18_0($$parsedSource["recent_trades"]);
+        }
+        if ("last_dry_run" in $$parsedSource) {
+            $$parsedSource["last_dry_run"] = $$createField19_0($$parsedSource["last_dry_run"]);
+        }
         return new BotState(/** @type {Partial<BotState>} */($$parsedSource));
     }
 }
@@ -92,9 +431,9 @@ export class CockpitStateResponse {
      * @returns {CockpitStateResponse}
      */
     static createFrom($$source = {}) {
-        const $$createField2_0 = $$createType1;
-        const $$createField3_0 = $$createType3;
-        const $$createField4_0 = $$createType5;
+        const $$createField2_0 = $$createType8;
+        const $$createField3_0 = $$createType10;
+        const $$createField4_0 = $$createType12;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("workspaces" in $$parsedSource) {
             $$parsedSource["workspaces"] = $$createField2_0($$parsedSource["workspaces"]);
@@ -192,12 +531,19 @@ export class CockpitStrategySummary {
              */
             this["enabled_rule_count"] = 0;
         }
-        if (!("source" in $$source)) {
+        if (/** @type {any} */(false)) {
             /**
              * @member
-             * @type {string}
+             * @type {string | undefined}
              */
-            this["source"] = "";
+            this["source"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["updated_at"] = undefined;
         }
 
         Object.assign(this, $$source);
@@ -265,12 +611,1087 @@ export class CockpitWorkspace {
      * @returns {CockpitWorkspace}
      */
     static createFrom($$source = {}) {
-        const $$createField4_0 = $$createType7;
+        const $$createField4_0 = $$createType14;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("strategy_slots" in $$parsedSource) {
             $$parsedSource["strategy_slots"] = $$createField4_0($$parsedSource["strategy_slots"]);
         }
         return new CockpitWorkspace(/** @type {Partial<CockpitWorkspace>} */($$parsedSource));
+    }
+}
+
+export class Condition {
+    /**
+     * Creates a new Condition instance.
+     * @param {Partial<Condition>} [$$source = {}] - The source object to create the Condition.
+     */
+    constructor($$source = {}) {
+        if (!("type" in $$source)) {
+            /**
+             * @member
+             * @type {ConditionType}
+             */
+            this["type"] = ConditionType.$zero;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {Indicator | null | undefined}
+             */
+            this["indicator_a"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {Indicator | null | undefined}
+             */
+            this["indicator_b"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {number | undefined}
+             */
+            this["threshold"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {number | undefined}
+             */
+            this["lookback_periods"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["range_start"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["range_end"] = undefined;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new Condition instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {Condition}
+     */
+    static createFrom($$source = {}) {
+        const $$createField1_0 = $$createType16;
+        const $$createField2_0 = $$createType16;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("indicator_a" in $$parsedSource) {
+            $$parsedSource["indicator_a"] = $$createField1_0($$parsedSource["indicator_a"]);
+        }
+        if ("indicator_b" in $$parsedSource) {
+            $$parsedSource["indicator_b"] = $$createField2_0($$parsedSource["indicator_b"]);
+        }
+        return new Condition(/** @type {Partial<Condition>} */($$parsedSource));
+    }
+}
+
+/**
+ * @readonly
+ * @enum {string}
+ */
+export const ConditionType = {
+    /**
+     * The Go zero value for the underlying type of the enum.
+     */
+    $zero: "",
+
+    ConditionCrossAbove: "cross_above",
+    ConditionCrossesAbove: "crosses_above",
+    ConditionCrossBelow: "cross_below",
+    ConditionCrossesBelow: "crosses_below",
+    ConditionGreater: "greater_than",
+    ConditionLess: "less_than",
+    ConditionSlopeAbove: "slope_above",
+    ConditionSlopeBelow: "slope_below",
+    ConditionWithin: "within_range",
+};
+
+export class DiagnosticsResponse {
+    /**
+     * Creates a new DiagnosticsResponse instance.
+     * @param {Partial<DiagnosticsResponse>} [$$source = {}] - The source object to create the DiagnosticsResponse.
+     */
+    constructor($$source = {}) {
+        if (!("startup" in $$source)) {
+            /**
+             * @member
+             * @type {DiagnosticsStartup}
+             */
+            this["startup"] = (new DiagnosticsStartup());
+        }
+        if (!("runtime" in $$source)) {
+            /**
+             * @member
+             * @type {DiagnosticsRuntime}
+             */
+            this["runtime"] = (new DiagnosticsRuntime());
+        }
+        if (!("symbols" in $$source)) {
+            /**
+             * @member
+             * @type {DiagnosticsSymbols}
+             */
+            this["symbols"] = (new DiagnosticsSymbols());
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new DiagnosticsResponse instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {DiagnosticsResponse}
+     */
+    static createFrom($$source = {}) {
+        const $$createField0_0 = $$createType17;
+        const $$createField1_0 = $$createType18;
+        const $$createField2_0 = $$createType19;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("startup" in $$parsedSource) {
+            $$parsedSource["startup"] = $$createField0_0($$parsedSource["startup"]);
+        }
+        if ("runtime" in $$parsedSource) {
+            $$parsedSource["runtime"] = $$createField1_0($$parsedSource["runtime"]);
+        }
+        if ("symbols" in $$parsedSource) {
+            $$parsedSource["symbols"] = $$createField2_0($$parsedSource["symbols"]);
+        }
+        return new DiagnosticsResponse(/** @type {Partial<DiagnosticsResponse>} */($$parsedSource));
+    }
+}
+
+export class DiagnosticsRuntime {
+    /**
+     * Creates a new DiagnosticsRuntime instance.
+     * @param {Partial<DiagnosticsRuntime>} [$$source = {}] - The source object to create the DiagnosticsRuntime.
+     */
+    constructor($$source = {}) {
+        if (!("runner_active" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["runner_active"] = false;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["last_runtime_reload_at"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["last_runtime_reload_reason"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["last_disconnect_at"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["last_disconnect_reason"] = undefined;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new DiagnosticsRuntime instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {DiagnosticsRuntime}
+     */
+    static createFrom($$source = {}) {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new DiagnosticsRuntime(/** @type {Partial<DiagnosticsRuntime>} */($$parsedSource));
+    }
+}
+
+export class DiagnosticsStartup {
+    /**
+     * Creates a new DiagnosticsStartup instance.
+     * @param {Partial<DiagnosticsStartup>} [$$source = {}] - The source object to create the DiagnosticsStartup.
+     */
+    constructor($$source = {}) {
+        if (!("environment" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["environment"] = "";
+        }
+        if (!("trading_mode" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["trading_mode"] = "";
+        }
+        if (!("ib_host" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["ib_host"] = "";
+        }
+        if (!("ib_port" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["ib_port"] = 0;
+        }
+        if (!("client_id" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["client_id"] = 0;
+        }
+        if (!("account" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["account"] = "";
+        }
+        if (!("log_level" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["log_level"] = "";
+        }
+        if (!("log_file" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["log_file"] = "";
+        }
+        if (!("watchlist_path" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["watchlist_path"] = "";
+        }
+        if (!("strategy_path" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["strategy_path"] = "";
+        }
+        if (!("symbol_cache_path" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["symbol_cache_path"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new DiagnosticsStartup instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {DiagnosticsStartup}
+     */
+    static createFrom($$source = {}) {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new DiagnosticsStartup(/** @type {Partial<DiagnosticsStartup>} */($$parsedSource));
+    }
+}
+
+export class DiagnosticsSymbols {
+    /**
+     * Creates a new DiagnosticsSymbols instance.
+     * @param {Partial<DiagnosticsSymbols>} [$$source = {}] - The source object to create the DiagnosticsSymbols.
+     */
+    constructor($$source = {}) {
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["source"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["last_checked_at"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["last_warning"] = undefined;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new DiagnosticsSymbols instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {DiagnosticsSymbols}
+     */
+    static createFrom($$source = {}) {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new DiagnosticsSymbols(/** @type {Partial<DiagnosticsSymbols>} */($$parsedSource));
+    }
+}
+
+export class Indicator {
+    /**
+     * Creates a new Indicator instance.
+     * @param {Partial<Indicator>} [$$source = {}] - The source object to create the Indicator.
+     */
+    constructor($$source = {}) {
+        if (!("type" in $$source)) {
+            /**
+             * @member
+             * @type {IndicatorType}
+             */
+            this["type"] = IndicatorType.$zero;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {number | null | undefined}
+             */
+            this["length"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {number | undefined}
+             */
+            this["period"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {TimeframeUnit | undefined}
+             */
+            this["timeframe"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["source"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | null | undefined}
+             */
+            this["symbol"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {{ [_ in string]?: any } | undefined}
+             */
+            this["params"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | null | undefined}
+             */
+            this["component"] = undefined;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new Indicator instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {Indicator}
+     */
+    static createFrom($$source = {}) {
+        const $$createField6_0 = $$createType2;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("params" in $$parsedSource) {
+            $$parsedSource["params"] = $$createField6_0($$parsedSource["params"]);
+        }
+        return new Indicator(/** @type {Partial<Indicator>} */($$parsedSource));
+    }
+}
+
+/**
+ * @readonly
+ * @enum {string}
+ */
+export const IndicatorType = {
+    /**
+     * The Go zero value for the underlying type of the enum.
+     */
+    $zero: "",
+
+    IndicatorPrice: "price",
+    IndicatorVolume: "volume",
+    IndicatorEMA: "ema",
+    IndicatorSMA: "sma",
+    IndicatorRSI: "rsi",
+    IndicatorMACD: "macd",
+    IndicatorVIX: "vix",
+    IndicatorTime: "time",
+    IndicatorBollinger: "bollinger",
+    IndicatorStochastic: "stochastic",
+    IndicatorOBV: "obv",
+    IndicatorAlligator: "alligator",
+    IndicatorHeikinAshi: "heikin_ashi",
+    IndicatorRVOL: "rvol",
+    IndicatorGuppy: "guppy",
+    IndicatorATR: "atr",
+    IndicatorRelativeStrength: "relative_strength",
+    IndicatorHigh52W: "high_52w",
+    IndicatorDividendYield: "dividend_yield",
+    IndicatorPERatio: "pe_ratio",
+    IndicatorRelativePerformance: "relative_performance",
+    IndicatorMLSignal: "ml_signal",
+};
+
+export class ReplaceWatchlistRequest {
+    /**
+     * Creates a new ReplaceWatchlistRequest instance.
+     * @param {Partial<ReplaceWatchlistRequest>} [$$source = {}] - The source object to create the ReplaceWatchlistRequest.
+     */
+    constructor($$source = {}) {
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["watchlist_id"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["name"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["source"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string[] | undefined}
+             */
+            this["symbols"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {WatchlistGroup[] | undefined}
+             */
+            this["groups"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {WatchlistItem[] | undefined}
+             */
+            this["items"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {WatchlistFeed | null | undefined}
+             */
+            this["feed"] = undefined;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new ReplaceWatchlistRequest instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {ReplaceWatchlistRequest}
+     */
+    static createFrom($$source = {}) {
+        const $$createField3_0 = $$createType6;
+        const $$createField4_0 = $$createType21;
+        const $$createField5_0 = $$createType23;
+        const $$createField6_0 = $$createType12;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("symbols" in $$parsedSource) {
+            $$parsedSource["symbols"] = $$createField3_0($$parsedSource["symbols"]);
+        }
+        if ("groups" in $$parsedSource) {
+            $$parsedSource["groups"] = $$createField4_0($$parsedSource["groups"]);
+        }
+        if ("items" in $$parsedSource) {
+            $$parsedSource["items"] = $$createField5_0($$parsedSource["items"]);
+        }
+        if ("feed" in $$parsedSource) {
+            $$parsedSource["feed"] = $$createField6_0($$parsedSource["feed"]);
+        }
+        return new ReplaceWatchlistRequest(/** @type {Partial<ReplaceWatchlistRequest>} */($$parsedSource));
+    }
+}
+
+export class Rule {
+    /**
+     * Creates a new Rule instance.
+     * @param {Partial<Rule>} [$$source = {}] - The source object to create the Rule.
+     */
+    constructor($$source = {}) {
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["id"] = undefined;
+        }
+        if (!("name" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["name"] = "";
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | null | undefined}
+             */
+            this["description"] = undefined;
+        }
+        if (!("scope" in $$source)) {
+            /**
+             * @member
+             * @type {RuleScope}
+             */
+            this["scope"] = RuleScope.$zero;
+        }
+        if (!("condition" in $$source)) {
+            /**
+             * @member
+             * @type {Condition | null}
+             */
+            this["condition"] = null;
+        }
+        if (!("action" in $$source)) {
+            /**
+             * @member
+             * @type {ActionType}
+             */
+            this["action"] = ActionType.$zero;
+        }
+        if (!("enabled" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["enabled"] = false;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {number | undefined}
+             */
+            this["priority"] = undefined;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new Rule instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {Rule}
+     */
+    static createFrom($$source = {}) {
+        const $$createField4_0 = $$createType25;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("condition" in $$parsedSource) {
+            $$parsedSource["condition"] = $$createField4_0($$parsedSource["condition"]);
+        }
+        return new Rule(/** @type {Partial<Rule>} */($$parsedSource));
+    }
+}
+
+/**
+ * @readonly
+ * @enum {string}
+ */
+export const RuleScope = {
+    /**
+     * The Go zero value for the underlying type of the enum.
+     */
+    $zero: "",
+
+    ScopeGlobal: "global",
+    ScopeSymbol: "symbol",
+    ScopeInstrument: "instrument",
+    ScopePerTicker: "per_ticker",
+};
+
+export class Strategy {
+    /**
+     * Creates a new Strategy instance.
+     * @param {Partial<Strategy>} [$$source = {}] - The source object to create the Strategy.
+     */
+    constructor($$source = {}) {
+        if (!("id" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["id"] = "";
+        }
+        if (!("name" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["name"] = "";
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["version"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["description"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string[] | undefined}
+             */
+            this["tickers"] = undefined;
+        }
+        if (!("rules" in $$source)) {
+            /**
+             * @member
+             * @type {Rule[]}
+             */
+            this["rules"] = [];
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {number | undefined}
+             */
+            this["initial_capital"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {number | undefined}
+             */
+            this["max_positions"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["position_size_mode"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {number | undefined}
+             */
+            this["position_size_value"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["created_at"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["updated_at"] = undefined;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new Strategy instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {Strategy}
+     */
+    static createFrom($$source = {}) {
+        const $$createField4_0 = $$createType6;
+        const $$createField5_0 = $$createType27;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("tickers" in $$parsedSource) {
+            $$parsedSource["tickers"] = $$createField4_0($$parsedSource["tickers"]);
+        }
+        if ("rules" in $$parsedSource) {
+            $$parsedSource["rules"] = $$createField5_0($$parsedSource["rules"]);
+        }
+        return new Strategy(/** @type {Partial<Strategy>} */($$parsedSource));
+    }
+}
+
+export class SymbolQuery {
+    /**
+     * Creates a new SymbolQuery instance.
+     * @param {Partial<SymbolQuery>} [$$source = {}] - The source object to create the SymbolQuery.
+     */
+    constructor($$source = {}) {
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["q"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["type"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["exchange"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {number | undefined}
+             */
+            this["limit"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {boolean | undefined}
+             */
+            this["refresh"] = undefined;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new SymbolQuery instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {SymbolQuery}
+     */
+    static createFrom($$source = {}) {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new SymbolQuery(/** @type {Partial<SymbolQuery>} */($$parsedSource));
+    }
+}
+
+export class SymbolRecord {
+    /**
+     * Creates a new SymbolRecord instance.
+     * @param {Partial<SymbolRecord>} [$$source = {}] - The source object to create the SymbolRecord.
+     */
+    constructor($$source = {}) {
+        if (!("symbol" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["symbol"] = "";
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["name"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["exchange"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["type"] = undefined;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new SymbolRecord instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {SymbolRecord}
+     */
+    static createFrom($$source = {}) {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new SymbolRecord(/** @type {Partial<SymbolRecord>} */($$parsedSource));
+    }
+}
+
+export class SymbolsResponse {
+    /**
+     * Creates a new SymbolsResponse instance.
+     * @param {Partial<SymbolsResponse>} [$$source = {}] - The source object to create the SymbolsResponse.
+     */
+    constructor($$source = {}) {
+        if (!("symbols" in $$source)) {
+            /**
+             * @member
+             * @type {SymbolRecord[]}
+             */
+            this["symbols"] = [];
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["source"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["updated_at"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["warning"] = undefined;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new SymbolsResponse instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {SymbolsResponse}
+     */
+    static createFrom($$source = {}) {
+        const $$createField0_0 = $$createType29;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("symbols" in $$parsedSource) {
+            $$parsedSource["symbols"] = $$createField0_0($$parsedSource["symbols"]);
+        }
+        return new SymbolsResponse(/** @type {Partial<SymbolsResponse>} */($$parsedSource));
+    }
+}
+
+/**
+ * @readonly
+ * @enum {string}
+ */
+export const TimeframeUnit = {
+    /**
+     * The Go zero value for the underlying type of the enum.
+     */
+    $zero: "",
+
+    TimeframeM1: "1m",
+    TimeframeM5: "5m",
+    TimeframeM15: "15m",
+    TimeframeM30: "30m",
+    TimeframeH1: "1h",
+    TimeframeH4: "4h",
+    TimeframeD1: "1d",
+    TimeframeW1: "1w",
+    TimeframeMN1: "1M",
+};
+
+/**
+ * TradeRecord represents an atomic execution event recorded in the SQLite trade_ledger.
+ */
+export class TradeRecord {
+    /**
+     * Creates a new TradeRecord instance.
+     * @param {Partial<TradeRecord>} [$$source = {}] - The source object to create the TradeRecord.
+     */
+    constructor($$source = {}) {
+        if (!("id" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["id"] = 0;
+        }
+        if (!("order_id" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["order_id"] = 0;
+        }
+        if (!("symbol" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["symbol"] = "";
+        }
+        if (!("action" in $$source)) {
+            /**
+             * "BUY", "SELL"
+             * @member
+             * @type {string}
+             */
+            this["action"] = "";
+        }
+        if (!("quantity" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["quantity"] = 0;
+        }
+        if (!("price" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["price"] = 0;
+        }
+        if (!("status" in $$source)) {
+            /**
+             * "SIMULATED_FILL", "FILLED", "REJECTED"
+             * @member
+             * @type {string}
+             */
+            this["status"] = "";
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["oca_group"] = undefined;
+        }
+        if (!("mode" in $$source)) {
+            /**
+             * "dry_run", "live"
+             * @member
+             * @type {string}
+             */
+            this["mode"] = "";
+        }
+        if (!("created_at" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["created_at"] = "0001-01-01T00:00:00.000Z";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new TradeRecord instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {TradeRecord}
+     */
+    static createFrom($$source = {}) {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new TradeRecord(/** @type {Partial<TradeRecord>} */($$parsedSource));
+    }
+}
+
+export class ValidationResult {
+    /**
+     * Creates a new ValidationResult instance.
+     * @param {Partial<ValidationResult>} [$$source = {}] - The source object to create the ValidationResult.
+     */
+    constructor($$source = {}) {
+        if (!("valid" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["valid"] = false;
+        }
+        if (!("errors" in $$source)) {
+            /**
+             * @member
+             * @type {string[]}
+             */
+            this["errors"] = [];
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new ValidationResult instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {ValidationResult}
+     */
+    static createFrom($$source = {}) {
+        const $$createField1_0 = $$createType6;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("errors" in $$parsedSource) {
+            $$parsedSource["errors"] = $$createField1_0($$parsedSource["errors"]);
+        }
+        return new ValidationResult(/** @type {Partial<ValidationResult>} */($$parsedSource));
     }
 }
 
@@ -350,12 +1771,12 @@ export class WatchlistGroup {
              */
             this["name"] = "";
         }
-        if (!("source" in $$source)) {
+        if (/** @type {any} */(false)) {
             /**
              * @member
-             * @type {string}
+             * @type {string | undefined}
              */
-            this["source"] = "";
+            this["source"] = undefined;
         }
         if (!("items" in $$source)) {
             /**
@@ -374,7 +1795,7 @@ export class WatchlistGroup {
      * @returns {WatchlistGroup}
      */
     static createFrom($$source = {}) {
-        const $$createField3_0 = $$createType9;
+        const $$createField3_0 = $$createType23;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("items" in $$parsedSource) {
             $$parsedSource["items"] = $$createField3_0($$parsedSource["items"]);
@@ -389,6 +1810,34 @@ export class WatchlistItem {
      * @param {Partial<WatchlistItem>} [$$source = {}] - The source object to create the WatchlistItem.
      */
     constructor($$source = {}) {
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {number | undefined}
+             */
+            this["id"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["watchlist_id"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["group_id"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["group_name"] = undefined;
+        }
         if (!("symbol" in $$source)) {
             /**
              * @member
@@ -396,19 +1845,33 @@ export class WatchlistItem {
              */
             this["symbol"] = "";
         }
-        if (!("exchange" in $$source)) {
+        if (/** @type {any} */(false)) {
             /**
              * @member
-             * @type {string}
+             * @type {string | undefined}
              */
-            this["exchange"] = "";
+            this["exchange"] = undefined;
         }
-        if (!("name" in $$source)) {
+        if (/** @type {any} */(false)) {
             /**
              * @member
-             * @type {string}
+             * @type {string | undefined}
              */
-            this["name"] = "";
+            this["venue"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["instrument_id"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["name"] = undefined;
         }
         if (!("enabled" in $$source)) {
             /**
@@ -422,7 +1885,56 @@ export class WatchlistItem {
              * @member
              * @type {string | undefined}
              */
-            this["instrument_id"] = undefined;
+            this["tier"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {boolean | undefined}
+             */
+            this["is_orderable"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {boolean | undefined}
+             */
+            this["is_regime_reference"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {boolean | undefined}
+             */
+            this["is_holding"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["size_mode"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {number | undefined}
+             */
+            this["size_value"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["created_at"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["updated_at"] = undefined;
         }
 
         Object.assign(this, $$source);
@@ -445,6 +1957,34 @@ export class WatchlistResponse {
      * @param {Partial<WatchlistResponse>} [$$source = {}] - The source object to create the WatchlistResponse.
      */
     constructor($$source = {}) {
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["id"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["name"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["description"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {boolean | undefined}
+             */
+            this["is_default"] = undefined;
+        }
         if (!("symbols" in $$source)) {
             /**
              * @member
@@ -483,34 +2023,128 @@ export class WatchlistResponse {
      * @returns {WatchlistResponse}
      */
     static createFrom($$source = {}) {
-        const $$createField0_0 = $$createType10;
-        const $$createField1_0 = $$createType12;
-        const $$createField2_0 = $$createType5;
+        const $$createField4_0 = $$createType6;
+        const $$createField5_0 = $$createType21;
+        const $$createField6_0 = $$createType12;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("symbols" in $$parsedSource) {
-            $$parsedSource["symbols"] = $$createField0_0($$parsedSource["symbols"]);
+            $$parsedSource["symbols"] = $$createField4_0($$parsedSource["symbols"]);
         }
         if ("groups" in $$parsedSource) {
-            $$parsedSource["groups"] = $$createField1_0($$parsedSource["groups"]);
+            $$parsedSource["groups"] = $$createField5_0($$parsedSource["groups"]);
         }
         if ("feed" in $$parsedSource) {
-            $$parsedSource["feed"] = $$createField2_0($$parsedSource["feed"]);
+            $$parsedSource["feed"] = $$createField6_0($$parsedSource["feed"]);
         }
         return new WatchlistResponse(/** @type {Partial<WatchlistResponse>} */($$parsedSource));
     }
 }
 
+export class WatchlistSummary {
+    /**
+     * Creates a new WatchlistSummary instance.
+     * @param {Partial<WatchlistSummary>} [$$source = {}] - The source object to create the WatchlistSummary.
+     */
+    constructor($$source = {}) {
+        if (!("id" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["id"] = "";
+        }
+        if (!("name" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["name"] = "";
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["description"] = undefined;
+        }
+        if (!("is_default" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["is_default"] = false;
+        }
+        if (!("source" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["source"] = "";
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["feed_url"] = undefined;
+        }
+        if (!("item_count" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["item_count"] = 0;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["updated_at"] = undefined;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new WatchlistSummary instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {WatchlistSummary}
+     */
+    static createFrom($$source = {}) {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new WatchlistSummary(/** @type {Partial<WatchlistSummary>} */($$parsedSource));
+    }
+}
+
 // Private type creation functions
-const $$createType0 = CockpitWorkspace.createFrom;
+const $$createType0 = BotDryRunSubscription.createFrom;
 const $$createType1 = $Create.Array($$createType0);
-const $$createType2 = CockpitStrategySummary.createFrom;
+const $$createType2 = $Create.Map($Create.Any, $Create.Any);
 const $$createType3 = $Create.Array($$createType2);
-const $$createType4 = WatchlistFeed.createFrom;
+const $$createType4 = BotState.createFrom;
 const $$createType5 = $Create.Nullable($$createType4);
-const $$createType6 = CockpitStrategySlot.createFrom;
-const $$createType7 = $Create.Array($$createType6);
-const $$createType8 = WatchlistItem.createFrom;
-const $$createType9 = $Create.Array($$createType8);
-const $$createType10 = $Create.Array($Create.Any);
-const $$createType11 = WatchlistGroup.createFrom;
-const $$createType12 = $Create.Array($$createType11);
+const $$createType6 = $Create.Array($Create.Any);
+const $$createType7 = CockpitWorkspace.createFrom;
+const $$createType8 = $Create.Array($$createType7);
+const $$createType9 = CockpitStrategySummary.createFrom;
+const $$createType10 = $Create.Array($$createType9);
+const $$createType11 = WatchlistFeed.createFrom;
+const $$createType12 = $Create.Nullable($$createType11);
+const $$createType13 = CockpitStrategySlot.createFrom;
+const $$createType14 = $Create.Array($$createType13);
+const $$createType15 = Indicator.createFrom;
+const $$createType16 = $Create.Nullable($$createType15);
+const $$createType17 = DiagnosticsStartup.createFrom;
+const $$createType18 = DiagnosticsRuntime.createFrom;
+const $$createType19 = DiagnosticsSymbols.createFrom;
+const $$createType20 = WatchlistGroup.createFrom;
+const $$createType21 = $Create.Array($$createType20);
+const $$createType22 = WatchlistItem.createFrom;
+const $$createType23 = $Create.Array($$createType22);
+const $$createType24 = Condition.createFrom;
+const $$createType25 = $Create.Nullable($$createType24);
+const $$createType26 = Rule.createFrom;
+const $$createType27 = $Create.Array($$createType26);
+const $$createType28 = SymbolRecord.createFrom;
+const $$createType29 = $Create.Array($$createType28);

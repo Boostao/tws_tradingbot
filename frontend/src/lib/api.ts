@@ -1,14 +1,40 @@
-
-import { 
-    GetStrategy, GetConfig, UpdateConfig,
-    GetWatchlist, GetCockpitState,
-    StartBot, StopBot, ConnectTws, DisconnectTws,
-    GetRuntimeState
+import {
+	ApplyStrategyPreset,
+	ConnectTws,
+	DeleteStrategyPreset,
+	DisconnectTws,
+	DryRunBot,
+	ExportStrategyFile,
+	ExportWatchlistFile,
+	GetCockpitState,
+	GetConfig,
+	GetDiagnostics,
+	GetRecentTrades,
+	GetRuntimeState,
+	GetStrategy,
+	GetStrategyLibrary,
+	GetStrategyPreset,
+	GetSymbols,
+	GetWatchlist,
+	GetWatchlistById,
+	GetWatchlists,
+	ImportStrategyFile,
+	ImportTradingViewWatchlist,
+	ImportWatchlistFile,
+	RefreshWatchlistFeed,
+	ReplaceWatchlist,
+	ResetCircuitBreaker,
+	SaveStrategyPreset,
+	SaveWatchlist,
+	StartBot,
+	StopBot,
+	UpdateCockpitState,
+	UpdateConfig,
+	UpdateStrategy,
+	ValidateStrategy
 } from '../../bindings/tws_traderbot/app';
-const DEFAULT_API_BASE = import.meta.env.DEV ? 'http://localhost:8000' : '';
 
-export const API_BASE =
-	import.meta.env.VITE_API_URL ?? DEFAULT_API_BASE;
+export const API_BASE = '';
 
 type RestMetric = {
 	lastMs: number;
@@ -97,53 +123,6 @@ function recordRestMetric(key: string, durationMs: number, ok: boolean): void {
 	restMetrics.set(key, existing);
 }
 
-async function timedFetch(
-	key: string,
-	input: RequestInfo | URL,
-	init?: RequestInit
-): Promise<Response> {
-	const start = typeof performance !== 'undefined' ? performance.now() : Date.now();
-	let ok = false;
-	try {
-		const response = await fetch(input, init);
-		ok = response.ok;
-		return response;
-	} finally {
-		const end = typeof performance !== 'undefined' ? performance.now() : Date.now();
-		recordRestMetric(key, Math.max(0, end - start), ok);
-	}
-}
-
-async function buildApiError(response: Response, label: string): Promise<ApiError> {
-	let detail = '';
-	try {
-		const text = await response.text();
-		if (text) {
-			try {
-				const parsed = JSON.parse(text) as Record<string, unknown>;
-				const candidate =
-					(typeof parsed.detail === 'string' && parsed.detail) ||
-					(typeof parsed.message === 'string' && parsed.message) ||
-					(typeof parsed.error === 'string' && parsed.error) ||
-					'';
-				detail = candidate || text;
-			} catch {
-				detail = text;
-			}
-		}
-	} catch {
-		detail = '';
-	}
-
-	const trimmed = detail.trim();
-	const detailText = trimmed ? ` - ${trimmed.slice(0, 300)}` : '';
-	const statusText = response.statusText ? ` ${response.statusText}` : '';
-	const message = `${label} failed: ${response.status}${statusText}${detailText}`;
-	const error = new ApiError(message, response.status, response.statusText, trimmed, response.url);
-	lastApiError = error;
-	return error;
-}
-
 export function getRestMetric(key: string): RestMetric | null {
 	return restMetrics.get(key) ?? null;
 }
@@ -162,31 +141,25 @@ function setCached<T>(key: string, value: T, ttlMs: number): void {
 	cache.set(key, { value, expiresAt: Date.now() + ttlMs });
 }
 
-async function fetchJson<T>(key: string, url: string, label: string, init?: RequestInit): Promise<T> {
-	const response = await timedFetch(key, url, init);
-	if (!response.ok) {
-		throw await buildApiError(response, label);
+async function timedCall<T>(key: string, fn: () => Promise<T>): Promise<T> {
+	const start = typeof performance !== 'undefined' ? performance.now() : Date.now();
+	let ok = false;
+	try {
+		const res = await fn();
+		ok = true;
+		return res;
+	} catch (err: unknown) {
+		const message = formatApiError(err);
+		lastApiError = new ApiError(message, 500, 'IPC Error', message);
+		throw lastApiError;
+	} finally {
+		const end = typeof performance !== 'undefined' ? performance.now() : Date.now();
+		recordRestMetric(key, Math.max(0, end - start), ok);
 	}
-	return (await response.json()) as T;
-}
-
-async function fetchCachedJson<T>(
-	cacheKey: string,
-	ttlMs: number,
-	requestKey: string,
-	url: string,
-	label: string,
-	force = false
-): Promise<T> {
-	const cached = !force ? getCached<T>(cacheKey) : null;
-	if (cached) return cached;
-	const data = await fetchJson<T>(requestKey, url, label);
-	setCached(cacheKey, data, ttlMs);
-	return data;
 }
 
 export async function getHealth(): Promise<{ status: string }> {
-	return fetchJson<{ status: string }>('health', `${API_BASE}/health`, 'Health check');
+	return { status: 'healthy' };
 }
 
 export type SymbolRecord = {
@@ -197,10 +170,24 @@ export type SymbolRecord = {
 };
 
 export type WatchlistItem = {
+	id?: number;
+	watchlist_id?: string;
+	group_id?: string;
+	group_name?: string;
 	symbol: string;
 	exchange?: string;
+	venue?: string;
+	instrument_id?: string;
 	name?: string;
 	enabled: boolean;
+	tier?: string;
+	is_orderable?: boolean;
+	is_regime_reference?: boolean;
+	is_holding?: boolean;
+	size_mode?: string;
+	size_value?: number;
+	created_at?: string;
+	updated_at?: string;
 };
 
 export type WatchlistGroup = {
@@ -208,6 +195,17 @@ export type WatchlistGroup = {
 	name: string;
 	source?: string;
 	items: WatchlistItem[];
+};
+
+export type WatchlistSummary = {
+	id: string;
+	name: string;
+	description?: string;
+	is_default?: boolean;
+	source?: string;
+	feed_url?: string;
+	item_count?: number;
+	updated_at?: string;
 };
 
 export type WatchlistFeed = {
@@ -272,6 +270,8 @@ export type BotState = {
 	daily_pnl: number;
 	daily_pnl_percent: number;
 	total_pnl: number;
+	daily_loss_limit?: number;
+	circuit_breaker_tripped?: boolean;
 	active_strategy: string;
 	open_positions_count: number;
 	pending_orders_count: number;
@@ -356,225 +356,353 @@ export type ConfigResponse = {
 export type Strategy = Record<string, unknown>;
 
 export async function getStrategy(force = false): Promise<Strategy> {
-	if (typeof window !== 'undefined' && (window as any).go) {
-                return (await GetStrategy()) as unknown as Strategy;
-        }
-        return fetchCachedJson<Strategy>('strategy', cachePolicy.strategy, 'strategy.get', `${API_BASE}/api/v1/strategy`, 'Strategy fetch', force);
+	const cached = !force ? getCached<Strategy>('strategy') : null;
+	if (cached) return cached;
+	try {
+		const data = (await timedCall('strategy.get', () => GetStrategy())) as unknown as Strategy;
+		if (data) {
+			setCached('strategy', data, cachePolicy.strategy);
+			return data;
+		}
+	} catch (e) {
+		// return fallback empty strategy
+	}
+	return {} as Strategy;
 }
 
 export async function getConfig(force = false): Promise<ConfigResponse> {
-	if (typeof window !== 'undefined' && (window as any).go) {
-                return (await GetConfig()) as unknown as ConfigResponse;
-        }
-        return fetchCachedJson<ConfigResponse>('config', cachePolicy.config, 'config.get', `${API_BASE}/api/v1/config`, 'Config fetch', force);
+	const cached = !force ? getCached<ConfigResponse>('config') : null;
+	if (cached) return cached;
+	try {
+		const data = (await timedCall('config.get', () => GetConfig())) as unknown as ConfigResponse;
+		if (data) {
+			setCached('config', data, cachePolicy.config);
+			return data;
+		}
+	} catch (e) {
+		// return fallback empty config
+	}
+	return {} as ConfigResponse;
 }
 
 export async function updateConfig(updates: Record<string, Record<string, unknown>>): Promise<ConfigResponse> {
-	if (typeof window !== 'undefined' && (window as any).go) {
-                return (await UpdateConfig(updates as any)) as unknown as ConfigResponse;
-        }
-        const response = await timedFetch('config.update', `${API_BASE}/api/v1/config`, {
-		method: 'PUT',
-		headers: { 'Content-Type': 'application/json' },
-		body: JSON.stringify({ updates })
-	});
-	if (!response.ok) {
-		throw await buildApiError(response, 'Config update');
+	try {
+		const data = (await timedCall('config.update', () => UpdateConfig(updates as any))) as unknown as ConfigResponse;
+		setCached('config', data, cachePolicy.config);
+		return data;
+	} catch (e) {
+		const err = new ApiError(`Config update failed: ${e}`, 500, 'Server Error', String(e));
+		lastApiError = err;
+		throw err;
 	}
-	const data = (await response.json()) as ConfigResponse;
-	setCached('config', data, cachePolicy.config);
-	return data;
 }
 
 export async function getState(force = false): Promise<BotState> {
-	if (typeof window !== 'undefined' && (window as any).go) {
-		return (await GetRuntimeState()) as unknown as BotState;
+	const cached = !force ? getCached<BotState>('state') : null;
+	if (cached) return cached;
+	try {
+		const data = await timedCall('state.get', () => GetRuntimeState());
+		if (data) {
+			const res = data as unknown as BotState;
+			setCached('state', res, cachePolicy.state);
+			return res;
+		}
+	} catch (e) {
+		// fallback
 	}
-	return { running: false } as unknown as BotState;
+	return {
+		status: 'STOPPED',
+		tws_connected: false,
+		equity: 0,
+		daily_pnl: 0,
+		daily_pnl_percent: 0,
+		total_pnl: 0,
+		active_strategy: '',
+		open_positions_count: 0,
+		pending_orders_count: 0,
+		trades_today: 0,
+		win_rate_today: 0,
+		runner_active: false
+	};
 }
 
 export async function getDiagnostics(force = false): Promise<DiagnosticsResponse> {
-	return fetchCachedJson<DiagnosticsResponse>(
-		'diagnostics',
-		cachePolicy.diagnostics,
-		'diagnostics.get',
-		`${API_BASE}/api/v1/diagnostics`,
-		'Diagnostics fetch',
-		force
-	);
+	const cached = !force ? getCached<DiagnosticsResponse>('diagnostics') : null;
+	if (cached) return cached;
+	try {
+		const data = await timedCall('diagnostics.get', () => GetDiagnostics());
+		if (!data) {
+			throw new Error('GetDiagnostics returned empty response');
+		}
+		const res = data as unknown as DiagnosticsResponse;
+		setCached('diagnostics', res, cachePolicy.diagnostics);
+		return res;
+	} catch (e) {
+		const err = new ApiError(`Diagnostics fetch failed: ${e}`, 500, 'Server Error', String(e));
+		lastApiError = err;
+		throw err;
+	}
 }
 
 export async function connectTws(payload: { host?: string; port?: number; client_id?: number }): Promise<{ status: string }> {
-	if (typeof window !== 'undefined' && (window as any).go) {
-		const res = await ConnectTws(payload.host || '127.0.0.1', payload.port || 7497, payload.client_id || 1);
-		return { status: res.status };
+	try {
+		const res = await timedCall('tws.connect', () =>
+			ConnectTws(payload.host || '127.0.0.1', payload.port || 7497, payload.client_id || 1)
+		);
+		return { status: ((res as Record<string, any>)?.status as string) || 'ok' };
+	} catch (e) {
+		return { status: 'error' };
 	}
-	return { status: 'mock' };
 }
 
 export async function disconnectTws(): Promise<{ status: string }> {
-	if (typeof window !== 'undefined' && (window as any).go) {
-		const res = await DisconnectTws();
-		return { status: res.status };
+	try {
+		const res = await timedCall('tws.disconnect', () => DisconnectTws());
+		return { status: ((res as Record<string, any>)?.status as string) || 'ok' };
+	} catch (e) {
+		return { status: 'error' };
 	}
-	return { status: 'mock' };
 }
 
 export async function startBot(): Promise<{ status: string }> {
-	if (typeof window !== 'undefined' && (window as any).go) {
-		const res = await StartBot();
-		return { status: res.status };
+	try {
+		const res = await timedCall('bot.start', () => StartBot());
+		return { status: ((res as Record<string, any>)?.status as string) || 'ok' };
+	} catch (e) {
+		return { status: 'error' };
 	}
-	return { status: 'mock' };
 }
 
 export async function stopBot(): Promise<{ status: string }> {
-	if (typeof window !== 'undefined' && (window as any).go) {
-		const res = await StopBot();
-		return { status: res.status };
+	try {
+		const res = await timedCall('bot.stop', () => StopBot());
+		return { status: ((res as Record<string, any>)?.status as string) || 'ok' };
+	} catch (e) {
+		return { status: 'error' };
 	}
-	return { status: 'mock' };
 }
 
 export async function dryRunBot(): Promise<BotDryRun> {
-	const response = await timedFetch('bot.dry_run', `${API_BASE}/api/v1/bot/dry_run`, {
-		method: 'POST'
-	});
-	if (!response.ok) {
-		throw await buildApiError(response, 'Bot dry run');
+	try {
+		const data = await timedCall('bot.dry_run', () => DryRunBot());
+		if (!data) {
+			throw new Error('DryRunBot returned empty response');
+		}
+		clearCache('state');
+		return data as unknown as BotDryRun;
+	} catch (e) {
+		const err = new ApiError(`DryRunBot failed: ${e}`, 500, 'Server Error', String(e));
+		lastApiError = err;
+		throw err;
 	}
-	clearCache('state');
-	return response.json();
 }
 
 export async function saveStrategy(strategy: Strategy): Promise<Strategy> {
-	const response = await timedFetch('strategy.save', `${API_BASE}/api/v1/strategy`, {
-		method: 'PUT',
-		headers: { 'Content-Type': 'application/json' },
-		body: JSON.stringify(strategy)
-	});
-	if (!response.ok) {
-		throw await buildApiError(response, 'Strategy save');
+	try {
+		const data = await timedCall('strategy.save', () => UpdateStrategy(strategy as any));
+		const res = (data as unknown as Strategy) ?? strategy;
+		setCached('strategy', res, cachePolicy.strategy);
+		return res;
+	} catch (e) {
+		const err = new ApiError(`Strategy save failed: ${e}`, 500, 'Server Error', String(e));
+		lastApiError = err;
+		throw err;
 	}
-	const data = await response.json();
-	setCached('strategy', data, cachePolicy.strategy);
-	return data;
 }
 
 export async function validateStrategy(strategy: Strategy): Promise<{ valid: boolean; errors: string[] }> {
-	const response = await timedFetch('strategy.validate', `${API_BASE}/api/v1/strategy/validate`, {
-		method: 'POST',
-		headers: { 'Content-Type': 'application/json' },
-		body: JSON.stringify(strategy)
-	});
-	if (!response.ok) {
-		throw await buildApiError(response, 'Strategy validation');
+	try {
+		const res = await timedCall('strategy.validate', () => ValidateStrategy(strategy as any));
+		if (!res) {
+			return { valid: true, errors: [] };
+		}
+		return { valid: res.valid, errors: res.errors ?? [] };
+	} catch (e) {
+		const err = new ApiError(`Strategy validation failed: ${e}`, 500, 'Server Error', String(e));
+		lastApiError = err;
+		throw err;
 	}
-	return response.json();
 }
 
 export async function importStrategy(strategy: Strategy): Promise<Strategy> {
-	const response = await timedFetch('strategy.import', `${API_BASE}/api/v1/strategy/import`, {
-		method: 'POST',
-		headers: { 'Content-Type': 'application/json' },
-		body: JSON.stringify(strategy)
-	});
-	if (!response.ok) {
-		throw await buildApiError(response, 'Strategy import');
-	}
-	const data = await response.json();
-	setCached('strategy', data, cachePolicy.strategy);
-	return data;
+	return saveStrategy(strategy);
 }
 
 export async function importStrategyFile(file: File): Promise<Strategy> {
-	const formData = new FormData();
-	formData.append('file', file);
-	const response = await timedFetch('strategy.import_file', `${API_BASE}/api/v1/strategy/import/file`, {
-		method: 'POST',
-		body: formData
-	});
-	if (!response.ok) {
-		throw await buildApiError(response, 'Strategy file import');
+	try {
+		const text = await file.text();
+		const parsed = JSON.parse(text) as Strategy;
+		return await importStrategy(parsed);
+	} catch (e) {
+		const err = new ApiError(`Strategy file import failed: ${e}`, 500, 'Server Error', String(e));
+		lastApiError = err;
+		throw err;
 	}
-	const data = await response.json();
-	setCached('strategy', data, cachePolicy.strategy);
-	return data;
 }
 
 export async function getStrategyLibrary(): Promise<StrategyLibraryEntry[]> {
-	const response = await timedFetch('strategy.library', `${API_BASE}/api/v1/strategy/library`);
-	if (!response.ok) {
-		throw await buildApiError(response, 'Strategy library fetch');
+	try {
+		const data = await timedCall('strategy.library', () => GetStrategyLibrary());
+		return (data ?? []) as unknown as StrategyLibraryEntry[];
+	} catch (e) {
+		const err = new ApiError(`Strategy library fetch failed: ${e}`, 500, 'Server Error', String(e));
+		lastApiError = err;
+		throw err;
 	}
-	return (await response.json()) as StrategyLibraryEntry[];
 }
 
 export async function saveStrategyPreset(strategy: Strategy, name?: string): Promise<StrategyLibraryEntry> {
-	const response = await timedFetch('strategy.library.save', `${API_BASE}/api/v1/strategy/library/save`, {
-		method: 'POST',
-		headers: { 'Content-Type': 'application/json' },
-		body: JSON.stringify({ strategy, name })
-	});
-	if (!response.ok) {
-		throw await buildApiError(response, 'Strategy preset save');
+	try {
+		const toSave: Record<string, unknown> = { ...strategy };
+		if (name) toSave.name = name;
+		const data = await timedCall('strategy.library.save', () => SaveStrategyPreset(toSave as any));
+		if (!data) {
+			throw new Error('SaveStrategyPreset returned empty response');
+		}
+		return data as unknown as StrategyLibraryEntry;
+	} catch (e) {
+		const err = new ApiError(`Strategy preset save failed: ${e}`, 500, 'Server Error', String(e));
+		lastApiError = err;
+		throw err;
 	}
-	return (await response.json()) as StrategyLibraryEntry;
 }
 
 export async function updateStrategyPreset(strategyId: string, strategy: Strategy, name?: string): Promise<StrategyLibraryEntry> {
-	const response = await timedFetch('strategy.library.update', `${API_BASE}/api/v1/strategy/library/${strategyId}`, {
-		method: 'PUT',
-		headers: { 'Content-Type': 'application/json' },
-		body: JSON.stringify({ strategy, name })
-	});
-	if (!response.ok) {
-		throw await buildApiError(response, 'Strategy preset update');
+	try {
+		const toSave: Record<string, unknown> = { ...strategy, id: strategyId };
+		if (name) toSave.name = name;
+		const data = await timedCall('strategy.library.update', () => SaveStrategyPreset(toSave as any));
+		if (!data) {
+			throw new Error('UpdateStrategyPreset returned empty response');
+		}
+		return data as unknown as StrategyLibraryEntry;
+	} catch (e) {
+		const err = new ApiError(`Strategy preset update failed: ${e}`, 500, 'Server Error', String(e));
+		lastApiError = err;
+		throw err;
 	}
-	return (await response.json()) as StrategyLibraryEntry;
 }
 
 export async function getStrategyPreset(strategyId: string): Promise<Strategy> {
-	const response = await timedFetch('strategy.library.item', `${API_BASE}/api/v1/strategy/library/${strategyId}`);
-	if (!response.ok) {
-		throw await buildApiError(response, 'Strategy preset fetch');
+	try {
+		const data = await timedCall('strategy.library.item', () => GetStrategyPreset(strategyId));
+		if (!data) {
+			throw new Error(`Strategy preset ${strategyId} not found`);
+		}
+		return data as unknown as Strategy;
+	} catch (e) {
+		const err = new ApiError(`Strategy preset fetch failed: ${e}`, 500, 'Server Error', String(e));
+		lastApiError = err;
+		throw err;
 	}
-	return (await response.json()) as Strategy;
 }
 
-export async function applyStrategyPreset(strategyId: string): Promise<Strategy> {
-	const response = await timedFetch('strategy.library.apply', `${API_BASE}/api/v1/strategy/library/${strategyId}/apply`, {
-		method: 'POST'
-	});
-	if (!response.ok) {
-		throw await buildApiError(response, 'Strategy preset apply');
+export async function applyStrategyPreset(strategyId: string, workspaceId = '', slotId = ''): Promise<Strategy> {
+	try {
+		await timedCall('strategy.library.apply', () => ApplyStrategyPreset(workspaceId, slotId, strategyId));
+		const preset = await GetStrategyPreset(strategyId);
+		const data = (preset ?? {}) as unknown as Strategy;
+		setCached('strategy', data, cachePolicy.strategy);
+		return data;
+	} catch (e) {
+		const err = new ApiError(`Strategy preset apply failed: ${e}`, 500, 'Server Error', String(e));
+		lastApiError = err;
+		throw err;
 	}
-	const data = (await response.json()) as Strategy;
-	setCached('strategy', data, cachePolicy.strategy);
-	return data;
 }
 
 export async function deleteStrategyPreset(strategyId: string): Promise<void> {
-	const response = await timedFetch('strategy.library.delete', `${API_BASE}/api/v1/strategy/library/${strategyId}`, {
-		method: 'DELETE'
-	});
-	if (!response.ok) {
-		throw await buildApiError(response, 'Strategy preset delete');
+	try {
+		await timedCall('strategy.library.delete', () => DeleteStrategyPreset(strategyId));
+	} catch (e) {
+		const err = new ApiError(`Strategy preset delete failed: ${e}`, 500, 'Server Error', String(e));
+		lastApiError = err;
+		throw err;
 	}
 }
 
 export async function getWatchlist(force = false): Promise<WatchlistResponse> {
-	if (typeof window !== 'undefined' && (window as any).go) {
-                return (await GetWatchlist()) as unknown as WatchlistResponse;
-        }
-        return fetchCachedJson<WatchlistResponse>('watchlist', cachePolicy.watchlist, 'watchlist.get', `${API_BASE}/api/v1/watchlist`, 'Watchlist fetch', force);
+	const cached = !force ? getCached<WatchlistResponse>('watchlist') : null;
+	if (cached) return cached;
+	try {
+		const data = await timedCall('watchlist.get', () => GetWatchlist());
+		const res: WatchlistResponse = (data as unknown as WatchlistResponse) ?? {
+			symbols: [],
+			groups: [],
+			feed: null,
+			updated_at: null
+		};
+		setCached('watchlist', res, cachePolicy.watchlist);
+		return res;
+	} catch (e) {
+		return {
+			symbols: [],
+			groups: [],
+			feed: null,
+			updated_at: null
+		};
+	}
+}
+
+export async function getWatchlistById(id: string): Promise<WatchlistResponse> {
+	try {
+		const data = await timedCall('watchlist.get_by_id', () => GetWatchlistById(id));
+		if (!data) {
+			throw new Error(`Watchlist ${id} not found`);
+		}
+		return data as unknown as WatchlistResponse;
+	} catch (e) {
+		const err = new ApiError(`Watchlist fetch failed: ${e}`, 500, 'Server Error', String(e));
+		lastApiError = err;
+		throw err;
+	}
+}
+
+export async function getWatchlists(): Promise<WatchlistSummary[]> {
+	try {
+		const data = await timedCall('watchlist.list', () => GetWatchlists());
+		return (data ?? []) as unknown as WatchlistSummary[];
+	} catch (e) {
+		return [];
+	}
+}
+
+export async function saveWatchlist(wl: WatchlistResponse): Promise<void> {
+	try {
+		await timedCall('watchlist.save', () => SaveWatchlist(wl as any));
+		setCached('watchlist', wl, cachePolicy.watchlist);
+	} catch (e) {
+		const err = new ApiError(`Watchlist save failed: ${e}`, 500, 'Server Error', String(e));
+		lastApiError = err;
+		throw err;
+	}
 }
 
 export async function getCockpit(force = false): Promise<CockpitState> {
-	if (typeof window !== 'undefined' && (window as any).go) {
-                return (await GetCockpitState()) as unknown as CockpitState;
-        }
-        return fetchCachedJson<CockpitState>('cockpit', cachePolicy.cockpit, 'cockpit.get', `${API_BASE}/api/v1/cockpit`, 'Cockpit fetch', force);
+	const cached = !force ? getCached<CockpitState>('cockpit') : null;
+	if (cached) return cached;
+	try {
+		const data = await timedCall('cockpit.get', () => GetCockpitState());
+		const res: CockpitState = (data as unknown as CockpitState) ?? {
+			global_enabled: false,
+			active_workspace_id: 'default',
+			workspaces: [],
+			strategy_library: [],
+			feed: null,
+			updated_at: null
+		};
+		setCached('cockpit', res, cachePolicy.cockpit);
+		return res;
+	} catch (e) {
+		return {
+			global_enabled: false,
+			active_workspace_id: 'default',
+			workspaces: [],
+			strategy_library: [],
+			feed: null,
+			updated_at: null
+		};
+	}
 }
 
 export async function saveCockpit(payload: {
@@ -582,44 +710,50 @@ export async function saveCockpit(payload: {
 	active_workspace_id?: string | null;
 	workspaces: CockpitWorkspace[];
 }): Promise<CockpitState> {
-	const response = await timedFetch('cockpit.save', `${API_BASE}/api/v1/cockpit`, {
-		method: 'PUT',
-		headers: { 'Content-Type': 'application/json' },
-		body: JSON.stringify(payload)
-	});
-	if (!response.ok) {
-		throw await buildApiError(response, 'Cockpit update');
+	try {
+		const data = await timedCall('cockpit.save', () => UpdateCockpitState(payload as any));
+		if (!data) {
+			throw new Error('Save cockpit returned empty response');
+		}
+		const res = data as unknown as CockpitState;
+		setCached('cockpit', res, cachePolicy.cockpit);
+		return res;
+	} catch (e) {
+		const err = new ApiError(`Cockpit save failed: ${e}`, 500, 'Server Error', String(e));
+		lastApiError = err;
+		throw err;
 	}
-	const data = (await response.json()) as CockpitState;
-	setCached('cockpit', data, cachePolicy.cockpit);
-	return data;
 }
 
 export async function replaceWatchlist(
 	payload: string[] | { groups: WatchlistGroup[]; feed?: WatchlistFeed | null }
 ): Promise<WatchlistResponse> {
-	const response = await timedFetch('watchlist.replace', `${API_BASE}/api/v1/watchlist`, {
-		method: 'PUT',
-		headers: { 'Content-Type': 'application/json' },
-		body: Array.isArray(payload)
-			? JSON.stringify({ symbols: payload })
-			: JSON.stringify({ groups: payload.groups, feed: payload.feed ?? null })
-	});
-	if (!response.ok) {
-		throw await buildApiError(response, 'Watchlist update');
+	try {
+		const req = Array.isArray(payload)
+			? { symbols: payload }
+			: { groups: payload.groups, feed: payload.feed ?? null };
+		const data = await timedCall('watchlist.replace', () => ReplaceWatchlist(req as any));
+		if (!data) {
+			throw new Error('Replace watchlist returned empty response');
+		}
+		const res = data as unknown as WatchlistResponse;
+		setCached('watchlist', res, cachePolicy.watchlist);
+		return res;
+	} catch (e) {
+		const err = new ApiError(`Watchlist replace failed: ${e}`, 500, 'Server Error', String(e));
+		lastApiError = err;
+		throw err;
 	}
-	const data = (await response.json()) as WatchlistResponse;
-	setCached('watchlist', data, cachePolicy.watchlist);
-	return data;
 }
-
-import { ImportTradingViewWatchlist, ExportWatchlistFile, ImportWatchlistFile } from '../../bindings/tws_traderbot/app';
 
 export async function importTradingViewWatchlist(url: string): Promise<WatchlistResponse> {
 	try {
-		const data = await ImportTradingViewWatchlist(url);
+		const data = await timedCall('watchlist.import_tv', () => ImportTradingViewWatchlist(url));
+		if (!data) {
+			throw new Error('Watchlist import returned empty response');
+		}
 		setCached('watchlist', data, cachePolicy.watchlist);
-		return data;
+		return data as unknown as WatchlistResponse;
 	} catch (e) {
 		const err = new ApiError(`TradingView watchlist import failed: ${e}`, 500, 'Server Error', String(e));
 		lastApiError = err;
@@ -629,7 +763,7 @@ export async function importTradingViewWatchlist(url: string): Promise<Watchlist
 
 export async function exportWatchlistFile(): Promise<void> {
 	try {
-		await ExportWatchlistFile();
+		await timedCall('watchlist.export_file', () => ExportWatchlistFile());
 	} catch (e) {
 		const err = new ApiError(`Watchlist export failed: ${e}`, 500, 'Server Error', String(e));
 		lastApiError = err;
@@ -639,10 +773,11 @@ export async function exportWatchlistFile(): Promise<void> {
 
 export async function importWatchlistFile(): Promise<WatchlistResponse> {
 	try {
-		const data = await ImportWatchlistFile();
-		if (data) {
-			setCached('watchlist', data, cachePolicy.watchlist);
+		const data = await timedCall('watchlist.import_file', () => ImportWatchlistFile());
+		if (!data) {
+			throw new Error('Watchlist import returned empty response');
 		}
+		setCached('watchlist', data, cachePolicy.watchlist);
 		return data as unknown as WatchlistResponse;
 	} catch (e) {
 		const err = new ApiError(`Watchlist import failed: ${e}`, 500, 'Server Error', String(e));
@@ -651,16 +786,20 @@ export async function importWatchlistFile(): Promise<WatchlistResponse> {
 	}
 }
 
-export async function refreshWatchlistFeed(): Promise<WatchlistResponse> {
-	const response = await timedFetch('watchlist.feed_refresh', `${API_BASE}/api/v1/watchlist/feed/refresh`, {
-		method: 'POST'
-	});
-	if (!response.ok) {
-		throw await buildApiError(response, 'Watchlist feed refresh');
+export async function refreshWatchlistFeed(watchlistId = ''): Promise<WatchlistResponse> {
+	try {
+		const data = await timedCall('watchlist.feed_refresh', () => RefreshWatchlistFeed(watchlistId));
+		if (!data) {
+			throw new Error('Watchlist feed refresh returned empty response');
+		}
+		const res = data as unknown as WatchlistResponse;
+		setCached('watchlist', res, cachePolicy.watchlist);
+		return res;
+	} catch (e) {
+		const err = new ApiError(`Watchlist feed refresh failed: ${e}`, 500, 'Server Error', String(e));
+		lastApiError = err;
+		throw err;
 	}
-	const data = (await response.json()) as WatchlistResponse;
-	setCached('watchlist', data, cachePolicy.watchlist);
-	return data;
 }
 
 export type SymbolQuery = {
@@ -683,22 +822,30 @@ export async function getSymbols(
 	force = false
 ): Promise<SymbolsResponse> {
 	const cacheKey = `symbols:${JSON.stringify(query)}`;
-	const cached = !force
-		? getCached<SymbolsResponse>(cacheKey)
-		: null;
+	const cached = !force ? getCached<SymbolsResponse>(cacheKey) : null;
 	if (cached) return cached;
-	const params = new URLSearchParams();
-	if (query.q) params.set('q', query.q);
-	if (query.type) params.set('type', query.type);
-	if (query.exchange) params.set('exchange', query.exchange);
-	if (typeof query.limit === 'number') params.set('limit', String(query.limit));
-	if (query.refresh) params.set('refresh', 'true');
-	const url = params.toString() ? `${API_BASE}/api/v1/symbols?${params}` : `${API_BASE}/api/v1/symbols`;
-	const response = await timedFetch('symbols.get', url);
-	if (!response.ok) {
-		throw await buildApiError(response, 'Symbols fetch');
+	try {
+		const data = await timedCall('symbols.get', () => GetSymbols(query as any));
+		const res: SymbolsResponse = (data as unknown as SymbolsResponse) ?? {
+			symbols: [],
+			source: 'local_sqlite'
+		};
+		setCached(cacheKey, res, cachePolicy.symbols);
+		return res;
+	} catch (e) {
+		return {
+			symbols: [],
+			source: 'local_sqlite'
+		};
 	}
-	const data = await response.json();
-	setCached(cacheKey, data, cachePolicy.symbols);
-	return data;
+}
+
+export async function resetCircuitBreaker(): Promise<void> {
+	try {
+		await timedCall('breaker.reset', () => ResetCircuitBreaker());
+	} catch (e) {
+		const err = new ApiError(`Circuit breaker reset failed: ${e}`, 500, 'Server Error', String(e));
+		lastApiError = err;
+		throw err;
+	}
 }

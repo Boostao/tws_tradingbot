@@ -23,3 +23,9 @@ npm-debug.log
 .env
 .vscode/
 frontend/.env
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+

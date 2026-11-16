@@ -1,8 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { formatApiError, getConfig, updateConfig, connectTws, disconnectTws, startBot, stopBot, type BotState, type ConfigResponse } from '$lib/api';
-import { GetTWSConnection, UpdateTWSConnection } from '../../../bindings/tws_traderbot/app';
-type ConfigResponse = any; // Mock response type
 	import { language, setLanguage, t } from '$lib/i18n';
 	import { refreshRuntimeState, runtimeState } from '$lib/stores/runtime';
 	import { Activity, BookOpen, Compass, GitBranch, Languages, LayoutGrid, List, Plug, Power } from 'lucide-svelte';
@@ -110,7 +108,15 @@ type ConfigResponse = any; // Mock response type
 		}
 	}
 
-	async function loadSidebarConfig() {}
+	async function loadSidebarConfig() {
+		try {
+			const config = await getConfig();
+			applySidebarConfig(config);
+			sidebarMessage = '';
+		} catch (err) {
+			sidebarMessage = formatApiError(err);
+		}
+	}
 
 	function scheduleSidebarConfigPersist(delayMs = 700): void {
 		clearConfigPersistTimer();

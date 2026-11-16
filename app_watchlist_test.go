@@ -1,10 +1,13 @@
 package main
-package main
 
 import (
 	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
+	"tws_traderbot/backend/db"
 	"tws_traderbot/backend/models"
 )
 
@@ -118,5 +121,105 @@ func TestImportWatchlistFile_EmptyFile(t *testing.T) {
 	var parsed models.WatchlistResponse
 	if err := json.Unmarshal([]byte{}, &parsed); err == nil {
 		t.Error("expected an error for empty input, got nil")
+	}
+}
+
+// TestRefreshWatchlistFeed_PreservesTargetWatchlistID verifies that RefreshWatchlistFeed
+// retains the target watchlist ID (e.g. cobalt-telegram) instead of clobbering it with the
+// TradingView numeric feed ID (e.g. 209453826), and preserves existing operator overrides.
+func TestRefreshWatchlistFeed_PreservesTargetWatchlistID(t *testing.T) {
+	// 1. Mock TradingView server responding with HTML containing embedded JSON payload
+	mockHTML := `<html><body>
+	<script type="application/prs.init-data+json">
+	{
+		"sharedWatchlist": {
+			"list": {
+				"id": 209453826,
+				"name": "✝️@ Cobalt- TELEGRAM",
+				"symbols": ["NASDAQ:AAPL", "TSX:SHOP"]
+			}
+		}
+	}
+	</script>
+	</body></html>`
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		fmt.Fprint(w, mockHTML)
+	}))
+	defer ts.Close()
+
+	// 2. Setup database and mock App
+	database, err := db.Connect(":memory:")
+	if err != nil {
+		t.Fatalf("failed to connect to memory db: %v", err)
+	}
+
+	app := &App{db: database}
+
+	// 3. Setup target watchlist "cobalt-telegram" with feed pointing to mock server
+	// and AAPL disabled by operator (Enabled = false)
+	targetID := "cobalt-telegram"
+	initialFeed := &models.WatchlistFeed{
+		Provider: "tradingview",
+		URL:      ts.URL,
+	}
+	initialGroups := []models.WatchlistGroup{
+		{
+			ID:   "default",
+			Name: "Default",
+			Items: []models.WatchlistItem{
+				{
+					Symbol:    "AAPL",
+					Exchange:  "NASDAQ",
+					Enabled:   false, // Operator override
+					Tier:      "1-Blue Chip",
+					SizeMode:  "dollar",
+					SizeValue: 2500.0,
+				},
+			},
+		},
+	}
+	if _, err := database.MergeAndSaveWatchlist(targetID, "✝️@ Cobalt- TELEGRAM", "", initialFeed, initialGroups, false); err != nil {
+		t.Fatalf("setup target watchlist failed: %v", err)
+	}
+
+	// 4. Call RefreshWatchlistFeed with target watchlist ID
+	refreshed, err := app.RefreshWatchlistFeed(targetID)
+	if err != nil {
+		t.Fatalf("RefreshWatchlistFeed failed: %v", err)
+	}
+
+	// 5. Verify the target ID was preserved (NOT replaced with numeric TradingView ID "209453826")
+	if refreshed.ID != targetID {
+		t.Errorf("expected refreshed ID to be %q, got %q", targetID, refreshed.ID)
+	}
+	if refreshed.Feed == nil || refreshed.Feed.ExternalID != "209453826" {
+		t.Errorf("expected ExternalID to be \"209453826\", got %+v", refreshed.Feed)
+	}
+
+	// 6. Verify that AAPL operator overrides were preserved across feed refresh
+	var aaplItem *models.WatchlistItem
+	for _, grp := range refreshed.Groups {
+		for i := range grp.Items {
+			if grp.Items[i].InstrumentID == "AAPL.NASDAQ" {
+				aaplItem = &grp.Items[i]
+				break
+			}
+		}
+	}
+	if aaplItem == nil {
+		t.Fatalf("AAPL.NASDAQ not found in refreshed watchlist")
+	}
+	if aaplItem.Enabled {
+		t.Errorf("AAPL.NASDAQ operator override lost: expected Enabled=false, got true")
+	}
+	if aaplItem.SizeMode != "dollar" || aaplItem.SizeValue != 2500.0 {
+		t.Errorf("AAPL.NASDAQ sizing override lost: mode=%s, val=%f", aaplItem.SizeMode, aaplItem.SizeValue)
+	}
+
+	// 7. Verify no duplicate list was created with the numeric ID "209453826"
+	if _, err := database.GetWatchlistByID("209453826"); err == nil {
+		t.Errorf("expected numeric TradingView ID \"209453826\" to NOT exist as a separate watchlist")
 	}
 }

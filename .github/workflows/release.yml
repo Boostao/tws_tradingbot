@@ -2,150 +2,173 @@ name: Release TWS TraderBot Go
 
 on:
   push:
-    branches:
-      - main
-    paths-ignore:
-      - '.github/**'
-  pull_request:
-    paths-ignore:
-      - '.github/**'
+    tags:
+      - 'v*'
   workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag (e.g. v1.0.0)'
+        required: true
+        default: 'v1.0.0'
+      draft:
+        description: 'Publish as Draft Release'
+        type: boolean
+        default: true
+      prerelease:
+        description: 'Publish as Pre-release'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
-  test:
-    name: Run Tests
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-      
-      - name: Setup Go
-        uses: actions/setup-go@v6
-        with:
-          go-version: '1.26'
-
-      - name: Run Go Tests
-        run: |
-          mkdir -p frontend/dist
-          touch frontend/dist/.gitkeep
-          go mod tidy
-          go test -v ./...
-
-  tag:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    name: Create Tag
-    needs: test
-    runs-on: ubuntu-latest
-    outputs:
-      version: ${{ steps.get_version.outputs.version }}
-    steps:
-      - uses: actions/checkout@v6
-      - name: Get version from package.json
-        id: get_version
-        run: |
-          VERSION=$(node -p "require('./frontend/package.json').version")
-          echo "version=v$VERSION" >> $GITHUB_OUTPUT
-      - name: Check and create tag
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          VERSION=${{ steps.get_version.outputs.version }}
-          if git ls-remote --tags origin | grep -q "refs/tags/$VERSION"; then
-            echo "Tag $VERSION already exists."
-          else
-            echo "Creating tag $VERSION..."
-            git tag $VERSION
-            git push origin $VERSION
-          fi
-
   build:
-    needs: tag
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    name: Build on ${{ matrix.os }}
+    name: Package App (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-    
-    steps:
-      - uses: actions/checkout@v6
+        include:
+          - os: ubuntu-24.04
+            platform: linux
+            arch: amd64
+          - os: windows-2022
+            platform: windows
+            arch: amd64
 
-      - name: Setup Go
-        uses: actions/setup-go@v6
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Go 1.26
+        uses: actions/setup-go@v5
         with:
           go-version: '1.26'
+          cache: true
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v6
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: 'frontend/package-lock.json'
 
-      - name: Install Wails
-        run: go install github.com/wailsapp/wails/v2/cmd/wails@latest
+      - name: Install Task runner
+        uses: arduino/setup-task@v2
+        with:
+          version: 3.x
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Install Linux Dependencies
+      - name: Install Wails v3 CLI
+        run: |
+          go install github.com/wailsapp/wails/v3/cmd/wails3@v3.1.0
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      # Linux packaging steps
+      - name: Install Linux GTK4 & WebKitGTK Dependencies
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential libgtk-3-dev libwebkit2gtk-4.1-dev
+          sudo apt-get install -y --no-install-recommends libgtk-4-dev libwebkitgtk-6.0-dev build-essential pkg-config binutils
 
-      - name: Build App (Linux)
+      - name: Package Linux Binary (.tar.gz and .deb)
         if: runner.os == 'Linux'
         run: |
-          export PATH=$PATH:$(go env GOPATH)/bin
-          CC=gcc wails build -tags webkit2_41 -platform linux/amd64
-          mv build/bin/tws_traderbot build/bin/tws_traderbot-linux-amd64 || mv build/bin/tws_traderbot build/bin/tws_traderbot-linux-amd64 || true
+          task linux:package
+          
+          # Create Debian package (.deb)
+          VERSION="${GITHUB_REF_NAME#v}"
+          if [ -z "$VERSION" ] || [ "$VERSION" = "$GITHUB_REF_NAME" ]; then
+            VERSION="1.0.0"
+          fi
+          
+          DEB_DIR="deb_staging/tws_traderbot_${VERSION}_amd64"
+          mkdir -p "${DEB_DIR}/usr/local/bin" "${DEB_DIR}/DEBIAN"
+          cp build/bin/tws_traderbot "${DEB_DIR}/usr/local/bin/"
+          chmod 755 "${DEB_DIR}/usr/local/bin/tws_traderbot"
+          
+          printf "Package: tws-traderbot\nVersion: %s\nSection: finance\nPriority: optional\nArchitecture: amd64\nMaintainer: Boostao <noreply@github.com>\nDescription: tws_traderbot F1 Cockpit & Execution Augmenter for Cobalt Investissements\n" "${VERSION}" > "${DEB_DIR}/DEBIAN/control"
+          dpkg-deb --build "deb_staging/tws_traderbot_${VERSION}_amd64" build/bin/tws_traderbot-linux-amd64.deb
+          cd build/bin && sha256sum tws_traderbot-linux-amd64.deb > tws_traderbot-linux-amd64.deb.sha256
 
-      - name: Build App (Windows)
+      # Windows packaging steps
+      - name: Package Windows Binary (.zip and .exe)
         if: runner.os == 'Windows'
+        shell: bash
         run: |
-          $env:Path += ";" + (go env GOPATH) + "\bin"
-          wails build -platform windows/amd64
-          Move-Item build/bin/*.exe build/bin/tws_traderbot-windows-amd64.exe
+          task windows:package
+          cp build/bin/tws_traderbot.exe build/bin/tws_traderbot-windows-amd64.exe
+          cd build/bin && sha256sum tws_traderbot-windows-amd64.exe > tws_traderbot-windows-amd64.exe.sha256
 
-      - name: Build App (macOS)
-        if: runner.os == 'macOS'
-        run: |
-          export PATH=$PATH:$(go env GOPATH)/bin
-          wails build -platform darwin/universal
-          cd build/bin
-          zip -r tws_traderbot-macos-universal.zip *.app
-
-      - name: Upload Artifact (Linux)
-        if: runner.os == 'Linux'
-        uses: actions/upload-artifact@v7
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
         with:
-          name: binary-linux
-          path: build/bin/tws_traderbot*-linux-amd64
+          name: artifacts-${{ matrix.platform }}-${{ matrix.arch }}
+          path: |
+            build/bin/tws_traderbot-*.tar.gz*
+            build/bin/tws_traderbot-*.deb*
+            build/bin/tws_traderbot-*.zip*
+            build/bin/tws_traderbot-*.exe*
+          if-no-files-found: error
 
-      - name: Upload Artifact (Windows)
-        if: runner.os == 'Windows'
-        uses: actions/upload-artifact@v7
-        with:
-          name: binary-windows
-          path: build/bin/tws_traderbot*-windows-amd64.exe
-
-      - name: Upload Artifact (macOS)
-        if: runner.os == 'macOS'
-        uses: actions/upload-artifact@v7
-        with:
-          name: binary-macos
-          path: build/bin/tws_traderbot*-macos-universal.zip
-
-  publish:
-    needs: [tag, build]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
+  release:
+    name: Draft GitHub Release
+    needs: build
+    runs-on: ubuntu-24.04
     steps:
-      - name: Download all artifacts
-        uses: actions/download-artifact@v8
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.13
+        uses: actions/setup-python@v5
         with:
-          path: release_assets
+          python-version: '3.13'
+
+      - name: Download all built artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist-release
           merge-multiple: true
 
-      - name: Publish GitHub Release
-        uses: softprops/action-gh-release@v3
+      - name: Assemble Checksums Table & Release Notes
+        id: release_notes
+        run: |
+          cd dist-release
+          
+          # Consolidate checksums into SHA256SUMS.txt
+          sha256sum tws_traderbot-linux-amd64.tar.gz tws_traderbot-linux-amd64.deb tws_traderbot-windows-amd64.zip tws_traderbot-windows-amd64.exe > SHA256SUMS.txt 2>/dev/null || true
+          
+          echo "### Verification Hashes (SHA-256)" > RELEASE_BODY.md
+          echo "| Artifact | SHA-256 Checksum |" >> RELEASE_BODY.md
+          echo "| :--- | :--- |" >> RELEASE_BODY.md
+          
+          for f in tws_traderbot-linux-amd64.tar.gz tws_traderbot-linux-amd64.deb tws_traderbot-windows-amd64.zip tws_traderbot-windows-amd64.exe; do
+            if [ -f "$f" ]; then
+              HASH=$(sha256sum "$f" | cut -d' ' -f1)
+              echo "| \`$f\` | \`$HASH\` |" >> RELEASE_BODY.md
+            fi
+          done
+          
+          echo "" >> RELEASE_BODY.md
+          echo "### Highlights" >> RELEASE_BODY.md
+          echo "- **Poste de pilotage F1**: 3 exclusive workspaces (Achat, Short, Swing) with 1/1 strategy slot concurrency." >> RELEASE_BODY.md
+          echo "- **Fail-Closed Execution Engine**: Coupe-circuit principal and automated daily loss limit protection." >> RELEASE_BODY.md
+          echo "- **Cobalt Universe & Lexicon**: 5 pre-seeded watchlists, 20 indicator models, 100% symmetric FR/EN parity." >> RELEASE_BODY.md
+
+      - name: Publish Draft GitHub Release
+        uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ needs.tag.outputs.version }}
-          files: release_assets/*
+          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
+          name: tws_traderbot ${{ github.event.inputs.tag || github.ref_name }}
+          body_path: dist-release/RELEASE_BODY.md
+          draft: ${{ github.event.inputs.draft != 'false' }}
+          prerelease: ${{ github.event.inputs.prerelease == 'true' }}
+          files: |
+            dist-release/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
