@@ -1,52 +1,24 @@
-# GitHub Copilot Agent Instructions — TWS Trader Bot
+# GitHub Copilot Agent Instructions — `tws_traderbot`
 
-## Product Goal
-Maintain a local TWS/Interactive Brokers trading bot with:
-- Svelte UI embedded via Wails
-- Golang Native backend
-- SQLite-backed state (`system_config`)
-- Rule-engine based strategy execution using concurrent Go native array math
-- Direct Golang + `scmhub/ibapi` market-data and execution integration mapped dynamically to the UI config port
+**Start at [`AGENTS.md`](../AGENTS.md) first**, then load [`okf/AGENTS.md`](../okf/AGENTS.md) and [`okf/00_index.md`](../okf/00_index.md) when modifying architecture, schemas, or specifications.
 
-## Current State
-- Cockpit is the main control surface.
-- Each workspace has exactly one active strategy slot.
-- Watchlist items expose normalized `instrument_id` values in `SYMBOL.VENUE` form.
-- Market data stays subscribed for the full watchlist universe, while execution only runs for currently enabled strategy and ticker targets.
-- The backend operates locally over IPC (Wails), not REST.
-- SQLite strictly types and persists state from UI preferences to Watchlists.
-- The execution relies on `Engine.EvaluateTick()` which natively accepts arrays of floats against mapped Go strategy structs.
-- Strategy calculations use native Go math (SMA, EMA, Crossover, Slope).
-- TWS connection is handled by a custom `IBWrapper` embedding `ibapi.Wrapper`.
+## Core Guardrails
 
-## Architecture Map
-- Wails App Entry: `main.go`, `app.go`
-- Go Backend API context: `backend/`
-- SQLite DB logic: `backend/db/`
-- Bot Execution Engine: `backend/bot/`
-- Strategy Math Evaluator: `backend/strategy/`
-- Svelte Frontend: `frontend/`
+1. **Architecture & Stack (`Go 1.26` + `Wails v3` + `Svelte 5` + `SQLite`):**
+   - Local desktop app operating over Wails IPC (not REST) with `modernc.org/sqlite` persistence and `scmhub/ibapi` (`IBWrapper` embedding `ibapi.Wrapper`).
+   - Preserve the single active strategy slot in the cockpit, global runtime settings, `SYMBOL.VENUE` `instrument_id` normalization, full-watchlist market-data subscriptions with targeted execution, and compatibility with both flat market data maps and nested `symbol -> timeframe -> frame` bundles.
+   - Ensure Go structs exposed over Wails use `json:"property"` tags and regenerate TypeScript bindings (`wails3 generate bindings`) when IPC contracts change.
+   - Dry-run execution routes must **never** place live orders; respect TWS pacing for historical data requests.
 
-## Working Rules
-- Preserve the single active strategy slot behavior in the cockpit.
-- Do not reintroduce multi-strategy fan-out unless the user explicitly asks for it.
-- Treat the UI runtime settings as global execution settings.
-- Wails IPC bindings (`wails generate module`) sync the Go structs to TypeScript seamlessly. Ensure struct fields intended for Svelte use standard JSON formatting `json:"property"`.
-- The application stack is exclusively Go and Node.js (for frontend build).
-- When changing rule evaluation, maintain compatibility with both flat market data maps and nested `symbol -> timeframe -> frame` bundles.
+2. **UI & i18n:**
+   - Keep the cockpit dense and operationally focused (compact header, single-line ticker rows).
+   - Route all new user-visible strings in `frontend/` through `frontend/src/lib/i18n/translations.ts` for both `en` and `fr`.
 
-## UI Guidance
-- Keep the cockpit dense and operationally focused.
-- Avoid wasting vertical space in the header area.
-- Prefer single-line summaries for ticker rows and compact strategy summaries when possible.
-- Any new user-visible strings in the Svelte UI must go through `frontend/src/lib/i18n/translations.ts` for both `en` and `fr`.
+3. **Knowledge Hygiene (`okf/`):**
+   - Keep `okf/` synchronized in place with architectural, schema, or strategy changes; never leave stray `.md` files outside the allowlist enforced by `scripts/check-okf-hygiene.py`.
 
-## Validation
-- Backend unit tests: `go test -v ./backend/...`
-- Build verification: `wails build`
-
-## Known Constraints
-- The runtime is local and SQLite-backed by design.
-- TWS pacing still matters for historical data block requests.
-- Multi-timeframe runtime support exists in the execution path, but any UI/history tooling that assumes one flat frame per symbol should be treated carefully.
-- The dry-run execution routes should never place live orders.
+4. **Validation Gates:**
+   - **Backend:** `go test -v ./backend/...`
+   - **Frontend:** `(cd frontend && npm run check && npm run build)`
+   - **Full Build:** `task build`
+   - **OKF Hygiene:** `python3 scripts/check-okf-hygiene.py && python3 -m unittest discover -s scripts/tests -p 'test_*.py'`
