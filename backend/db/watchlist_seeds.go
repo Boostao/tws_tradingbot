@@ -182,7 +182,7 @@ var cobaltWatchlistSeeds = []SeedWatchlistDef{
 			{
 				ID:      "holding",
 				Name:    "Positions Détenues",
-				Symbols: []string{"NASDAQ:AAPL", "TSX:SHOP"},
+				Symbols: []string{},
 				Tier:    "1-Blue Chip",
 				Holding: true,
 			},

@@ -181,12 +181,54 @@ export class BotState {
              */
             this["tws_connected"] = false;
         }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["account_id"] = undefined;
+        }
+        if (!("dry_run" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["dry_run"] = false;
+        }
         if (!("equity" in $$source)) {
             /**
              * @member
              * @type {number}
              */
             this["equity"] = 0;
+        }
+        if (!("buying_power" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["buying_power"] = 0;
+        }
+        if (!("cash_usd" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["cash_usd"] = 0;
+        }
+        if (!("cash_cad" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["cash_cad"] = 0;
+        }
+        if (!("cash_base" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["cash_base"] = 0;
         }
         if (!("daily_pnl" in $$source)) {
             /**
@@ -209,6 +251,20 @@ export class BotState {
              */
             this["total_pnl"] = 0;
         }
+        if (!("realized_pnl" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["realized_pnl"] = 0;
+        }
+        if (!("unrealized_pnl" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["unrealized_pnl"] = 0;
+        }
         if (!("daily_loss_limit" in $$source)) {
             /**
              * @member
@@ -223,12 +279,33 @@ export class BotState {
              */
             this["circuit_breaker_tripped"] = false;
         }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["active_workspace_id"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["active_strategy_id"] = undefined;
+        }
         if (!("active_strategy" in $$source)) {
             /**
              * @member
              * @type {string}
              */
             this["active_strategy"] = "";
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["session_status"] = undefined;
         }
         if (!("open_positions_count" in $$source)) {
             /**
@@ -243,6 +320,27 @@ export class BotState {
              * @type {number}
              */
             this["pending_orders_count"] = 0;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {BrokerPosition[] | undefined}
+             */
+            this["open_positions"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {BrokerOrder[] | undefined}
+             */
+            this["open_orders"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {BrokerAlert[] | undefined}
+             */
+            this["broker_alerts"] = undefined;
         }
         if (!("trades_today" in $$source)) {
             /**
@@ -352,24 +450,295 @@ export class BotState {
      * @returns {BotState}
      */
     static createFrom($$source = {}) {
-        const $$createField16_0 = $$createType6;
-        const $$createField17_0 = $$createType3;
-        const $$createField18_0 = $$createType3;
-        const $$createField19_0 = $$createType2;
+        const $$createField23_0 = $$createType7;
+        const $$createField24_0 = $$createType9;
+        const $$createField25_0 = $$createType11;
+        const $$createField30_0 = $$createType12;
+        const $$createField31_0 = $$createType3;
+        const $$createField32_0 = $$createType3;
+        const $$createField33_0 = $$createType2;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("open_positions" in $$parsedSource) {
+            $$parsedSource["open_positions"] = $$createField23_0($$parsedSource["open_positions"]);
+        }
+        if ("open_orders" in $$parsedSource) {
+            $$parsedSource["open_orders"] = $$createField24_0($$parsedSource["open_orders"]);
+        }
+        if ("broker_alerts" in $$parsedSource) {
+            $$parsedSource["broker_alerts"] = $$createField25_0($$parsedSource["broker_alerts"]);
+        }
         if ("recent_logs" in $$parsedSource) {
-            $$parsedSource["recent_logs"] = $$createField16_0($$parsedSource["recent_logs"]);
+            $$parsedSource["recent_logs"] = $$createField30_0($$parsedSource["recent_logs"]);
         }
         if ("recent_orders" in $$parsedSource) {
-            $$parsedSource["recent_orders"] = $$createField17_0($$parsedSource["recent_orders"]);
+            $$parsedSource["recent_orders"] = $$createField31_0($$parsedSource["recent_orders"]);
         }
         if ("recent_trades" in $$parsedSource) {
-            $$parsedSource["recent_trades"] = $$createField18_0($$parsedSource["recent_trades"]);
+            $$parsedSource["recent_trades"] = $$createField32_0($$parsedSource["recent_trades"]);
         }
         if ("last_dry_run" in $$parsedSource) {
-            $$parsedSource["last_dry_run"] = $$createField19_0($$parsedSource["last_dry_run"]);
+            $$parsedSource["last_dry_run"] = $$createField33_0($$parsedSource["last_dry_run"]);
         }
         return new BotState(/** @type {Partial<BotState>} */($$parsedSource));
+    }
+}
+
+export class BrokerAlert {
+    /**
+     * Creates a new BrokerAlert instance.
+     * @param {Partial<BrokerAlert>} [$$source = {}] - The source object to create the BrokerAlert.
+     */
+    constructor($$source = {}) {
+        if (!("code" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["code"] = 0;
+        }
+        if (!("severity" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["severity"] = "";
+        }
+        if (!("message" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["message"] = "";
+        }
+        if (!("hint" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["hint"] = "";
+        }
+        if (!("timestamp" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["timestamp"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new BrokerAlert instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {BrokerAlert}
+     */
+    static createFrom($$source = {}) {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new BrokerAlert(/** @type {Partial<BrokerAlert>} */($$parsedSource));
+    }
+}
+
+export class BrokerOrder {
+    /**
+     * Creates a new BrokerOrder instance.
+     * @param {Partial<BrokerOrder>} [$$source = {}] - The source object to create the BrokerOrder.
+     */
+    constructor($$source = {}) {
+        if (!("order_id" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["order_id"] = 0;
+        }
+        if (!("symbol" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["symbol"] = "";
+        }
+        if (!("venue" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["venue"] = "";
+        }
+        if (!("instrument_id" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["instrument_id"] = "";
+        }
+        if (!("action" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["action"] = "";
+        }
+        if (!("order_type" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["order_type"] = "";
+        }
+        if (!("total_qty" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["total_qty"] = 0;
+        }
+        if (!("filled_qty" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["filled_qty"] = 0;
+        }
+        if (!("remaining_qty" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["remaining_qty"] = 0;
+        }
+        if (!("limit_price" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["limit_price"] = 0;
+        }
+        if (!("avg_fill_price" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["avg_fill_price"] = 0;
+        }
+        if (!("status" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["status"] = "";
+        }
+        if (!("outside_rth" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["outside_rth"] = false;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new BrokerOrder instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {BrokerOrder}
+     */
+    static createFrom($$source = {}) {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new BrokerOrder(/** @type {Partial<BrokerOrder>} */($$parsedSource));
+    }
+}
+
+export class BrokerPosition {
+    /**
+     * Creates a new BrokerPosition instance.
+     * @param {Partial<BrokerPosition>} [$$source = {}] - The source object to create the BrokerPosition.
+     */
+    constructor($$source = {}) {
+        if (!("symbol" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["symbol"] = "";
+        }
+        if (!("venue" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["venue"] = "";
+        }
+        if (!("instrument_id" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["instrument_id"] = "";
+        }
+        if (!("currency" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["currency"] = "";
+        }
+        if (!("position" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["position"] = 0;
+        }
+        if (!("avg_cost" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["avg_cost"] = 0;
+        }
+        if (!("market_price" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["market_price"] = 0;
+        }
+        if (!("market_value" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["market_value"] = 0;
+        }
+        if (!("unrealized_pnl" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["unrealized_pnl"] = 0;
+        }
+        if (!("realized_pnl" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["realized_pnl"] = 0;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new BrokerPosition instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {BrokerPosition}
+     */
+    static createFrom($$source = {}) {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new BrokerPosition(/** @type {Partial<BrokerPosition>} */($$parsedSource));
     }
 }
 
@@ -431,9 +800,9 @@ export class CockpitStateResponse {
      * @returns {CockpitStateResponse}
      */
     static createFrom($$source = {}) {
-        const $$createField2_0 = $$createType8;
-        const $$createField3_0 = $$createType10;
-        const $$createField4_0 = $$createType12;
+        const $$createField2_0 = $$createType14;
+        const $$createField3_0 = $$createType16;
+        const $$createField4_0 = $$createType18;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("workspaces" in $$parsedSource) {
             $$parsedSource["workspaces"] = $$createField2_0($$parsedSource["workspaces"]);
@@ -538,6 +907,20 @@ export class CockpitStrategySummary {
              */
             this["source"] = undefined;
         }
+        if (!("pinned" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["pinned"] = false;
+        }
+        if (!("sort_order" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["sort_order"] = 0;
+        }
         if (/** @type {any} */(false)) {
             /**
              * @member
@@ -594,6 +977,13 @@ export class CockpitWorkspace {
              */
             this["enabled"] = false;
         }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["watchlist_id"] = undefined;
+        }
         if (!("strategy_slots" in $$source)) {
             /**
              * @member
@@ -611,10 +1001,10 @@ export class CockpitWorkspace {
      * @returns {CockpitWorkspace}
      */
     static createFrom($$source = {}) {
-        const $$createField4_0 = $$createType14;
+        const $$createField5_0 = $$createType20;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("strategy_slots" in $$parsedSource) {
-            $$parsedSource["strategy_slots"] = $$createField4_0($$parsedSource["strategy_slots"]);
+            $$parsedSource["strategy_slots"] = $$createField5_0($$parsedSource["strategy_slots"]);
         }
         return new CockpitWorkspace(/** @type {Partial<CockpitWorkspace>} */($$parsedSource));
     }
@@ -685,8 +1075,8 @@ export class Condition {
      * @returns {Condition}
      */
     static createFrom($$source = {}) {
-        const $$createField1_0 = $$createType16;
-        const $$createField2_0 = $$createType16;
+        const $$createField1_0 = $$createType22;
+        const $$createField2_0 = $$createType22;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("indicator_a" in $$parsedSource) {
             $$parsedSource["indicator_a"] = $$createField1_0($$parsedSource["indicator_a"]);
@@ -746,6 +1136,55 @@ export class DiagnosticsResponse {
              */
             this["symbols"] = (new DiagnosticsSymbols());
         }
+        if (!("session_status" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["session_status"] = "";
+        }
+        if (!("account" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["account"] = "";
+        }
+        if (!("dry_run" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["dry_run"] = false;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["active_workspace_id"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["active_strategy_id"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["active_strategy_name"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {BrokerAlert[] | undefined}
+             */
+            this["broker_alerts"] = undefined;
+        }
 
         Object.assign(this, $$source);
     }
@@ -756,9 +1195,10 @@ export class DiagnosticsResponse {
      * @returns {DiagnosticsResponse}
      */
     static createFrom($$source = {}) {
-        const $$createField0_0 = $$createType17;
-        const $$createField1_0 = $$createType18;
-        const $$createField2_0 = $$createType19;
+        const $$createField0_0 = $$createType23;
+        const $$createField1_0 = $$createType24;
+        const $$createField2_0 = $$createType25;
+        const $$createField9_0 = $$createType11;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("startup" in $$parsedSource) {
             $$parsedSource["startup"] = $$createField0_0($$parsedSource["startup"]);
@@ -768,6 +1208,9 @@ export class DiagnosticsResponse {
         }
         if ("symbols" in $$parsedSource) {
             $$parsedSource["symbols"] = $$createField2_0($$parsedSource["symbols"]);
+        }
+        if ("broker_alerts" in $$parsedSource) {
+            $$parsedSource["broker_alerts"] = $$createField9_0($$parsedSource["broker_alerts"]);
         }
         return new DiagnosticsResponse(/** @type {Partial<DiagnosticsResponse>} */($$parsedSource));
     }
@@ -835,12 +1278,12 @@ export class DiagnosticsStartup {
      * @param {Partial<DiagnosticsStartup>} [$$source = {}] - The source object to create the DiagnosticsStartup.
      */
     constructor($$source = {}) {
-        if (!("environment" in $$source)) {
+        if (/** @type {any} */(false)) {
             /**
              * @member
-             * @type {string}
+             * @type {string | undefined}
              */
-            this["environment"] = "";
+            this["environment"] = undefined;
         }
         if (!("trading_mode" in $$source)) {
             /**
@@ -877,40 +1320,40 @@ export class DiagnosticsStartup {
              */
             this["account"] = "";
         }
-        if (!("log_level" in $$source)) {
+        if (/** @type {any} */(false)) {
             /**
              * @member
-             * @type {string}
+             * @type {string | undefined}
              */
-            this["log_level"] = "";
+            this["log_level"] = undefined;
         }
-        if (!("log_file" in $$source)) {
+        if (/** @type {any} */(false)) {
             /**
              * @member
-             * @type {string}
+             * @type {string | undefined}
              */
-            this["log_file"] = "";
+            this["log_file"] = undefined;
         }
-        if (!("watchlist_path" in $$source)) {
+        if (/** @type {any} */(false)) {
             /**
              * @member
-             * @type {string}
+             * @type {string | undefined}
              */
-            this["watchlist_path"] = "";
+            this["watchlist_path"] = undefined;
         }
-        if (!("strategy_path" in $$source)) {
+        if (/** @type {any} */(false)) {
             /**
              * @member
-             * @type {string}
+             * @type {string | undefined}
              */
-            this["strategy_path"] = "";
+            this["strategy_path"] = undefined;
         }
-        if (!("symbol_cache_path" in $$source)) {
+        if (/** @type {any} */(false)) {
             /**
              * @member
-             * @type {string}
+             * @type {string | undefined}
              */
-            this["symbol_cache_path"] = "";
+            this["symbol_cache_path"] = undefined;
         }
 
         Object.assign(this, $$source);
@@ -1149,10 +1592,10 @@ export class ReplaceWatchlistRequest {
      * @returns {ReplaceWatchlistRequest}
      */
     static createFrom($$source = {}) {
-        const $$createField3_0 = $$createType6;
-        const $$createField4_0 = $$createType21;
-        const $$createField5_0 = $$createType23;
-        const $$createField6_0 = $$createType12;
+        const $$createField3_0 = $$createType12;
+        const $$createField4_0 = $$createType27;
+        const $$createField5_0 = $$createType29;
+        const $$createField6_0 = $$createType18;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("symbols" in $$parsedSource) {
             $$parsedSource["symbols"] = $$createField3_0($$parsedSource["symbols"]);
@@ -1242,7 +1685,7 @@ export class Rule {
      * @returns {Rule}
      */
     static createFrom($$source = {}) {
-        const $$createField4_0 = $$createType25;
+        const $$createField4_0 = $$createType31;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("condition" in $$parsedSource) {
             $$parsedSource["condition"] = $$createField4_0($$parsedSource["condition"]);
@@ -1367,8 +1810,8 @@ export class Strategy {
      * @returns {Strategy}
      */
     static createFrom($$source = {}) {
-        const $$createField4_0 = $$createType6;
-        const $$createField5_0 = $$createType27;
+        const $$createField4_0 = $$createType12;
+        const $$createField5_0 = $$createType33;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("tickers" in $$parsedSource) {
             $$parsedSource["tickers"] = $$createField4_0($$parsedSource["tickers"]);
@@ -1529,7 +1972,7 @@ export class SymbolsResponse {
      * @returns {SymbolsResponse}
      */
     static createFrom($$source = {}) {
-        const $$createField0_0 = $$createType29;
+        const $$createField0_0 = $$createType35;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("symbols" in $$parsedSource) {
             $$parsedSource["symbols"] = $$createField0_0($$parsedSource["symbols"]);
@@ -1686,7 +2129,7 @@ export class ValidationResult {
      * @returns {ValidationResult}
      */
     static createFrom($$source = {}) {
-        const $$createField1_0 = $$createType6;
+        const $$createField1_0 = $$createType12;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("errors" in $$parsedSource) {
             $$parsedSource["errors"] = $$createField1_0($$parsedSource["errors"]);
@@ -1795,7 +2238,7 @@ export class WatchlistGroup {
      * @returns {WatchlistGroup}
      */
     static createFrom($$source = {}) {
-        const $$createField3_0 = $$createType23;
+        const $$createField3_0 = $$createType29;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("items" in $$parsedSource) {
             $$parsedSource["items"] = $$createField3_0($$parsedSource["items"]);
@@ -2023,9 +2466,9 @@ export class WatchlistResponse {
      * @returns {WatchlistResponse}
      */
     static createFrom($$source = {}) {
-        const $$createField4_0 = $$createType6;
-        const $$createField5_0 = $$createType21;
-        const $$createField6_0 = $$createType12;
+        const $$createField4_0 = $$createType12;
+        const $$createField5_0 = $$createType27;
+        const $$createField6_0 = $$createType18;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("symbols" in $$parsedSource) {
             $$parsedSource["symbols"] = $$createField4_0($$parsedSource["symbols"]);
@@ -2124,27 +2567,33 @@ const $$createType2 = $Create.Map($Create.Any, $Create.Any);
 const $$createType3 = $Create.Array($$createType2);
 const $$createType4 = BotState.createFrom;
 const $$createType5 = $Create.Nullable($$createType4);
-const $$createType6 = $Create.Array($Create.Any);
-const $$createType7 = CockpitWorkspace.createFrom;
-const $$createType8 = $Create.Array($$createType7);
-const $$createType9 = CockpitStrategySummary.createFrom;
-const $$createType10 = $Create.Array($$createType9);
-const $$createType11 = WatchlistFeed.createFrom;
-const $$createType12 = $Create.Nullable($$createType11);
-const $$createType13 = CockpitStrategySlot.createFrom;
+const $$createType6 = BrokerPosition.createFrom;
+const $$createType7 = $Create.Array($$createType6);
+const $$createType8 = BrokerOrder.createFrom;
+const $$createType9 = $Create.Array($$createType8);
+const $$createType10 = BrokerAlert.createFrom;
+const $$createType11 = $Create.Array($$createType10);
+const $$createType12 = $Create.Array($Create.Any);
+const $$createType13 = CockpitWorkspace.createFrom;
 const $$createType14 = $Create.Array($$createType13);
-const $$createType15 = Indicator.createFrom;
-const $$createType16 = $Create.Nullable($$createType15);
-const $$createType17 = DiagnosticsStartup.createFrom;
-const $$createType18 = DiagnosticsRuntime.createFrom;
-const $$createType19 = DiagnosticsSymbols.createFrom;
-const $$createType20 = WatchlistGroup.createFrom;
-const $$createType21 = $Create.Array($$createType20);
-const $$createType22 = WatchlistItem.createFrom;
-const $$createType23 = $Create.Array($$createType22);
-const $$createType24 = Condition.createFrom;
-const $$createType25 = $Create.Nullable($$createType24);
-const $$createType26 = Rule.createFrom;
+const $$createType15 = CockpitStrategySummary.createFrom;
+const $$createType16 = $Create.Array($$createType15);
+const $$createType17 = WatchlistFeed.createFrom;
+const $$createType18 = $Create.Nullable($$createType17);
+const $$createType19 = CockpitStrategySlot.createFrom;
+const $$createType20 = $Create.Array($$createType19);
+const $$createType21 = Indicator.createFrom;
+const $$createType22 = $Create.Nullable($$createType21);
+const $$createType23 = DiagnosticsStartup.createFrom;
+const $$createType24 = DiagnosticsRuntime.createFrom;
+const $$createType25 = DiagnosticsSymbols.createFrom;
+const $$createType26 = WatchlistGroup.createFrom;
 const $$createType27 = $Create.Array($$createType26);
-const $$createType28 = SymbolRecord.createFrom;
+const $$createType28 = WatchlistItem.createFrom;
 const $$createType29 = $Create.Array($$createType28);
+const $$createType30 = Condition.createFrom;
+const $$createType31 = $Create.Nullable($$createType30);
+const $$createType32 = Rule.createFrom;
+const $$createType33 = $Create.Array($$createType32);
+const $$createType34 = SymbolRecord.createFrom;
+const $$createType35 = $Create.Array($$createType34);

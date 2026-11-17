@@ -5,8 +5,12 @@ import (
 	"tws_traderbot/backend/models"
 )
 
-// GetDiagnostics returns system, runtime, and symbol telemetry
+// GetDiagnostics returns system, runtime, session, and broker alert telemetry.
 func (a *App) GetDiagnostics() (*models.DiagnosticsResponse, error) {
+	if a.engine != nil {
+		return a.engine.BuildDiagnostics()
+	}
+
 	connConfig := a.GetTWSConnection()
 	host, _ := connConfig["host"].(string)
 	if host == "" {
@@ -25,49 +29,39 @@ func (a *App) GetDiagnostics() (*models.DiagnosticsResponse, error) {
 		clientID = c
 	}
 
-	runnerActive := false
-	if a.engine != nil {
-		runnerActive = a.engine.IsRunning()
+	tradingMode := "paper"
+	if port == 7496 || port == 4001 {
+		tradingMode = "live"
 	}
 
 	return &models.DiagnosticsResponse{
 		Startup: models.DiagnosticsStartup{
-			Environment:     "desktop_local",
-			TradingMode:     "paper",
-			IBHost:          host,
-			IBPort:          port,
-			ClientID:        clientID,
-			Account:         "DUO185814",
-			LogLevel:        "INFO",
-			LogFile:         "tws_traderbot.log",
-			WatchlistPath:   "tws_traderbot.sqlite",
-			StrategyPath:    "tws_traderbot.sqlite",
-			SymbolCachePath: "tws_traderbot.sqlite",
+			TradingMode: tradingMode,
+			IBHost:      host,
+			IBPort:      port,
+			ClientID:    clientID,
 		},
 		Runtime: models.DiagnosticsRuntime{
-			RunnerActive:        runnerActive,
-			LastRuntimeReloadAt: time.Now().UTC().Format(time.RFC3339),
+			RunnerActive: false,
 		},
-		Symbols: models.DiagnosticsSymbols{
-			Source:        "local_sqlite",
-			LastCheckedAt: time.Now().UTC().Format(time.RFC3339),
-		},
+		Symbols: models.DiagnosticsSymbols{},
 	}, nil
 }
 
-// DryRunBot performs simulated execution against current market data
+// DryRunBot performs simulated execution against the active workspace, strategy, and watchlist.
 func (a *App) DryRunBot() (*models.BotDryRun, error) {
-	activeStratName := ""
-	if a.engine != nil && a.engine.ActiveStrategy != nil {
-		activeStratName = a.engine.ActiveStrategy.Name
+	twsConnected := false
+	if a.ibkrClient != nil {
+		twsConnected = a.ibkrClient.IsConnected()
+	}
+	if a.engine != nil {
+		return a.engine.RunDryRun(twsConnected)
 	}
 
 	return &models.BotDryRun{
-		Strategy:      activeStratName,
+		Strategy:      "",
 		WorkspaceKind: "long",
-		Subscriptions: []models.BotDryRunSubscription{
-			{Symbol: "SPY.SMART", Timeframe: "5m"},
-		},
+		Subscriptions: []models.BotDryRunSubscription{},
 		Positions:     map[string]interface{}{},
 		OpenOrders:    []map[string]interface{}{},
 		PlannedOrders: []map[string]interface{}{},
@@ -78,6 +72,9 @@ func (a *App) DryRunBot() (*models.BotDryRun, error) {
 
 // ResetCircuitBreaker manually re-arms the execution engine
 func (a *App) ResetCircuitBreaker() error {
+	a.cockpitMu.Lock()
+	defer a.cockpitMu.Unlock()
+
 	if a.engine != nil {
 		return a.engine.ResetCircuitBreaker()
 	}

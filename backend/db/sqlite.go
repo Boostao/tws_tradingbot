@@ -27,6 +27,10 @@ func Connect(dbPath string) (*Database, error) {
 		return nil, err
 	}
 
+	// Single-writer/single-connection pool avoids SQLITE_BUSY on DEFERRED->RESERVED WAL lock upgrades.
+	conn.SetMaxOpenConns(1)
+	conn.SetMaxIdleConns(1)
+
 	// Enable Foreign Key Enforcement and Write-Ahead Logging
 	if _, err := conn.Exec("PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL;"); err != nil {
 		log.Printf("Warning: failed to set SQLite PRAGMAs: %v\n", err)
@@ -100,6 +104,8 @@ func (db *Database) InitSchema() {
 		name TEXT NOT NULL,
 		summary JSON,
 		data JSON,
+		pinned BOOLEAN NOT NULL DEFAULT 0,
+		sort_order INTEGER NOT NULL DEFAULT 0,
 		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 	);
 
@@ -125,6 +131,8 @@ func (db *Database) InitSchema() {
 		log.Fatalf("Failed to initialize database schema: %v", err)
 	}
 
+	db.migrateStrategiesTable()
+
 	// Check if watchlists table is empty
 	var count int
 	err = db.conn.QueryRow("SELECT COUNT(*) FROM watchlists").Scan(&count)
@@ -147,6 +155,8 @@ func (db *Database) InitSchema() {
 		}
 	}
 
+	db.migrateLegacyCobaltV2Data()
+
 	// Check if strategies table needs seeding
 	var stratCount int
 	err = db.conn.QueryRow("SELECT COUNT(*) FROM strategies").Scan(&stratCount)
@@ -156,6 +166,117 @@ func (db *Database) InitSchema() {
 			log.Printf("Error seeding Cobalt strategies: %v\n", err)
 		}
 	}
+}
+
+// migrateStrategiesTable idempotently adds pinned and sort_order columns and backfills initial sort_order.
+func (db *Database) migrateStrategiesTable() {
+	rows, err := db.conn.Query("PRAGMA table_info(strategies)")
+	if err != nil {
+		log.Printf("Warning: failed to inspect strategies table: %v\n", err)
+		return
+	}
+
+	var hasPinned, hasSortOrder bool
+	for rows.Next() {
+		var cid int
+		var name, colType string
+		var notNull int
+		var dflt sql.NullString
+		var pk int
+		if err := rows.Scan(&cid, &name, &colType, &notNull, &dflt, &pk); err == nil {
+			switch name {
+			case "pinned":
+				hasPinned = true
+			case "sort_order":
+				hasSortOrder = true
+			}
+		}
+	}
+	rows.Close()
+
+	if !hasPinned {
+		if _, err := db.conn.Exec("ALTER TABLE strategies ADD COLUMN pinned BOOLEAN NOT NULL DEFAULT 0"); err != nil {
+			log.Printf("Warning: failed adding strategies.pinned: %v\n", err)
+		}
+	}
+	if !hasSortOrder {
+		if _, err := db.conn.Exec("ALTER TABLE strategies ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0"); err != nil {
+			log.Printf("Warning: failed adding strategies.sort_order: %v\n", err)
+		}
+	}
+
+	var total, nonZero int
+	if err := db.conn.QueryRow("SELECT COUNT(*), COALESCE(SUM(CASE WHEN sort_order != 0 THEN 1 ELSE 0 END), 0) FROM strategies").Scan(&total, &nonZero); err != nil {
+		return
+	}
+	if total > 0 && (nonZero == 0 || !hasSortOrder) {
+		tx, err := db.conn.Begin()
+		if err != nil {
+			return
+		}
+		defer tx.Rollback()
+
+		idRows, err := tx.Query("SELECT id FROM strategies ORDER BY pinned DESC, name ASC, id ASC")
+		if err != nil {
+			return
+		}
+		var ids []string
+		for idRows.Next() {
+			var id string
+			if err := idRows.Scan(&id); err == nil {
+				ids = append(ids, id)
+			}
+		}
+		idRows.Close()
+
+		for i, id := range ids {
+			if _, err := tx.Exec("UPDATE strategies SET sort_order = ? WHERE id = ?", i+1, id); err != nil {
+				return
+			}
+		}
+		_ = tx.Commit()
+	}
+}
+
+// migrateLegacyCobaltV2Data performs a one-time cleanup of legacy seeded holdings and clobbered watchlist names.
+func (db *Database) migrateLegacyCobaltV2Data() {
+	var migrated string
+	err := db.conn.QueryRow("SELECT value FROM system_config WHERE key = 'migration_cobalt_v2_clean_holdings'").Scan(&migrated)
+	if err == nil && migrated != "" {
+		return
+	}
+
+	tx, err := db.conn.Begin()
+	if err != nil {
+		return
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec(`
+		DELETE FROM watchlist_items
+		WHERE watchlist_id = 'positions-detenues'
+		  AND instrument_id IN ('AAPL.NASDAQ', 'SHOP.TSX')
+	`); err != nil {
+		return
+	}
+
+	if _, err := tx.Exec(`
+		UPDATE watchlists
+		SET name = '✝️@ Cobalt- TELEGRAM', updated_at = CURRENT_TIMESTAMP
+		WHERE id = 'cobalt-telegram' AND name = 'cobalt-telegram'
+	`); err != nil {
+		return
+	}
+
+	if _, err := tx.Exec(`
+		INSERT INTO system_config (key, value)
+		VALUES ('migration_cobalt_v2_clean_holdings', '"true"')
+		ON CONFLICT(key) DO UPDATE SET value = excluded.value
+	`); err != nil {
+		return
+	}
+
+	_ = tx.Commit()
 }
 
 func (db *Database) MigrateLegacyWatchlist(legacy *models.WatchlistResponse) error {

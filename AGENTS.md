@@ -12,23 +12,25 @@ Instructions are layered to avoid context bloat while preserving engineering inv
 | **Knowledge & Curation (`okf/`)** | **[`okf/AGENTS.md`](./okf/AGENTS.md)** | [`okf/00_index.md`](./okf/00_index.md) · [`okf/04_evidence_and_sources/citations_index.md`](./okf/04_evidence_and_sources/citations_index.md) · [`okf/04_evidence_and_sources/decisions_and_gaps.md`](./okf/04_evidence_and_sources/decisions_and_gaps.md) |
 | **Cobalt Domain, Indicators & Universe** | **`AGENTS.md`** · [`okf/AGENTS.md`](./okf/AGENTS.md) | [`okf/02_present_state/cobalt_indicators_and_courses.md`](./okf/02_present_state/cobalt_indicators_and_courses.md) · [`okf/02_present_state/cobalt_trading_universe.md`](./okf/02_present_state/cobalt_trading_universe.md) |
 | **Capabilities, Roadmap & History** | **`AGENTS.md`** · [`okf/AGENTS.md`](./okf/AGENTS.md) | [`okf/02_present_state/capability_matrix.md`](./okf/02_present_state/capability_matrix.md) · [`okf/03_future_architecture/roadmap.md`](./okf/03_future_architecture/roadmap.md) · [`okf/01_history_and_evolution/legacy_and_migration.md`](./okf/01_history_and_evolution/legacy_and_migration.md) |
+| **Brand, UI & Desktop Packaging** | **`AGENTS.md`** · [`okf/AGENTS.md`](./okf/AGENTS.md) | [`okf/02_present_state/cobalt_brand_and_ui_guide.md`](./okf/02_present_state/cobalt_brand_and_ui_guide.md) · [`build/linux/ca.boostao.tws_traderbot.desktop`](./build/linux/ca.boostao.tws_traderbot.desktop) |
 | **Engineering & Runtime (`backend/`, `frontend/`)** | **`AGENTS.md`** · [`.github/copilot-instructions.md`](./.github/copilot-instructions.md) | [`okf/02_present_state/system_architecture.md`](./okf/02_present_state/system_architecture.md) · [`okf/05_engineering_and_agents/engineering_playbook.md`](./okf/05_engineering_and_agents/engineering_playbook.md) |
 
 ---
 
 ## 2. Repository Directory Layout
 
-- **`main.go`, `app.go`, `app_config.go`, `app_watchlist.go`, `app_strategy.go`, `app_diagnostics.go`** — Wails v3 application entry point, IPC service bindings (32 methods), config, watchlist management, strategy library, and diagnostics.
+- **`main.go`, `app.go`, `app_config.go`, `app_watchlist.go`, `app_strategy.go`, `app_diagnostics.go`** — Wails v3 application entry point (`ca.boostao.tws_traderbot`), IPC service bindings (41 Wails IPC methods in `app.js` / 42 Go `*App` methods including `ServiceStartup`), config, watchlist management, strategy library (`ToggleStrategyPin`, `MoveStrategyOrder`), and diagnostics.
 - **`backend/`** — Go backend packages:
   - `api/` — Backend API context exposed to Wails.
-  - `bot/` — Execution engine (`Engine.EvaluateTick()`), 9-gate fail-closed pipeline, order routing (`order.go`), multi-venue contract resolver (`resolver.go`), session gating (`session.go`), and dry-run guards.
+  - `bot/` — Execution engine (`Engine.EvaluateTick()`), 9-gate fail-closed pipeline, `IBKRClient`/`IBWrapper` (`ibkr.go`) live TWS telemetry & order routing (`order.go`), multi-venue contract resolver (`resolver.go`), session gating (`session.go`), and dry-run guards.
   - `db/` — SQLite persistence (`sqlite.go`, `watchlist.go`, `watchlist_seeds.go`, `strategy.go`, `cockpit.go`, `ledger.go`, `config.go`).
   - `models/` — Shared domain structs (`symbol.go`, `watchlist.go`, `strategy.go`, `cockpit.go`, `diagnostics.go`, `ledger.go`, `runtime.go`) with `json:"..."` tags for Wails TypeScript bindings.
   - `strategy/` — Multi-timeframe bar bundles (`barframe.go`), memoized indicator math (`math.go`, `indicators.go`), condition evaluator (`evaluator.go`), and 20 preset catalogs (`catalog.go`).
-  - `wrapper/` — Custom `IBWrapper` embedding `ibapi.Wrapper` for TWS market data and execution.
-- **`frontend/`** — Svelte 5 + SvelteKit + TypeScript UI (`@wailsio/runtime`, `frontend/bindings/`, `frontend/src/lib/i18n/translations.ts`, Cockpit, Watchlist, Strategy, Monitoring views).
-- **`site/`** — Static release portal generator (`build.mjs`, `release-manifest.json`, `styles.css`) outputting to `site/dist/`.
-- **`okf/`** — **Operational Knowledge Framework**: authoritative specifications across `01_history_and_evolution/`, `02_present_state/`, `03_future_architecture/`, `04_evidence_and_sources/`, and `05_engineering_and_agents/`, governed by [`okf/AGENTS.md`](./okf/AGENTS.md) (in-place sync on architectural/schema/strategy changes; zero stray `.md` files outside allowlisted paths).
+- **`third_party/ibapi/`** — Locally patched `github.com/scmhub/ibapi@v0.10.50` (`go.mod` `replace`) with race-safe `EClient.Disconnect()` / `watchDone` / atomic `IsConnected()`.
+- **`frontend/`** — Svelte 5 + SvelteKit + TypeScript UI (`@wailsio/runtime`, `frontend/bindings/`, `frontend/src/lib/assets/favicon.svg`, `frontend/src/lib/i18n/translations.ts`, `Sidebar.svelte`, `SlideToArm.svelte`, `HelpDrawer.svelte`, `OnboardingTour.svelte`, Cockpit, Watchlist, Strategy, Monitoring, and Manual views).
+- **`build/`** — Wails packaging (`appicon.png`, `config.yml`, `linux/ca.boostao.tws_traderbot.desktop`, `windows/icon.ico`).
+- **`site/`** — Static release portal generator (`build.mjs`, `favicon.svg`, `release-manifest.json`, `styles.css`) outputting to `site/dist/`.
+- **`okf/`** — **Operational Knowledge Framework**: authoritative specifications across `01_history_and_evolution/`, `02_present_state/` (including [`cobalt_brand_and_ui_guide.md`](./okf/02_present_state/cobalt_brand_and_ui_guide.md)), `03_future_architecture/`, `04_evidence_and_sources/`, and `05_engineering_and_agents/`, governed by [`okf/AGENTS.md`](./okf/AGENTS.md) (in-place sync on architectural/schema/strategy changes; zero stray `.md` files outside allowlisted paths).
 - **`scripts/`** — Linters (`check-okf-hygiene.py`, `check-dep-lockstep.py`, `check-i18n-parity.py`) and test suites (`scripts/tests/`).
 - **`.agents/`** — Project skills (including [`okf-curator`](./.agents/skills/okf-curator/SKILL.md)).
 - **`.github/`** — CI workflows and Copilot instructions ([`.github/copilot-instructions.md`](./.github/copilot-instructions.md)).

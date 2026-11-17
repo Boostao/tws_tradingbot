@@ -2,6 +2,7 @@ version: '3'
 
 vars:
   APP_NAME: "tws_traderbot"
+  APP_ID: "ca.boostao.tws_traderbot"
   BIN_DIR: "build/bin"
   VITE_PORT: '{{.WAILS_VITE_PORT | default 9245}}'
 
@@ -11,12 +12,45 @@ tasks:
     cmds:
       - task: "{{OS}}:build"
 
+  linux:install-desktop:
+    summary: Installs desktop entry and hicolor icon for Linux/Wayland window matching
+    platforms: [linux]
+    cmds:
+      - |
+        if [ -n "${CI:-}" ]; then
+          exit 0
+        fi
+        DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}"
+        APP_DIR="${DATA_DIR}/applications"
+        ICON_DIR="${DATA_DIR}/icons/hicolor/256x256/apps"
+        mkdir -p "${APP_DIR}" "${ICON_DIR}"
+        EXEC_PATH="$(pwd)/{{.BIN_DIR}}/{{.APP_NAME}}"
+        EXEC_PATH="${EXEC_PATH}" awk '{ if ($0 ~ /^Exec=/) print "Exec=\"" ENVIRON["EXEC_PATH"] "\""; else print }' "build/linux/ca.boostao.tws_traderbot.desktop" > "${APP_DIR}/ca.boostao.tws_traderbot.desktop"
+        chmod 644 "${APP_DIR}/ca.boostao.tws_traderbot.desktop"
+        if command -v magick >/dev/null 2>&1; then
+          magick build/appicon.png -resize 256x256 "${ICON_DIR}/ca.boostao.tws_traderbot.png"
+        elif command -v convert >/dev/null 2>&1; then
+          convert build/appicon.png -resize 256x256 "${ICON_DIR}/ca.boostao.tws_traderbot.png"
+        else
+          cp build/appicon.png "${ICON_DIR}/ca.boostao.tws_traderbot.png"
+        fi
+        if command -v gtk-update-icon-cache >/dev/null 2>&1; then
+          gtk-update-icon-cache -f -t "${DATA_DIR}/icons/hicolor" >/dev/null 2>&1 || true
+        fi
+        if command -v update-desktop-database >/dev/null 2>&1; then
+          update-desktop-database "${APP_DIR}" >/dev/null 2>&1 || true
+        fi
+        if command -v kbuildsycoca6 >/dev/null 2>&1; then
+          kbuildsycoca6 --noincremental >/dev/null 2>&1 || true
+        fi
+
   linux:build:
     summary: Builds the production application for Linux
     cmds:
       - task: build:frontend
       - mkdir -p {{.BIN_DIR}}
       - go build -tags production -trimpath -buildvcs=false -o {{.BIN_DIR}}/{{.APP_NAME}} .
+      - task: linux:install-desktop
     env:
       CGO_ENABLED: "1"
 
@@ -76,6 +110,7 @@ tasks:
   dev:
     summary: Runs the application in development mode
     cmds:
+      - task: linux:install-desktop
       - wails3 dev -config ./build/config.yml -port {{.VITE_PORT}}
 
   linux:run:

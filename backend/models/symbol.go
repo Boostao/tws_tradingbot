@@ -69,6 +69,58 @@ func ClassifySymbol(exchange, symbol string) (isRegime bool, isOrderable bool) {
 	return false, true
 }
 
+// parseDotExchange extracts an explicit exchange suffix from a dot-delimited identifier.
+// Returns ok=false for dot-class tickers such as BRK.B, CTC.A, or BBD.B.
+func parseDotExchange(upper string) (exchange, symbol string, ok bool) {
+	switch {
+	case strings.HasSuffix(upper, ".TO") || strings.HasSuffix(upper, ".TSX"):
+		return "TSX", strings.TrimSuffix(strings.TrimSuffix(upper, ".TO"), ".TSX"), true
+	case strings.HasSuffix(upper, ".V") || strings.HasSuffix(upper, ".TSXV"):
+		return "TSXV", strings.TrimSuffix(strings.TrimSuffix(upper, ".V"), ".TSXV"), true
+	case strings.HasSuffix(upper, ".CN") || strings.HasSuffix(upper, ".CSE"):
+		return "CSE", strings.TrimSuffix(strings.TrimSuffix(upper, ".CN"), ".CSE"), true
+	case strings.HasSuffix(upper, ".SP"):
+		return "SP", strings.TrimSuffix(upper, ".SP"), true
+	case strings.HasSuffix(upper, ".NASDAQ"):
+		return "NASDAQ", strings.TrimSuffix(upper, ".NASDAQ"), true
+	case strings.HasSuffix(upper, ".NYSE"):
+		return "NYSE", strings.TrimSuffix(upper, ".NYSE"), true
+	case strings.HasSuffix(upper, ".AMEX"):
+		return "AMEX", strings.TrimSuffix(upper, ".AMEX"), true
+	case strings.HasSuffix(upper, ".ARCA"):
+		return "ARCA", strings.TrimSuffix(upper, ".ARCA"), true
+	case strings.HasSuffix(upper, ".BATS"):
+		return "BATS", strings.TrimSuffix(upper, ".BATS"), true
+	case strings.HasSuffix(upper, ".IEX"):
+		return "IEX", strings.TrimSuffix(upper, ".IEX"), true
+	case strings.HasSuffix(upper, ".ISLAND"):
+		return "ISLAND", strings.TrimSuffix(upper, ".ISLAND"), true
+	case strings.HasSuffix(upper, ".CBOE"):
+		return "CBOE", strings.TrimSuffix(upper, ".CBOE"), true
+	case strings.HasSuffix(upper, ".NEO") || strings.HasSuffix(upper, ".AEQS"):
+		return "NEO", strings.TrimSuffix(strings.TrimSuffix(upper, ".NEO"), ".AEQS"), true
+	case strings.HasSuffix(upper, ".TVC"):
+		return "TVC", strings.TrimSuffix(upper, ".TVC"), true
+	case strings.HasSuffix(upper, ".SMART"):
+		return "SMART", strings.TrimSuffix(upper, ".SMART"), true
+	case strings.HasSuffix(upper, ".BINANCE"):
+		return "BINANCE", strings.TrimSuffix(upper, ".BINANCE"), true
+	case strings.HasSuffix(upper, ".COINBASE"):
+		return "COINBASE", strings.TrimSuffix(upper, ".COINBASE"), true
+	case strings.HasSuffix(upper, ".INDEX"):
+		return "INDEX", strings.TrimSuffix(upper, ".INDEX"), true
+	default:
+		return "", "", false
+	}
+}
+
+// HasExchangeSuffix reports whether raw already ends with a recognized dot-delimited exchange suffix.
+func HasExchangeSuffix(raw string) bool {
+	upper := strings.ToUpper(strings.TrimSpace(raw))
+	_, _, ok := parseDotExchange(upper)
+	return ok
+}
+
 // NormalizeSymbol converts any raw input ticker/identifier into a canonical NormalizedSymbol.
 func NormalizeSymbol(raw string) NormalizedSymbol {
 	s := strings.TrimSpace(raw)
@@ -81,47 +133,10 @@ func NormalizeSymbol(raw string) NormalizedSymbol {
 		exchange = strings.TrimSpace(parts[0])
 		symbol = strings.TrimSpace(parts[1])
 	} else if strings.Contains(upper, ".") {
-		switch {
-		case strings.HasSuffix(upper, ".TO") || strings.HasSuffix(upper, ".TSX"):
-			exchange = "TSX"
-			symbol = strings.TrimSuffix(strings.TrimSuffix(upper, ".TO"), ".TSX")
-		case strings.HasSuffix(upper, ".V") || strings.HasSuffix(upper, ".TSXV"):
-			exchange = "TSXV"
-			symbol = strings.TrimSuffix(strings.TrimSuffix(upper, ".V"), ".TSXV")
-		case strings.HasSuffix(upper, ".CN") || strings.HasSuffix(upper, ".CSE"):
-			exchange = "CSE"
-			symbol = strings.TrimSuffix(strings.TrimSuffix(upper, ".CN"), ".CSE")
-		case strings.HasSuffix(upper, ".SP"):
-			exchange = "SP"
-			symbol = strings.TrimSuffix(upper, ".SP")
-		case strings.HasSuffix(upper, ".NASDAQ"):
-			exchange = "NASDAQ"
-			symbol = strings.TrimSuffix(upper, ".NASDAQ")
-		case strings.HasSuffix(upper, ".NYSE"):
-			exchange = "NYSE"
-			symbol = strings.TrimSuffix(upper, ".NYSE")
-		case strings.HasSuffix(upper, ".AMEX"):
-			exchange = "AMEX"
-			symbol = strings.TrimSuffix(upper, ".AMEX")
-		case strings.HasSuffix(upper, ".CBOE"):
-			exchange = "CBOE"
-			symbol = strings.TrimSuffix(upper, ".CBOE")
-		case strings.HasSuffix(upper, ".TVC"):
-			exchange = "TVC"
-			symbol = strings.TrimSuffix(upper, ".TVC")
-		case strings.HasSuffix(upper, ".SMART"):
-			exchange = "SMART"
-			symbol = strings.TrimSuffix(upper, ".SMART")
-		case strings.HasSuffix(upper, ".BINANCE"):
-			exchange = "BINANCE"
-			symbol = strings.TrimSuffix(upper, ".BINANCE")
-		case strings.HasSuffix(upper, ".COINBASE"):
-			exchange = "COINBASE"
-			symbol = strings.TrimSuffix(upper, ".COINBASE")
-		case strings.HasSuffix(upper, ".INDEX"):
-			exchange = "INDEX"
-			symbol = strings.TrimSuffix(upper, ".INDEX")
-		default:
+		if ex, sym, ok := parseDotExchange(upper); ok {
+			exchange = ex
+			symbol = sym
+		} else {
 			// Dot class ticker like BRK.B, CTC.A, BBD.B
 			symbol = upper
 			exchange = "SMART"
@@ -143,6 +158,8 @@ func NormalizeSymbol(raw string) NormalizedSymbol {
 		exchange = "TSXV"
 	case "PURE":
 		exchange = "CSE"
+	case "AEQS":
+		exchange = "NEO"
 	case "":
 		if macroSymbols[symbol] {
 			exchange = "TVC"
@@ -174,6 +191,9 @@ func NormalizeSymbol(raw string) NormalizedSymbol {
 			currency = "CAD"
 		case "CSE":
 			venue = "PURE"
+			currency = "CAD"
+		case "NEO":
+			venue = "NEO"
 			currency = "CAD"
 		default:
 			venue = "SMART"

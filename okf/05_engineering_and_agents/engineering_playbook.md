@@ -10,9 +10,9 @@
 1. **Service Registration (`main.go`, `app*.go`):**
    - Register the single `App` service in [`main.go`](../../main.go) via `app.RegisterService(application.NewService(svc))`.
    - Implement `ServiceStartup(ctx context.Context, options application.ServiceOptions) error` rather than Wails v2 `startup(ctx)`.
-   - Keep exported service methods cleanly grouped across [`app.go`](../../app.go) (TWS, runtime, cockpit), [`app_config.go`](../../app_config.go) (config, strategy & native file dialogs), and [`app_watchlist.go`](../../app_watchlist.go) (TradingView import, watchlist dialogs & CRUD).
+   - Keep exported service methods cleanly grouped across [`app.go`](../../app.go) (TWS, runtime, cockpit with `cockpitMu` serialization), [`app_config.go`](../../app_config.go) (config, strategy & native file dialogs), [`app_watchlist.go`](../../app_watchlist.go) (TradingView import, watchlist dialogs & CRUD), [`app_strategy.go`](../../app_strategy.go) (strategy presets, pin/order stack & validation), and [`app_diagnostics.go`](../../app_diagnostics.go) (diagnostics, dry-run scanner, breaker reset & trade ledger).
 2. **Struct Serialization & Binding Regeneration:**
-   - Tag every field on structs in [`backend/models/`](../../backend/models/schemas.go) with explicit `json:"snake_case"` tags (including `omitempty` only where optional on the TS side).
+   - Tag every field on structs in [`backend/models/`](../../backend/models/runtime.go) (and sibling model files `symbol.go`, `watchlist.go`, `strategy.go`, `cockpit.go`, `diagnostics.go`, `ledger.go`) with explicit `json:"snake_case"` tags (including `omitempty` only where optional on the TS side).
    - Regenerate TypeScript/JS stubs whenever any exported `App` signature or `backend/models` struct changes:
      ```bash
      wails3 generate bindings
@@ -20,7 +20,7 @@
      Generated files live in `frontend/bindings/tws_traderbot/`. **Never edit generated binding files by hand**, and do not add new imports from the legacy `frontend/wailsjs/` directory.
 3. **Frontend IPC Invocation (`frontend/src/lib/`):**
    - Import Wails v3 methods directly from `frontend/bindings/tws_traderbot/app` and runtime events from `@wailsio/runtime` (`Events.On`, `Events.Off`).
-   - **Avoid Wails v2 `(window as any).go` guards:** Wails v3 uses `$Call.ByID(...)` over `@wailsio/runtime`, not `window.go`. Any remaining HTTP `${API_BASE}/api/v1/*` fallback in [`frontend/src/lib/api.ts`](../../frontend/src/lib/api.ts) must be migrated to Wails v3 bindings.
+   - [`frontend/src/lib/api.ts`](../../frontend/src/lib/api.ts) uses 100% native Wails v3 IPC (`41` bindings via `$Call.ByID`) with zero `/api/v1/*` HTTP fallbacks or `(window as any).go` shims.
 4. **Native OS Dialogs:**
    - Use `a.app.Dialog.OpenFileWithOptions(...)` and `SaveFileWithOptions(...)` (`PromptForSingleSelection()`) in Go rather than browser `<input type="file">` uploads whenever reading or exporting local JSON files.
 
@@ -38,20 +38,19 @@
      ON CONFLICT(key) DO UPDATE SET value=excluded.value
      ```
 3. **Key Ownership & Schema Discipline:**
-   - Current canonical keys in `system_config`: `tws_connection`, `config`, `strategy`, `cockpit_state`, `watchlist_state`.
-   - Keep [`backend/db/sqlite.go`](../../backend/db/sqlite.go) schema synchronized with actual query paths (e.g., either migrate watchlist storage to the `watchlist` table or explicitly retire the unused DDL when refactoring).
+   - Current canonical keys in `system_config`: `tws_connection`, `config`, `strategy`, `cockpit_state`, `migration_cobalt_v2_clean_holdings`.
+   - Relational `watchlists`, `watchlist_items`, and `strategies` (`pinned`, `sort_order`) tables in [`backend/db/sqlite.go`](../../backend/db/sqlite.go) are the canonical store (`SetMaxOpenConns(1)` / `SetMaxIdleConns(1)` with `WAL`, `foreign_keys(1)`, and `busy_timeout(5000)`).
    - Never persist broker credentials, API tokens, or personal contact data in SQLite or logs.
 
 ---
 
 ## 3. `scmhub/ibapi` Wrapper, Error Suppression & Pacing Rules
 
-1. **Wrapper Embedding ([`backend/bot/ibkr.go`](../../backend/bot/ibkr.go)):**
-   - Embed `ibapi.Wrapper` inside `IBWrapper` so unimplemented callbacks stay safe no-ops, and override only the required callbacks (`Error`, `NextValidId`, `HistoricalData`, `HistoricalDataEnd`, order/position callbacks).
-2. **Informational Error Code Suppression:**
-   - Suppress non-actionable TWS/IB Gateway farm status codes in `IBWrapper.Error` so terminal and UI logs remain readable:
-     - Currently suppressed in Go: `2104`, `2106`, `2158` (*market/historical data farm connection is OK*).
-     - Recommended parity from legacy Python `TWSDataWrapper`: also treat `2100`, `2119`, `2174` as debug/info, handle `504` (*not connected*) by marking connection state offline, and surface `10089` (*market data subscription permission*) clearly in the UI.
+1. **Wrapper Embedding ([`backend/bot/ibkr.go`](../../backend/bot/ibkr.go) & `third_party/ibapi`):**
+   - `IBWrapper` lives in [`backend/bot/ibkr.go`](../../backend/bot/ibkr.go) (no `backend/wrapper/` package) and embeds `ibapi.Wrapper` from the locally patched `third_party/ibapi@v0.10.50` module (`watchDone`/CAS disconnect synchronization and atomic `IsConnected()`).
+   - Implements live telemetry callbacks (`ConnectAck`, `ConnectionClosed`, `ManagedAccounts`, `AccountSummary`, `UpdateAccountValue`, `Position`, `PositionEnd`, `UpdatePortfolio`, `OpenOrder`, `OpenOrderEnd`, `OrderStatus`, `Pnl`, `NextValidID`, `HistoricalData`, `HistoricalDataEnd`, `Error`).
+2. **Informational Error Code Suppression & `BuildBrokerAlert`:**
+   - Suppress benign TWS/IB Gateway farm status codes (`2104`, `2106`, `2158`) in `IBWrapper.Error` while surfacing actionable codes (`10089`, `504`, `502`, `1100`–`1102`, `200`, `201`, `321`, `354`) through `BuildBrokerAlert` with operator hints.
 3. **Pacing, Request Tracking & Dry-Run Safety Invariants:**
    - **Track `reqID -> (instrument_id, timeframe)` safely:** Guard `IBWrapper` bar buffers and request maps with `sync.Mutex` (never hardcode placeholder symbols like `SYM_<reqID>` in production paths).
    - **Respect TWS Historical Data Pacing:** Interactive Brokers throttles concurrent and burst historical requests. When expanding multi-symbol / multi-timeframe fetching, stagger `ReqHistoricalData` requests with explicit pacing intervals and cache completed bar frames.
@@ -77,12 +76,12 @@
 1. **Compiler & Adapter Mode ([`frontend/svelte.config.js`](../../frontend/svelte.config.js)):**
    - Svelte 5 runs with `compilerOptions: { runes: false }` and `@sveltejs/adapter-static` (`fallback: 'index.html'`, output `dist/`). Use consistent `$:` reactive declarations across components rather than mixing Svelte 5 runes syntax unless runes mode is deliberately enabled everywhere.
    - Root layout [`+layout.ts`](../../frontend/src/routes/+layout.ts) enforces `prerender = true` and `ssr = false`.
-2. **Dense Operational Cockpit UX:**
-   - Keep header chrome compact, ticker rows single-line (`symbol`, `exchange`, optional truncated `name`, toggle), and toggles fast/non-destructive (suspend without deleting).
-   - Persist transient input drafts (e.g., TradingView URL) in [`frontend/src/lib/stores/ui.ts`](../../frontend/src/lib/stores/ui.ts) so route navigation does not discard unsaved inputs.
+2. **Cobalt Brand System, Density & Interactive Controls ([`cobalt_brand_and_ui_guide.md`](../02_present_state/cobalt_brand_and_ui_guide.md)):**
+   - Use canonical `:root` tokens (`#05070b`/`#0b111e` Uni Noir surfaces, `#263c8a`/`#1d63ed`/`#38bdf8` Cobalt blues, `#faa031` accents, `IoskeleyMono`), global dark `<select>`/`<option>` rules (`color-scheme: dark`, `appearance: none`, `#0b1320`), locked 3-row `.cockpit-shell` (`auto auto minmax(0, 1fr)`), fixed single-bar `.cockpit-hud-strip`, single-line ticker rows (`minmax(0, 1fr)` grid truncation), `SlideToArm.svelte` (`>= 78%`, `pointercancel`-safe), `HelpDrawer.svelte` (`F1`/`?`), and 3-track `OnboardingTour.svelte`.
+   - Persist transient input drafts (e.g., TradingView URL) in [`frontend/src/lib/stores/ui.ts`](../../frontend/src/lib/stores/ui.ts) and onboarding progress in `localStorage` (`cobalt_onboarding_state`).
 3. **Bilingual i18n Discipline ([`frontend/src/lib/i18n/translations.ts`](../../frontend/src/lib/i18n/translations.ts)):**
-   - Add every new user-visible string to **both** `en` and `fr` maps in `translations.ts`.
-   - Bind `$: _lang = $language;` (or `{#key $language}` in `+layout.svelte`) and render via `t('key', params)`. Never leave raw English UI literals in `.svelte` templates.
+   - Add every new user-visible string to **both** `en` and `fr` maps in `translations.ts` (`928` symmetric keys).
+   - Use reactive `$: _lang = $language; $: tr = (k, p) => { void _lang; return t(k, p); };` (or `{lang && t(...)}`) instead of `{#key $language}` in `+layout.svelte` so switching `en <-> fr` updates all text in place without discarding unsaved route state. Never leave raw English UI literals in `.svelte` templates.
 4. **Vite Dev & Wails Dependency Sync:**
    - Run `npm install` inside `frontend/` whenever `frontend/package.json` updates (such as `@wailsio/runtime`) so `svelte-check` and `vite build` resolve all runtime module declarations.
 
@@ -100,22 +99,26 @@ go test -race ./...
 # 2. Frontend type-check & production build
 (cd frontend && npm run check && npm run build)
 
-# 3. Wails bindings & native app build
-wails3 generate bindings && task build
-# Output binary: build/bin/tws_traderbot
+# 3. Wails bindings, desktop/Windows builds & static release portal
+wails3 generate bindings
+wails3 task linux:build
+wails3 task windows:build
+node site/build.mjs
+# Output binaries: build/bin/tws_traderbot & build/bin/tws_traderbot.exe
 
-# 4. OKF hygiene, dependency lockstep & i18n parity linters
+# 4. OKF hygiene, dependency lockstep, i18n parity & packaging/UI gates
 python3 scripts/check-okf-hygiene.py
 python3 scripts/check-dep-lockstep.py
 python3 scripts/check-i18n-parity.py
 python3 -m unittest discover -s scripts/tests -p 'test_*.py'
+node scripts/tests/verify_v2_ui.mjs --dist frontend/dist
 
-# 5. Full opaque-box E2E test suite (607 tests)
+# 5. Full opaque-box E2E test suite (Tiers 1–5 + V2 & Tier-5 Backend tests)
 task test:e2e
 ```
 
 ### Verification & Delivery Invariants
 
-- **Full Go Suite & Race Detection:** `go test -race ./...` runs clean across all root and backend packages without data races.
-- **E2E & Adversarial Hardening:** `task test:e2e` executes all 607 opaque-box tests across Tiers 1–5 with 100% feature coverage and zero failures.
+- **Full Go Suite & Race Detection:** `go test -race ./...` (and `TWS_LIVE_TEST=1 go test -race` against local TWS Paper) run clean across all root, backend, and E2E packages without data races.
+- **E2E & Adversarial Hardening:** `task test:e2e` executes the full opaque-box E2E suite across Tiers 1–5 (including `v2_requirements_test.go` and `tier5_v2_backend_test.go`) with zero failures.
 - **OKF Curation Sync Rule:** Per [`okf/AGENTS.md`](../AGENTS.md) and [`../../AGENTS.md`](../../AGENTS.md), any commit altering Wails IPC bindings, SQLite schema, `backend/strategy/`, `backend/bot/`, or `frontend/` routes must update `okf/` in the same commit, leave zero `.md` files outside the allowlist, keep rule files (`AGENTS.md`, `okf/AGENTS.md`, `.github/copilot-instructions.md`) under `24,000` bytes, and pass [`scripts/check-okf-hygiene.py`](../../scripts/check-okf-hygiene.py).

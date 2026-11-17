@@ -273,6 +273,65 @@ type ValidationResult struct {
 	Errors []string `json:"errors"`
 }
 
+func isSupportedConditionType(t ConditionType) bool {
+	switch t {
+	case ConditionCrossAbove,
+		ConditionCrossesAbove,
+		ConditionCrossBelow,
+		ConditionCrossesBelow,
+		ConditionGreater,
+		ConditionLess,
+		ConditionSlopeAbove,
+		ConditionSlopeBelow,
+		ConditionWithin:
+		return true
+	default:
+		return false
+	}
+}
+
+// ValidateStrategy performs structural validation on strategy rules, conditions, and actions.
+func ValidateStrategy(strat *Strategy) *ValidationResult {
+	var errs []string
+
+	if strat == nil {
+		return &ValidationResult{Valid: false, Errors: []string{"strategy is nil"}}
+	}
+	if strings.TrimSpace(strat.Name) == "" {
+		errs = append(errs, "strategy name is required")
+	}
+	if len(strat.Rules) == 0 {
+		errs = append(errs, "strategy must have at least one rule")
+	}
+
+	for i, rule := range strat.Rules {
+		if strings.TrimSpace(rule.Name) == "" {
+			errs = append(errs, fmt.Sprintf("rule %d: name is required", i))
+		}
+		if rule.Condition == nil {
+			errs = append(errs, fmt.Sprintf("rule %s: condition is missing", rule.Name))
+			continue
+		}
+		if rule.Condition.Type == "" {
+			errs = append(errs, fmt.Sprintf("rule %s: condition type is missing", rule.Name))
+		} else if !isSupportedConditionType(rule.Condition.Type) {
+			errs = append(errs, fmt.Sprintf("rule %s: unsupported condition type %q", rule.Name, rule.Condition.Type))
+		}
+		isTimeRange := rule.Condition.Type == ConditionWithin && rule.Condition.RangeStart != "" && rule.Condition.RangeEnd != ""
+		if !isTimeRange && rule.Condition.IndicatorA == nil {
+			errs = append(errs, fmt.Sprintf("rule %s: indicator_a is required", rule.Name))
+		}
+		if rule.Action != ActionBuy && rule.Action != ActionSell && rule.Action != ActionFilter {
+			errs = append(errs, fmt.Sprintf("rule %s: invalid action %q", rule.Name, rule.Action))
+		}
+	}
+
+	return &ValidationResult{
+		Valid:  len(errs) == 0,
+		Errors: errs,
+	}
+}
+
 type RuleSignal struct {
 	RuleID    string     `json:"rule_id"`
 	RuleName  string     `json:"rule_name"`

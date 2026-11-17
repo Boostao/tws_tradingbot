@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"sync"
 	"time"
 
 	"tws_traderbot/backend/bot"
@@ -20,6 +21,7 @@ type App struct {
 	db         *db.Database
 	engine     *bot.Engine
 	ibkrClient *bot.IBKRClient
+	cockpitMu  sync.Mutex
 }
 
 // NewApp creates a new App application struct
@@ -46,22 +48,42 @@ func NewApp(app *application.App) *App {
 // ServiceStartup is called when the service starts. The app reference is already stored.
 func (a *App) ServiceStartup(ctx context.Context, options application.ServiceOptions) error {
 	a.engine.AttachApp(a.app)
-	a.engine.SetCockpitState(a.GetCockpitState())
 
-	// Fetch connection settings from DB or use defaults
+	cfg := a.GetConfig()
+	a.syncConfigToEngine(cfg)
+
+	cockpit := a.GetCockpitState()
+	a.engine.SetCockpitState(cockpit)
+	_, _, strat := a.resolveSelectedStrategy(cockpit)
+	a.engine.SetActiveStrategy(strat)
+	a.engine.RecordRuntimeReload("startup")
+
+	// Fetch connection settings from DB, falling back to config.ib, then defaults
 	host := "127.0.0.1"
 	port := 7497
 	clientID := 1
 
-	config, err := a.db.LoadSystemConfig("tws_connection")
-	if err == nil && config != nil {
-		if h, ok := config["host"].(string); ok {
+	if ibCfg, ok := cfg["ib"].(map[string]interface{}); ok {
+		if h, ok := ibCfg["host"].(string); ok && h != "" {
 			host = h
 		}
-		if p, ok := config["port"].(float64); ok {
+		if p, ok := ibCfg["port"].(float64); ok && p > 0 {
 			port = int(p)
 		}
-		if c, ok := config["client_id"].(float64); ok {
+		if c, ok := ibCfg["client_id"].(float64); ok && c >= 0 {
+			clientID = int(c)
+		}
+	}
+
+	twsCfg, err := a.db.LoadSystemConfig("tws_connection")
+	if err == nil && twsCfg != nil {
+		if h, ok := twsCfg["host"].(string); ok && h != "" {
+			host = h
+		}
+		if p, ok := twsCfg["port"].(float64); ok && p > 0 {
+			port = int(p)
+		}
+		if c, ok := twsCfg["client_id"].(float64); ok && c >= 0 {
 			clientID = int(c)
 		}
 	} else {
@@ -119,7 +141,7 @@ func (a *App) GetTWSConnection() map[string]interface{} {
 	return config
 }
 
-// UpdateTWSConnection saves new settings, disconnects the current TWS session, and reconnects
+// UpdateTWSConnection saves new settings, keeps config.ib aligned, disconnects the current TWS session, and reconnects
 func (a *App) UpdateTWSConnection(host string, port int, clientID int) error {
 	err := a.db.SaveSystemConfig("tws_connection", map[string]interface{}{
 		"host":      host,
@@ -129,6 +151,16 @@ func (a *App) UpdateTWSConnection(host string, port int, clientID int) error {
 	if err != nil {
 		return err
 	}
+
+	cfg := a.GetConfig()
+	cfg = bot.DeepMergeMap(cfg, map[string]interface{}{
+		"ib": map[string]interface{}{
+			"host":      host,
+			"port":      port,
+			"client_id": clientID,
+		},
+	})
+	_ = a.db.SaveSystemConfig("config", cfg)
 
 	a.ibkrClient.Disconnect()
 	return a.ibkrClient.Connect(host, port, clientID)
@@ -237,12 +269,18 @@ func (a *App) UpdateCockpitState(update *models.CockpitStateResponse) (*models.C
 		return nil, fmt.Errorf("cockpit state update payload cannot be nil")
 	}
 
+	a.cockpitMu.Lock()
+	defer a.cockpitMu.Unlock()
+
 	state, err := a.db.LoadCockpitState()
 	if err != nil || state == nil || len(state.Workspaces) < 3 {
 		state = a.GetCockpitState()
 	}
 
 	state.GlobalEnabled = update.GlobalEnabled
+	if a.engine != nil && a.engine.RiskBreakerTripped.Load() {
+		state.GlobalEnabled = false
+	}
 	if update.ActiveWorkspaceID != "" {
 		state.ActiveWorkspaceID = update.ActiveWorkspaceID
 	}
@@ -283,12 +321,14 @@ func (a *App) UpdateCockpitState(update *models.CockpitStateResponse) (*models.C
 		return nil, err
 	}
 
-	var activeStrategyID string
+	_, activeStrategyID, strat := a.resolveSelectedStrategy(state)
+
+	activeSlotEnabled := false
 	for _, ws := range state.Workspaces {
 		if ws.Enabled {
 			for _, slot := range ws.StrategySlots {
 				if slot.Enabled && slot.StrategyID != "" {
-					activeStrategyID = slot.StrategyID
+					activeSlotEnabled = true
 					break
 				}
 			}
@@ -297,97 +337,98 @@ func (a *App) UpdateCockpitState(update *models.CockpitStateResponse) (*models.C
 
 	if a.engine != nil {
 		a.engine.SetCockpitState(state)
+		a.engine.SetActiveStrategy(strat)
 		globalEnabled := a.engine.IsGlobalEnabled()
-		if activeStrategyID != "" {
-			strat, errStrat := a.db.LoadStrategyPreset(activeStrategyID)
-			if errStrat == nil && strat != nil {
-				a.engine.StopBot()
-				_ = a.engine.StartBot(strat)
-			} else {
-				a.engine.StopBot()
-			}
+		if globalEnabled && !a.engine.RiskBreakerTripped.Load() && activeSlotEnabled && activeStrategyID != "" && strat != nil {
+			a.engine.StopBot()
+			_ = a.engine.StartBot(strat)
 		} else {
 			a.engine.StopBot()
 		}
-		if !globalEnabled {
-			a.engine.StopBot()
-		}
+		a.engine.RecordRuntimeReload("cockpit_update")
 	}
 
 	return state, nil
 }
 
-// GetRuntimeState returns the actual bot engine state
-func (a *App) GetRuntimeState() *models.BotState {
-	running := false
-	equity := 100000.0
-	lossLimit := 500.0
-	realized, unrealized, totalPnL := 0.0, 0.0, 0.0
-	breakerTripped := false
-	globalEnabled := false
-	activeStratName := ""
-
+func (a *App) resolveSelectedStrategy(state *models.CockpitStateResponse) (wsID, stratID string, strat *models.Strategy) {
 	if a.engine != nil {
-		running = a.engine.IsRunning()
-		equity = a.engine.GetEquity()
-		lossLimit = a.engine.GetDailyLossLimit()
-		realized, unrealized, totalPnL = a.engine.GetPnL()
-		_ = realized
-		_ = unrealized
-		breakerTripped = a.engine.RiskBreakerTripped.Load()
-		globalEnabled = a.engine.IsGlobalEnabled()
-		strat := a.engine.GetActiveStrategy()
-		if strat != nil {
-			activeStratName = strat.Name
-			if activeStratName == "" {
-				activeStratName = strat.ID
+		return a.engine.ResolveSelectedStrategy(state)
+	}
+	if state == nil || len(state.Workspaces) == 0 {
+		return "", "", nil
+	}
+	var targetWS *models.CockpitWorkspace
+	for i := range state.Workspaces {
+		if state.Workspaces[i].ID == state.ActiveWorkspaceID {
+			targetWS = &state.Workspaces[i]
+			break
+		}
+	}
+	if targetWS == nil {
+		targetWS = &state.Workspaces[0]
+	}
+	wsID = targetWS.ID
+	for _, slot := range targetWS.StrategySlots {
+		if slot.Enabled && slot.StrategyID != "" {
+			stratID = slot.StrategyID
+			break
+		}
+	}
+	if stratID == "" {
+		for _, slot := range targetWS.StrategySlots {
+			if slot.StrategyID != "" {
+				stratID = slot.StrategyID
+				break
 			}
 		}
 	}
+	if stratID != "" && a.db != nil {
+		strat, _ = a.db.LoadStrategyPreset(stratID)
+	}
+	return wsID, stratID, strat
+}
 
+// GetRuntimeState returns the actual bot engine state
+func (a *App) GetRuntimeState() *models.BotState {
 	twsConnected := false
 	if a.ibkrClient != nil {
 		twsConnected = a.ibkrClient.IsConnected()
 	}
 
-	dailyPnLPct := 0.0
-	if equity > 0 {
-		dailyPnLPct = (totalPnL / equity) * 100.0
-	}
-
-	status := "STOPPED"
-	if breakerTripped {
-		status = "CIRCUIT_BREAKER"
-	} else if running {
-		status = "RUNNING"
-	} else if globalEnabled {
-		status = "ARMED"
+	if a.engine != nil {
+		return a.engine.BuildRuntimeState(twsConnected)
 	}
 
 	now := time.Now().UTC().Format(time.RFC3339)
-
 	return &models.BotState{
-		Status:                status,
-		Running:               running,
-		RunnerActive:          running,
-		TwsConnected:          twsConnected,
-		Equity:                equity,
-		DailyPnL:              totalPnL,
-		DailyPnLPercent:       dailyPnLPct,
-		TotalPnL:              totalPnL,
-		DailyLossLimit:        lossLimit,
-		CircuitBreakerTripped: breakerTripped,
-		ActiveStrategy:        activeStratName,
-		LastHeartbeat:         now,
-		LastUpdate:            now,
+		Status:        "STOPPED",
+		TwsConnected:  twsConnected,
+		Equity:        0.0,
+		LastHeartbeat: now,
+		LastUpdate:    now,
 	}
 }
 
-// FailsafeStop issues a global disable
+// FailsafeStop issues a global disable, persists GlobalEnabled=false, stops the engine, and disconnects TWS.
 func (a *App) FailsafeStop() {
+	a.cockpitMu.Lock()
+	defer a.cockpitMu.Unlock()
+
 	log.Println("FAILSAFE INVOKED - Disconnecting TWS and stopping Engine")
-	a.engine.StopBot()
-	a.ibkrClient.Disconnect()
+	if a.engine != nil {
+		a.engine.SetGlobalEnabled(false)
+		a.engine.StopBot()
+	}
+	if a.db != nil {
+		if state, err := a.db.LoadCockpitState(); err == nil && state != nil {
+			state.GlobalEnabled = false
+			_ = a.db.SaveCockpitState(state)
+		}
+	}
+	if a.ibkrClient != nil {
+		a.ibkrClient.Disconnect()
+	}
 }
 
 func (a *App) ConnectTws(host string, port int, clientID int) map[string]interface{} {
@@ -404,10 +445,19 @@ func (a *App) DisconnectTws() map[string]interface{} {
 }
 
 func (a *App) StartBot() map[string]interface{} {
-	// Just empty strategy for now, since we only need the boolean state
-	err := a.engine.StartBot(&models.Strategy{})
+	if a.engine == nil {
+		return map[string]interface{}{"status": "error", "message": "engine unavailable"}
+	}
+	strat := a.engine.GetActiveStrategy()
+	if strat == nil {
+		_, _, strat = a.resolveSelectedStrategy(a.GetCockpitState())
+	}
+	if strat == nil {
+		return map[string]interface{}{"status": "error", "message": "no strategy configured"}
+	}
+	err := a.engine.StartBot(strat)
 	if err != nil {
-		return map[string]interface{}{"status": "error"}
+		return map[string]interface{}{"status": "error", "message": err.Error()}
 	}
 	return map[string]interface{}{"status": "ok"}
 }

@@ -3,6 +3,7 @@ package bot
 import (
 	"fmt"
 	"math"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -18,34 +19,61 @@ type IBKRClient struct {
 	wrapper   *IBWrapper
 	mu        sync.Mutex
 	connected atomic.Bool
+	clientID  int64
 }
 
-// IBWrapper embeds ibapi.Wrapper to provide callbacks and execution handling.
+// IBWrapper embeds ibapi.Wrapper to provide callbacks, live telemetry ingestion, and execution handling.
 type IBWrapper struct {
 	ibapi.Wrapper
-	mu          sync.RWMutex
-	engine      *Engine
-	client      *ibapi.EClient
-	marketData  map[string][]float64
-	nextOrderID atomic.Int64
-	nextReqID   atomic.Int64
+	mu                sync.RWMutex
+	engine            *Engine
+	client            *ibapi.EClient
+	connected         *atomic.Bool
+	clientID          atomic.Int64
+	positionsHydrated atomic.Bool
+	disconnecting     atomic.Bool
+	subscribedAccount string
+	summaryReqID      int64
+	pnlReqID          int64
+	marketData        map[string][]float64
+	nextOrderID       atomic.Int64
+	nextReqID         atomic.Int64
 }
 
-func NewIBKRClient(engine *Engine) *IBKRClient {
-	wrapper := &IBWrapper{
+// Compile-time assertion that *IBWrapper implements ibapi.EWrapper cleanly.
+var _ ibapi.EWrapper = (*IBWrapper)(nil)
+
+// NewIBWrapper constructs a standalone IBWrapper bound to an Engine (useful for testing and E2E harnesses).
+func NewIBWrapper(engine *Engine) *IBWrapper {
+	w := &IBWrapper{
 		engine:     engine,
 		marketData: make(map[string][]float64),
 	}
-	wrapper.nextOrderID.Store(1)
-	wrapper.nextReqID.Store(1)
+	w.nextOrderID.Store(1)
+	w.nextReqID.Store(1)
+	return w
+}
+
+func NewIBKRClient(engine *Engine) *IBKRClient {
+	c := &IBKRClient{}
+	wrapper := NewIBWrapper(engine)
+	wrapper.connected = &c.connected
 
 	client := ibapi.NewEClient(wrapper)
 	wrapper.client = client
+	c.client = client
+	c.wrapper = wrapper
+	return c
+}
 
-	return &IBKRClient{
-		client:  client,
-		wrapper: wrapper,
-	}
+// Wrapper returns the underlying IBWrapper for direct callback testing or telemetry inspection.
+func (c *IBKRClient) Wrapper() *IBWrapper {
+	return c.wrapper
+}
+
+// NextReqID atomically allocates a unique TWS request ID.
+func (w *IBWrapper) NextReqID() int64 {
+	return w.nextReqID.Add(1) - 1
 }
 
 // NextValidID captures the starting valid order ID from TWS upon connection.
@@ -74,16 +102,444 @@ func (w *IBWrapper) NextOrderID() int64 {
 	return w.nextOrderID.Add(1) - 1
 }
 
-// Error override to suppress meaningless IBKR informational messages.
+// ConnectAck handles TWS handshake completion.
+func (w *IBWrapper) ConnectAck() {
+	if w.connected != nil {
+		w.connected.Store(true)
+	}
+	fmt.Println("IBKR: ConnectAck received from TWS")
+}
+
+// ConnectionClosed handles unexpected or graceful TWS socket disconnection.
+func (w *IBWrapper) ConnectionClosed() {
+	if w.connected != nil {
+		w.connected.Store(false)
+	}
+	w.positionsHydrated.Store(false)
+
+	w.mu.Lock()
+	w.subscribedAccount = ""
+	w.summaryReqID = 0
+	w.pnlReqID = 0
+	w.mu.Unlock()
+
+	if w.engine != nil {
+		w.engine.RecordDisconnect("TWS connection closed")
+		w.engine.ResetBrokerTelemetry()
+	}
+	fmt.Println("IBKR: ConnectionClosed from TWS")
+}
+
+// ManagedAccounts captures the dynamic TWS account ID and starts account-specific subscriptions asynchronously.
+func (w *IBWrapper) ManagedAccounts(accountsList []string) {
+	var acct string
+	for _, raw := range accountsList {
+		for _, part := range strings.Split(raw, ",") {
+			trimmed := strings.TrimSpace(part)
+			if trimmed != "" {
+				acct = trimmed
+				break
+			}
+		}
+		if acct != "" {
+			break
+		}
+	}
+	if acct == "" {
+		return
+	}
+
+	if w.engine != nil {
+		w.engine.SetAccountID(acct)
+		w.engine.PersistCapturedAccount(acct)
+	}
+
+	w.mu.Lock()
+	alreadySubscribed := (w.subscribedAccount == acct)
+	if !alreadySubscribed {
+		w.subscribedAccount = acct
+	}
+	var pnlReqID int64
+	if !alreadySubscribed {
+		pnlReqID = w.NextReqID()
+		w.pnlReqID = pnlReqID
+	}
+	client := w.client
+	w.mu.Unlock()
+
+	if !alreadySubscribed && client != nil && w.connected != nil && w.connected.Load() {
+		go func(c *ibapi.EClient, account string, reqID int64) {
+			c.ReqPnL(reqID, account, "")
+			c.ReqAccountUpdates(true, account)
+		}(client, acct, pnlReqID)
+	}
+}
+
+// AccountSummary ingests NetLiquidation, TotalCashValue, BuyingPower, EquityWithLoanValue, and ExcessLiquidity.
+func (w *IBWrapper) AccountSummary(reqID int64, account string, tag string, value string, currency string) {
+	if w.engine == nil {
+		return
+	}
+	if acct := strings.TrimSpace(account); acct != "" {
+		w.engine.SetAccountID(acct)
+	}
+	val, err := parseFiniteFloat(value)
+	if err != nil {
+		return
+	}
+
+	switch strings.TrimSpace(tag) {
+	case "NetLiquidation":
+		w.engine.SetEquityWithCurrency(val, currency)
+	case "BuyingPower":
+		w.engine.SetBuyingPowerWithCurrency(val, currency)
+	case "EquityWithLoanValue":
+		w.engine.SetEquityWithLoanWithCurrency(val, currency)
+	case "ExcessLiquidity":
+		w.engine.SetExcessLiquidityWithCurrency(val, currency)
+	case "TotalCashValue":
+		w.engine.SetCashBalanceFallback(currency, val)
+	}
+}
+
+// AccountSummaryEnd logs completion of initial account summary snapshot.
+func (w *IBWrapper) AccountSummaryEnd(reqID int64) {
+	fmt.Printf("IBKR: AccountSummaryEnd (ReqID: %d)\n", reqID)
+}
+
+// UpdateAccountValue ingests native per-currency CashBalance and account valuation updates.
+func (w *IBWrapper) UpdateAccountValue(tag string, val string, currency string, accountName string) {
+	if w.engine == nil {
+		return
+	}
+	if acct := strings.TrimSpace(accountName); acct != "" {
+		w.engine.SetAccountID(acct)
+	}
+	parsed, err := parseFiniteFloat(val)
+	if err != nil {
+		return
+	}
+
+	switch strings.TrimSpace(tag) {
+	case "CashBalance":
+		w.engine.SetCashBalance(currency, parsed)
+	case "TotalCashValue":
+		w.engine.SetCashBalanceFallback(currency, parsed)
+	case "NetLiquidation":
+		w.engine.SetEquityWithCurrency(parsed, currency)
+	case "BuyingPower":
+		w.engine.SetBuyingPowerWithCurrency(parsed, currency)
+	case "EquityWithLoanValue":
+		w.engine.SetEquityWithLoanWithCurrency(parsed, currency)
+	case "ExcessLiquidity":
+		w.engine.SetExcessLiquidityWithCurrency(parsed, currency)
+	}
+}
+
+// Position ingests live open position quantities and average cost.
+func (w *IBWrapper) Position(account string, contract *ibapi.Contract, position ibapi.Decimal, avgCost float64) {
+	if w.engine == nil {
+		return
+	}
+	if acct := strings.TrimSpace(account); acct != "" {
+		w.engine.SetAccountID(acct)
+	}
+
+	posQty := sanitizeDecimal(position)
+	avg := sanitizeFloat(avgCost)
+	sym, venue, instID, currency := mapContractToInstrument(contract)
+	key := contractKey(contract)
+	if key == "" {
+		return
+	}
+
+	w.engine.UpsertPosition(key, models.BrokerPosition{
+		Symbol:       sym,
+		Venue:        venue,
+		InstrumentID: instID,
+		Currency:     currency,
+		Position:     posQty,
+		AvgCost:      avg,
+	})
+
+	if w.positionsHydrated.Load() {
+		_ = w.engine.SyncLivePositionsToDB()
+	}
+}
+
+// PositionEnd marks position hydration complete and triggers atomic SQLite holdings sync.
+func (w *IBWrapper) PositionEnd() {
+	w.positionsHydrated.Store(true)
+	if w.engine != nil {
+		if err := w.engine.SyncLivePositionsToDB(); err != nil {
+			fmt.Printf("IBKR: SyncLivePositionsToDB error: %v\n", err)
+		}
+	}
+}
+
+// UpdatePortfolio enriches live positions with PrimaryExchange, market price, market value, and PnL.
+func (w *IBWrapper) UpdatePortfolio(contract *ibapi.Contract, position ibapi.Decimal, marketPrice float64, marketValue float64, averageCost float64, unrealizedPNL float64, realizedPNL float64, accountName string) {
+	if w.engine == nil {
+		return
+	}
+	if acct := strings.TrimSpace(accountName); acct != "" {
+		w.engine.SetAccountID(acct)
+	}
+
+	key := contractKey(contract)
+	if key == "" {
+		return
+	}
+	sym, venue, instID, currency := mapContractToInstrument(contract)
+	posQty := sanitizeDecimal(position)
+
+	w.engine.UpdatePortfolioPosition(key, models.BrokerPosition{
+		Symbol:        sym,
+		Venue:         venue,
+		InstrumentID:  instID,
+		Currency:      currency,
+		Position:      posQty,
+		AvgCost:       sanitizeFloat(averageCost),
+		MarketPrice:   sanitizeFloat(marketPrice),
+		MarketValue:   sanitizeFloat(marketValue),
+		UnrealizedPnL: sanitizeFloat(unrealizedPNL),
+		RealizedPnL:   sanitizeFloat(realizedPNL),
+	})
+	if posQty == 0 && w.positionsHydrated.Load() {
+		_ = w.engine.SyncLivePositionsToDB()
+	}
+}
+
+// OpenOrder ingests active working orders from TWS.
+func (w *IBWrapper) OpenOrder(orderID int64, contract *ibapi.Contract, order *ibapi.Order, orderState *ibapi.OrderState) {
+	if w.engine == nil || order == nil {
+		return
+	}
+	sym, venue, instID, _ := mapContractToInstrument(contract)
+	status := ""
+	if orderState != nil {
+		status = strings.TrimSpace(orderState.Status)
+	}
+
+	w.engine.UpsertOpenOrder(models.BrokerOrder{
+		OrderID:      orderID,
+		Symbol:       sym,
+		Venue:        venue,
+		InstrumentID: instID,
+		Action:       strings.ToUpper(strings.TrimSpace(order.Action)),
+		OrderType:    strings.ToUpper(strings.TrimSpace(order.OrderType)),
+		TotalQty:     sanitizeDecimal(order.TotalQuantity),
+		LimitPrice:   sanitizeFloat(order.LmtPrice),
+		Status:       status,
+		OutsideRTH:   order.OutsideRTH,
+	})
+}
+
+// OpenOrderEnd logs completion of the initial open orders snapshot.
+func (w *IBWrapper) OpenOrderEnd() {
+	fmt.Println("IBKR: OpenOrderEnd received from TWS")
+}
+
+// OrderStatus updates fill progress or removes completed/cancelled orders from active orders.
+func (w *IBWrapper) OrderStatus(orderID int64, status string, filled ibapi.Decimal, remaining ibapi.Decimal, avgFillPrice float64, permID int64, parentID int64, lastFillPrice float64, clientID int64, whyHeld string, mktCapPrice float64) {
+	if w.engine == nil {
+		return
+	}
+	w.engine.UpdateOrderStatus(
+		orderID,
+		strings.TrimSpace(status),
+		sanitizeDecimal(filled),
+		sanitizeDecimal(remaining),
+		sanitizeFloat(avgFillPrice),
+	)
+}
+
+// Pnl receives streaming daily, unrealized, and realized PnL from TWS ReqPnL.
+// Note: ibapi.EWrapper spells this method Pnl (lowercase nl).
+func (w *IBWrapper) Pnl(reqID int64, dailyPnL float64, unrealizedPnL float64, realizedPnL float64) {
+	if w.engine == nil {
+		return
+	}
+	w.engine.UpdateLivePnL(
+		sanitizeFloat(dailyPnL),
+		sanitizeFloat(unrealizedPnL),
+		sanitizeFloat(realizedPnL),
+	)
+}
+
+// Error suppresses benign IBKR data farm status codes and records structured BrokerAlerts for actionable codes.
 func (w *IBWrapper) Error(reqID int64, errTime int64, errCode int64, errString string, advancedOrderRejectJson string) {
-	// 2104, 2106, 2158 are just "data farm is OK" informational messages
+	// 2104, 2106, 2158 are "market data farm connection is OK" informational messages
 	if errCode == 2104 || errCode == 2106 || errCode == 2158 {
 		return
 	}
+	if errCode == 504 && w.disconnecting.Load() {
+		return
+	}
+
+	alert := BuildBrokerAlert(errCode, errString)
+	if w.engine != nil {
+		w.engine.AddBrokerAlert(alert)
+		if errCode == 1100 {
+			w.engine.RecordDisconnect(errString)
+		}
+		if app := w.engine.GetApp(); app != nil {
+			app.Event.Emit("broker_alert", alert)
+		}
+	}
+
+	if errCode == 1102 && w.client != nil && w.connected != nil && w.connected.Load() {
+		go func(c *ibapi.EClient) {
+			c.ReqPositions()
+			c.ReqAllOpenOrders()
+		}(w.client)
+	}
+
 	fmt.Printf("IBKR Error (ReqID: %d, Code: %d): %s\n", reqID, errCode, errString)
 }
 
-// Connect starts the TCP socket to TWS dynamically using arguments.
+// BuildBrokerAlert maps TWS error codes into structured, human-readable operator alerts with remediation hints.
+func BuildBrokerAlert(errCode int64, errString string) models.BrokerAlert {
+	now := time.Now().UTC().Format(time.RFC3339)
+	msg := strings.TrimSpace(errString)
+	severity := "warning"
+	hint := "Consult TWS API log or verify contract/order parameters."
+
+	switch errCode {
+	case 10089:
+		severity = "warning"
+		hint = "Market data subscription required for live quotes. Enable Delayed Market Data in TWS API settings or subscribe in IBKR Client Portal."
+	case 504:
+		severity = "error"
+		hint = "Not connected to TWS. Verify Trader Workstation / IB Gateway is running on port 7497 (Paper) with API socket enabled."
+	case 502:
+		severity = "error"
+		hint = "Unable to connect to TWS socket. Confirm host/port (127.0.0.1:7497) and enable ActiveX/Socket Clients in TWS Global Configuration."
+	case 1100:
+		severity = "error"
+		hint = "Connectivity between IBKR and TWS lost; automated execution paused until connection restores."
+	case 1101:
+		severity = "info"
+		hint = "Connectivity restored; market data subscriptions may need re-subscription."
+	case 1102:
+		severity = "info"
+		hint = "Connectivity restored with data maintained; re-syncing open positions and working orders."
+	case 200:
+		severity = "warning"
+		hint = "No security definition found; check ticker symbol, exchange, and currency."
+	case 201:
+		severity = "error"
+		hint = "Order rejected by TWS risk/margin or session rules; review order details and buying power."
+	case 321:
+		severity = "warning"
+		hint = "TWS request validation error; verify client ID, account, or API parameters."
+	case 354:
+		severity = "warning"
+		hint = "Requested market data is not subscribed for this account."
+	default:
+		if errCode >= 500 && errCode < 600 {
+			severity = "error"
+		}
+	}
+
+	return models.BrokerAlert{
+		Code:      errCode,
+		Severity:  severity,
+		Message:   msg,
+		Hint:      hint,
+		Timestamp: now,
+	}
+}
+
+func sanitizeFloat(v float64) float64 {
+	if v == ibapi.UNSET_FLOAT || math.IsNaN(v) || math.IsInf(v, 0) || math.Abs(v) > 1e15 {
+		return 0
+	}
+	return v
+}
+
+func sanitizeDecimal(d ibapi.Decimal) float64 {
+	if d == ibapi.UNSET_DECIMAL {
+		return 0
+	}
+	return sanitizeFloat(d.Float())
+}
+
+func parseFiniteFloat(s string) (float64, error) {
+	trimmed := strings.TrimSpace(s)
+	if trimmed == "" {
+		return 0, fmt.Errorf("empty numeric value")
+	}
+	v, err := strconv.ParseFloat(trimmed, 64)
+	if err != nil {
+		return 0, err
+	}
+	if math.IsNaN(v) || math.IsInf(v, 0) || math.Abs(v) > 1e15 {
+		return 0, fmt.Errorf("non-finite float %q", s)
+	}
+	return v, nil
+}
+
+func canonicalExchangeName(ex string) string {
+	switch strings.ToUpper(strings.TrimSpace(ex)) {
+	case "TSE":
+		return "TSX"
+	case "VENTURE":
+		return "TSXV"
+	case "PURE":
+		return "CSE"
+	case "AEQS":
+		return "NEO"
+	case "ISLAND":
+		return "NASDAQ"
+	default:
+		return strings.ToUpper(strings.TrimSpace(ex))
+	}
+}
+
+func mapContractToInstrument(c *ibapi.Contract) (symbol, venue, instrumentID, currency string) {
+	if c == nil {
+		return "", "SMART", "", "USD"
+	}
+	symbol = strings.ReplaceAll(strings.ToUpper(strings.TrimSpace(c.Symbol)), " ", ".")
+	currency = strings.ToUpper(strings.TrimSpace(c.Currency))
+	if currency == "" {
+		currency = "USD"
+	}
+
+	venue = canonicalExchangeName(c.PrimaryExchange)
+	if venue == "" {
+		venue = canonicalExchangeName(c.Exchange)
+	}
+	if venue == "" {
+		venue = "SMART"
+	}
+
+	if symbol != "" {
+		instrumentID = symbol + "." + venue
+	}
+	return symbol, venue, instrumentID, currency
+}
+
+func contractKey(c *ibapi.Contract) string {
+	if c == nil {
+		return ""
+	}
+	if c.ConID > 0 {
+		return fmt.Sprintf("conid:%d", c.ConID)
+	}
+	sym := strings.ReplaceAll(strings.ToUpper(strings.TrimSpace(c.Symbol)), " ", ".")
+	if sym == "" {
+		return ""
+	}
+	curr := strings.ToUpper(strings.TrimSpace(c.Currency))
+	if curr == "" {
+		curr = "USD"
+	}
+	return sym + "." + curr
+}
+
+// Connect starts the TCP socket to TWS dynamically and issues initial telemetry subscriptions.
 func (c *IBKRClient) Connect(host string, port int, clientID int) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -99,33 +555,81 @@ func (c *IBKRClient) Connect(host string, port int, clientID int) error {
 		port = 7497
 	}
 
+	c.clientID = int64(clientID)
+	if c.wrapper != nil {
+		c.wrapper.clientID.Store(int64(clientID))
+		c.wrapper.positionsHydrated.Store(false)
+	}
+
 	err := c.client.Connect(host, port, int64(clientID))
 	if err != nil {
+		c.connected.Store(false)
 		return fmt.Errorf("failed to connect to TWS on %s:%d (clientID: %d): %w", host, port, clientID, err)
 	}
 
 	c.connected.Store(true)
-	time.Sleep(1 * time.Second)
+	time.Sleep(500 * time.Millisecond)
+	c.StartAccountSubscriptions()
 	fmt.Printf("Connected to TWS locally on %s:%d\n", host, port)
 	return nil
+}
+
+// StartAccountSubscriptions requests managed accounts, summary metrics, positions, and open orders.
+func (c *IBKRClient) StartAccountSubscriptions() {
+	if c.client == nil || !c.connected.Load() {
+		return
+	}
+
+	c.client.ReqManagedAccts()
+
+	summaryReqID := c.wrapper.NextReqID()
+	c.wrapper.mu.Lock()
+	c.wrapper.summaryReqID = summaryReqID
+	c.wrapper.mu.Unlock()
+
+	c.client.ReqAccountSummary(summaryReqID, "All", "NetLiquidation,TotalCashValue,BuyingPower,EquityWithLoanValue,ExcessLiquidity")
+	c.client.ReqPositions()
+	c.client.ReqOpenOrders()
+	c.client.ReqAllOpenOrders()
+	if c.clientID == 0 {
+		c.client.ReqAutoOpenOrders(true)
+	}
 }
 
 func (c *IBKRClient) Disconnect() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	if !c.connected.Swap(false) {
+	wasConnected := c.connected.Swap(false)
+	if !wasConnected {
 		return
+	}
+
+	if c.wrapper != nil {
+		c.wrapper.disconnecting.Store(true)
+		defer c.wrapper.disconnecting.Store(false)
+
+		c.wrapper.mu.Lock()
+		c.wrapper.summaryReqID = 0
+		c.wrapper.pnlReqID = 0
+		c.wrapper.subscribedAccount = ""
+		c.wrapper.mu.Unlock()
+		c.wrapper.positionsHydrated.Store(false)
 	}
 
 	if c.client != nil {
 		_ = c.client.Disconnect()
 		fmt.Println("Disconnected from TWS")
 	}
+
+	if c.wrapper != nil && c.wrapper.engine != nil {
+		c.wrapper.engine.RecordDisconnect("Disconnected by operator")
+		c.wrapper.engine.ResetBrokerTelemetry()
+	}
 }
 
 func (c *IBKRClient) IsConnected() bool {
-	return c.connected.Load()
+	return c.connected.Load() && c.client != nil
 }
 
 // HistoricalData parses incoming bars into float arrays protected by write-lock.
@@ -197,10 +701,10 @@ func (w *IBWrapper) ExecuteAction(symbol string, actionType string) {
 	can, reason := w.engine.CanExecute(symbol, models.ActionType(strings.ToLower(upperAction)))
 	if !can {
 		fmt.Printf("[FAIL-CLOSED REJECT] Order execution blocked for %s: %s\n", symbol, reason)
-		if w.engine.App != nil {
+		if app := w.engine.GetApp(); app != nil {
 			msg := fmt.Sprintf("[%s] ❌ ORDRE REFUSÉ pour %s: %s", time.Now().Format("15:04:05"), symbol, reason)
-			w.engine.App.Event.Emit("ledger_entry", msg)
-			w.engine.App.Event.Emit("order_rejected", map[string]interface{}{
+			app.Event.Emit("ledger_entry", msg)
+			app.Event.Emit("order_rejected", map[string]interface{}{
 				"symbol": symbol,
 				"action": upperAction,
 				"reason": reason,
@@ -281,10 +785,10 @@ func (w *IBWrapper) ExecuteAction(symbol string, actionType string) {
 		if err != nil || bundle == nil {
 			reason := fmt.Sprintf("Live bracket order creation failed: %v", err)
 			fmt.Printf("[FAIL-CLOSED REJECT] Live execution blocked for %s: %s\n", symbol, reason)
-			if w.engine.App != nil {
+			if app := w.engine.GetApp(); app != nil {
 				msg := fmt.Sprintf("[%s] ❌ ORDRE REFUSÉ pour %s: %s", time.Now().Format("15:04:05"), symbol, reason)
-				w.engine.App.Event.Emit("ledger_entry", msg)
-				w.engine.App.Event.Emit("order_rejected", map[string]interface{}{
+				app.Event.Emit("ledger_entry", msg)
+				app.Event.Emit("order_rejected", map[string]interface{}{
 					"symbol": symbol,
 					"action": upperAction,
 					"reason": reason,

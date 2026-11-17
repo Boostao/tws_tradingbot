@@ -68,7 +68,7 @@ export function DisconnectTws() {
 }
 
 /**
- * DryRunBot performs simulated execution against current market data
+ * DryRunBot performs simulated execution against the active workspace, strategy, and watchlist.
  * @returns {$CancellablePromise<models$0.BotDryRun | null>}
  */
 export function DryRunBot() {
@@ -95,7 +95,7 @@ export function ExportWatchlistFile() {
 }
 
 /**
- * FailsafeStop issues a global disable
+ * FailsafeStop issues a global disable, persists GlobalEnabled=false, stops the engine, and disconnects TWS.
  * @returns {$CancellablePromise<void>}
  */
 export function FailsafeStop() {
@@ -123,7 +123,7 @@ export function GetConfig() {
 }
 
 /**
- * GetDiagnostics returns system, runtime, and symbol telemetry
+ * GetDiagnostics returns system, runtime, session, and broker alert telemetry.
  * @returns {$CancellablePromise<models$0.DiagnosticsResponse | null>}
  */
 export function GetDiagnostics() {
@@ -277,6 +277,18 @@ export function ImportWatchlistFile() {
 }
 
 /**
+ * MoveStrategyOrder moves a strategy up or down within its pinned group and returns the sorted library.
+ * @param {string} id
+ * @param {string} direction
+ * @returns {$CancellablePromise<models$0.CockpitStrategySummary[]>}
+ */
+export function MoveStrategyOrder(id, direction) {
+    return $Call.ByID(3989190995, id, direction).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType14($result);
+    }));
+}
+
+/**
  * RefreshWatchlistFeed re-fetches the TradingView feed and merges relationally
  * @param {string} watchlistID
  * @returns {$CancellablePromise<models$0.WatchlistResponse | null>}
@@ -299,7 +311,7 @@ export function RemoveWatchlistSymbol($symbol) {
 }
 
 /**
- * ReplaceWatchlist updates or replaces watchlist groups with smart diff/merge
+ * ReplaceWatchlist updates or replaces watchlist groups with smart diff/merge while preserving existing metadata.
  * @param {models$0.ReplaceWatchlistRequest | null} req
  * @returns {$CancellablePromise<models$0.WatchlistResponse | null>}
  */
@@ -356,6 +368,17 @@ export function StopBot() {
 }
 
 /**
+ * ToggleStrategyPin toggles the pinned status of a strategy preset and returns the sorted library.
+ * @param {string} id
+ * @returns {$CancellablePromise<models$0.CockpitStrategySummary[]>}
+ */
+export function ToggleStrategyPin(id) {
+    return $Call.ByID(3736488475, id).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType14($result);
+    }));
+}
+
+/**
  * UpdateCockpitState updates the global cockpit state in SQLite
  * @param {models$0.CockpitStateResponse | null} update
  * @returns {$CancellablePromise<models$0.CockpitStateResponse | null>}
@@ -367,7 +390,7 @@ export function UpdateCockpitState(update) {
 }
 
 /**
- * UpdateConfig updates the system configuration
+ * UpdateConfig recursively deep-merges updates into system configuration and syncs them to Engine.
  * @param {{ [_ in string]?: any }} update
  * @returns {$CancellablePromise<{ [_ in string]?: any }>}
  */
@@ -389,7 +412,7 @@ export function UpdateStrategy(update) {
 }
 
 /**
- * UpdateTWSConnection saves new settings, disconnects the current TWS session, and reconnects
+ * UpdateTWSConnection saves new settings, keeps config.ib aligned, disconnects the current TWS session, and reconnects
  * @param {string} host
  * @param {number} port
  * @param {number} clientID

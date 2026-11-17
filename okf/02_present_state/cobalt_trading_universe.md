@@ -94,31 +94,21 @@ Referenced in `Cours-03` (`Lesson 197`: *"Apprendre vos indices de marché"*) an
 
 ### 3.1 TradingView Feed Ingestion (`app_watchlist.go`)
 
-`ImportTradingViewWatchlist()` in [`app_watchlist.go`](../../app_watchlist.go#L21-L185) fetches the public TradingView watchlist page and parses the embedded `<script type="application/prs.init-data+json">` payload (`sharedWatchlist.list.symbols`):
+`ImportTradingViewWatchlist()` in [`app_watchlist.go`](../../app_watchlist.go) fetches the public TradingView watchlist page and parses the embedded `<script type="application/prs.init-data+json">` payload (`sharedWatchlist.list.symbols`):
 
 - Strings starting with `###` start a new `WatchlistGroup` with `Source: "tradingview"`.
-- Instrument strings are split on the first `:` into `Exchange` and `Symbol` (uppercased, `Enabled: true` by default).
-- A flat `Symbols []string` slice is persisted alongside `Groups []WatchlistGroup` (`backend/models/schemas.go`), while `AddWatchlistSymbol()` (`app_watchlist.go#L254-L259`) assigns manual symbols `Exchange: "SMART"`.
+- Instrument strings are normalized via [`backend/models/symbol.go`](../../backend/models/symbol.go) (`NormalizeSymbol`) into `Symbol`, `Exchange`, `Venue`, `InstrumentID` (`SYMBOL.VENUE`), `IsOrderable`, and `IsRegimeReference`.
+- Flat `Symbols []string` and grouped `Groups []WatchlistGroup` ([`backend/models/watchlist.go`](../../backend/models/watchlist.go)) are persisted relationally in `watchlists` and `watchlist_items` via [`backend/db/watchlist.go`](../../backend/db/watchlist.go), while `AddWatchlistSymbol()` defaults unqualified manual symbols to `Exchange: "SMART"`. `positions-detenues` (`"Positions détenues ($$$$)"`) seeds empty and is dynamically synchronized by `SyncLivePositions()` from live TWS `pos != 0` holdings.
 
-### 3.2 Exchange-Stripped Collisions & Contract Mapping Gaps
+### 3.2 Exchange-Stripped Collisions & Contract Mapping Resolution
 
-Inspecting the actual shared lists against `IBWrapper.ExecuteAction()` in [`backend/bot/ibkr.go`](../../backend/bot/ibkr.go#L106-L152) reveals concrete symbol-resolution hazards:
+Inspecting the shared lists against `IBWrapper.ExecuteAction()` ([`backend/bot/ibkr.go`](../../backend/bot/ibkr.go)) and `ResolveContract()` ([`backend/bot/resolver.go`](../../backend/bot/resolver.go)) confirms all historical symbol-resolution hazards are resolved fail-closed:
 
-1. **Exchange-Stripped Collisions:** Flattening `EXCHANGE:SYMBOL` into bare `Symbol` strings collides on **8 tickers** in `209453826`:
-   - `BTCUSD`: `BINANCE:BTCUSD`, `COINBASE:BTCUSD`, `INDEX:BTCUSD`
-   - `ETHUSD`: `COINBASE:ETHUSD`, `INDEX:ETHUSD`
-   - `FETH`: `TSX:FETH` (CAD) vs. `CBOE:FETH` (USD)
-   - `AQN`: `TSX:AQN` vs. `NYSE:AQN`
-   - `CNR`: `NYSE:CNR` vs. `TSX:CNR`
-   - `SPX`: `SP:SPX` vs. `TVC:SPX`
-   - `NFLX`: `TSX:NFLX` (Canadian CDR) vs. `NASDAQ:NFLX`
-   - `MDA`: `TSX:MDA` vs. `NYSE:MDA`
-2. **Hardcoded IBKR `Contract` Struct:** `ExecuteAction()` currently constructs every contract as `SecType: "STK"`, `Exchange: "SMART"`, `Currency: "USD"`. Without a symbol-translation / routing table and a `filter_only` / `regime_reference` classification, the execution layer cannot safely handle:
-   - **Canadian (`TSX`, `TSXV`, `CSE`) listings:** Require `Currency: "CAD"` and Canadian exchange mapping (`TSE` / `VENTURE` / `PURE` / `SMART` with primary exchange); TSX index symbols (`TSX:TSX`, `TSX:TX60`, `TSX:TX40`, `TSX:TX20`, `TSX:JX` in `40576813`) are indices, not stocks.
-   - **Dot-Class Tickers:** `NYSE:BRK.B`, `NYSE:MOG.A`, `TSX:CTC.A`, `TSX:BBD.B`, `TSX:GIB.A`, `TSX:TCL.A` — IBKR requires space-delimited class symbols (e.g., `BRK B`) rather than TradingView dot notation.
-   - **Non-Orderable Macro, Yield, Index & CFD Symbols (`209453826` + `40576813`):** `TVC:VIX`, `TVC:SPX`, `SP:SPX`, `TVC:DJI`, `TVC:IXIC`, `TVC:RUT`, `DJ:DJT`, `IC:STOXX50`, `TVC:US02Y`–`US30Y`, `TVC:DXY`, `TVC:GOLD`, `TVC:SILVER`, `TVC:USOIL`, `CAPITALCOM:*` are analytical/regime-filter feeds, not direct `STK` orders.
-   - **Continuous Futures (`CME_MINI:ES1!`, `CME_MINI:NQ1!`):** Require front-month `FUT` expiry resolution rather than raw `1!` continuous-contract strings.
-   - **Spot Crypto (`COINBASE:*`, `BINANCE:*`, `KRAKEN:*`, `INDEX:*`), FX (`FX:*`, `FX_IDC:*`) & European Exchanges (`LSE:AZN`, `GETTEX:CLV`, `MIL:ARN`):** Require explicit `CRYPTO` / `CASH` / non-USD `STK` contract rules or exclusion from equity order routing.
+1. **Exchange-Stripped Collisions:** Flattening `EXCHANGE:SYMBOL` into bare `Symbol` strings previously collided on **8 tickers** in `209453826` (`BTCUSD`, `ETHUSD`, `FETH`, `AQN`, `CNR`, `SPX`, `NFLX`, `MDA`). Canonical `SYMBOL.VENUE` `instrument_id` keys (`TSX:AQN` $\rightarrow$ `AQN.TSX`, `NYSE:AQN` $\rightarrow$ `AQN.NYSE`, `TSX:FETH` $\rightarrow$ `FETH.TSX`, `CBOE:FETH` $\rightarrow$ `FETH.CBOE`) disambiguate every collision.
+2. **Multi-Venue `ResolveContract` & Gate 7 Routing:** `ExecuteAction()` resolves contracts via `ResolveContract(item)`, `ConvertDotClass`, `ClassifySymbol`, `SessionGate`, `CalculatePositionSize`, and `IsDryRun`:
+   - **Canadian (`TSX`, `TSXV`, `CSE`, `NEO`) listings:** Mapped to `Currency: "CAD"` (`TSE`, `VENTURE`, `PURE`, `NEO` via `SMART`); TSX index symbols (`TSX:TSX`, `TSX:TX60`, `TSX:TX40`, `TSX:TX20`, `TSX:JX`) are marked `IsRegimeReference: true` / `IsOrderable: false`.
+   - **Dot-Class Tickers:** `NYSE:BRK.B`, `TSX:CTC.A`, `TSX:BBD.B`, `TSX:GIB.A`, `TSX:TCL.A` are normalized via `ConvertDotClass` to IBKR space-delimited local symbols (`BRK B`, `CTC A`).
+   - **Non-Orderable Macro, Yield, Index & CFD Feeds (`209453826` + `40576813`):** `TVC:*`, `SP:SPX`, `DJ:DJT`, `IC:STOXX50`, `CAPITALCOM:*`, spot crypto (`COINBASE:*`, `BINANCE:*`, `KRAKEN:*`, `INDEX:*`), and continuous futures (`CME_MINI:ES1!`, `NQ1!`) are blocked from order creation by Gate 7 (`IsOrderable && !IsRegimeReference`).
 
 ---
 
@@ -146,7 +136,7 @@ flowchart TD
 | **Matrix Proposal** (`2026-04-28`, `photo_2`, `messages.html` `#69`) | Spreadsheet grid: rows = tickers, columns = strategies, Master ON/OFF top-left | Per-cell ON/OFF + right-click lock ("cherry picking"); flagged 500-button pagination concern (`25/50/100/All`) | Superseded by 2-column workspace layout (`NOTES.md`) |
 | **Trader Sketch & Walkthrough** (`2026-04-28` / `2026-05-02`, `photo_3`, `bruno 1.m4a`) | Top workspace tabs (`menu page`, `achat`, `short`, etc.); left = strategy slots with dropdowns; right = ticker list; scrollable page | Column-level Master ON/OFF on both Strategies and Tickers + per-row toggles; suspend without deleting | Core mental model adopted into `Cockpit`, `Watchlist`, and `Strategy Builder` pages |
 | **Web Prototype (`cazpe.com`)** (`2026-05-02`, `photo_5`, `photo_8`) | 3 workspace tabs: **`Achat`** (`long`), **`Short`** (`short`), **`Swing`** (`swing`); 4 strategy slots (`1/4`); grouped ticker tree (`532/532`) + search filter + Main Breaker | Independent 3-surface split (`Cockpit` live switches, `Watchlist` feed admin, `Strategy Builder` rule presets) | Reference UI/UX benchmark (`NOTES.md`) |
-| **Native Wails v3 `HEAD`** (`cockpit/+page.svelte`, `app.go`, `schemas.go`) | Default `app.go` seeds only `Main Trading` (`kind: "long"`); `cockpit/+page.svelte` renders **1 strategy slot** (`0/1` / `1/1`) via `activeStrategySlot` and enforces exclusive single-slot activation (`buildExclusiveStrategyWorkspaces`) | All/Group/Item ticker toggles and live search filter work against `watchlist_state`; **however**, `Engine.EvaluateTick()` still reads `e.ActiveStrategy` directly instead of `cockpit_state` + `watchlist_state` | UI persistence exists in SQLite (`system_config`), **runtime wiring & multi-workspace/4-slot parity remain incomplete** |
+| **Native Wails v3 `HEAD` (Cobalt V2)** (`cockpit/+page.svelte`, `app.go`, `backend/bot/engine.go`) | 3 workspaces (`Achat`, `Short`, `Swing`) + `1/1` Active Strategy Card (`0/1` / `1/1`) + `(pinned DESC, sort_order ASC)` Strategy Stack (`📌`, `↑`/`↓`, `>= 78%` `SlideToArm`) | Live-filtered `watchlist_items` with inline `#`/`$`/`%` sizing, `$$$$` live TWS holding badges (`SyncLivePositions` keeping `positions-detenues` empty when flat), and 9-gate `Engine` wiring (`CockpitState` -> `ResolveSelectedStrategy` -> `CanExecute`) | Implemented and verified across SQLite, `Engine`, Wails IPC (`41` methods), and Playwright UI checks |
 
 ---
 

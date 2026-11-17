@@ -9,9 +9,9 @@ export const runtimeState = {
 };
 
 export async function refreshRuntimeState(force = false): Promise<BotState | null> {
-    const nextState = await getState();
-    runtimeStateStore.set(nextState);
-    return nextState;
+	const nextState = await getState(force);
+	runtimeStateStore.set(nextState);
+	return nextState;
 }
 
 export function setRuntimeState(nextState: BotState | null): void {
@@ -19,15 +19,19 @@ export function setRuntimeState(nextState: BotState | null): void {
 }
 
 export function startRuntimePolling(): () => void {
-    // Initial fetch
-    refreshRuntimeState();
+	// Initial fetch
+	void refreshRuntimeState();
 
-    // Listen to Wails events instead of polling
-    Events.On('state_update', (event) => {
-        runtimeStateStore.set(event.data as BotState);
-    });
+	// Listen to Wails events instead of polling
+	const unsubscribe = Events.On('state_update', (event) => {
+		if (event?.data) {
+			runtimeStateStore.set(event.data as BotState);
+		}
+	});
 
 	return () => {
-        // cleanup if needed
+		if (typeof unsubscribe === 'function') {
+			unsubscribe();
+		}
 	};
 }

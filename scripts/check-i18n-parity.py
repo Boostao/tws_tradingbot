@@ -21,8 +21,8 @@ def extract_translation_keys(part: str) -> set[str]:
 
 
 def extract_code_usage_keys(src_dir: Path) -> set[str]:
-    """Extract keys used in t('...') or $t('...') calls across frontend src files."""
-    call_pattern = re.compile(r"(?:\$t|\bt)\(\s*['\"]([^'\"]+)['\"]\s*[,)]")
+    """Extract keys used in t('...'), tr('...'), or $t('...') calls across frontend src files."""
+    call_pattern = re.compile(r"(?:\$t|\btr?)\(\s*['\"]([^'\"]+)['\"]\s*[,)]")
     used_keys = set()
     if not src_dir.exists():
         return used_keys

@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"os"
+	"tws_traderbot/backend/bot"
 	"tws_traderbot/backend/models"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
@@ -21,20 +22,53 @@ func (a *App) GetConfig() map[string]interface{} {
 	return defaultState
 }
 
-// UpdateConfig updates the system configuration
+// UpdateConfig recursively deep-merges updates into system configuration and syncs them to Engine.
 func (a *App) UpdateConfig(update map[string]interface{}) (map[string]interface{}, error) {
 	state := a.GetConfig()
-
-	// Merge updates
-	for k, v := range update {
-		state[k] = v
+	if update != nil {
+		state = bot.DeepMergeMap(state, update)
 	}
 
 	err := a.db.SaveSystemConfig("config", state)
 	if err != nil {
 		return nil, err
 	}
+
+	if update != nil {
+		if ibUpd, ok := update["ib"].(map[string]interface{}); ok {
+			_, hasHost := ibUpd["host"]
+			_, hasPort := ibUpd["port"]
+			_, hasClientID := ibUpd["client_id"]
+			if hasHost || hasPort || hasClientID {
+				connCfg := a.GetTWSConnection()
+				if h, ok := ibUpd["host"]; ok {
+					connCfg["host"] = h
+				}
+				if p, ok := ibUpd["port"]; ok {
+					connCfg["port"] = p
+				}
+				if c, ok := ibUpd["client_id"]; ok {
+					connCfg["client_id"] = c
+				}
+				_ = a.db.SaveSystemConfig("tws_connection", connCfg)
+			}
+		}
+	}
+
+	a.syncConfigToEngine(state)
 	return state, nil
+}
+
+func (a *App) syncConfigToEngine(cfg map[string]interface{}) {
+	if a.engine != nil {
+		a.engine.SyncConfigMap(cfg)
+	}
+}
+
+func (a *App) persistCapturedAccount(account string) {
+	if a.engine != nil {
+		a.engine.PersistCapturedAccount(account)
+	}
 }
 
 // GetStrategy returns the active strategy state from SQLite
@@ -62,7 +96,7 @@ func (a *App) UpdateStrategy(update map[string]interface{}) (map[string]interfac
 		var s models.Strategy
 		if err := json.Unmarshal(b, &s); err == nil {
 			if a.engine != nil {
-				a.engine.ActiveStrategy = &s
+				a.engine.SetActiveStrategy(&s)
 			}
 		}
 	}

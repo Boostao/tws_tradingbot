@@ -2,11 +2,11 @@ version: '3'
 
 info:
   companyName: "Boostao"
-  productName: "TWS Trader Bot"
+  productName: "Cobalt — Poste de pilotage TWS"
   productIdentifier: "ca.boostao.tws_traderbot"
   description: "Local TWS/IBKR trading bot with Svelte UI"
-  copyright: "(c) 2025, Bruno Tremblay"
-  version: "0.1.0"
+  copyright: "(c) 2026, Bruno Tremblay"
+  version: "1.0.0"
 
 dev_mode:
   root_path: .

@@ -283,3 +283,51 @@ func TestEvaluateRule_MissingIndicatorBFailClosed(t *testing.T) {
 		t.Fatalf("expected EvaluateRule to fail closed when IndicatorB has 0 bars, but rule fired true")
 	}
 }
+
+func TestEvaluateRules_ScopePerTickerAndIndicatorVIX(t *testing.T) {
+	bundle := NewBarFrameBundle()
+	bundle.AddBar("AAPL", models.TimeframeD1, 1000, 148, 152, 147, 150.0, 1000)
+	bundle.AddBar("VIX", models.TimeframeD1, 1000, 16, 17, 15, 15.5, 0)
+
+	strat := &models.Strategy{
+		ID:   "strat_per_ticker_vix",
+		Name: "Per-Ticker + VIX Filter",
+		Rules: []models.Rule{
+			{
+				ID:      "r_vix_filter",
+				Name:    "VIX Calm Regime",
+				Scope:   models.ScopeGlobal,
+				Action:  models.ActionFilter,
+				Enabled: true,
+				Condition: &models.Condition{
+					Type:      models.ConditionLess,
+					Threshold: 20.0,
+					IndicatorA: &models.Indicator{
+						Type:      models.IndicatorVIX, // Symbol nil -> must resolve on VIX, not AAPL!
+						Timeframe: models.TimeframeD1,
+					},
+				},
+			},
+			{
+				ID:      "r_per_ticker",
+				Name:    "Per-Ticker Breakout Rule",
+				Scope:   models.ScopePerTicker, // Must evaluate on AAPL even though Name != "AAPL"
+				Action:  models.ActionBuy,
+				Enabled: true,
+				Condition: &models.Condition{
+					Type:      models.ConditionGreater,
+					Threshold: 100.0,
+					IndicatorA: &models.Indicator{
+						Type:      models.IndicatorPrice,
+						Timeframe: models.TimeframeD1,
+					},
+				},
+			},
+		},
+	}
+
+	signals := EvaluateRules(strat, bundle, "AAPL")
+	if len(signals) != 2 {
+		t.Fatalf("expected 2 signals (VIX filter + per-ticker buy), got %d: %+v", len(signals), signals)
+	}
+}

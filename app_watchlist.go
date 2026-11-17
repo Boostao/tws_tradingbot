@@ -33,20 +33,80 @@ func (a *App) SaveWatchlist(wl *models.WatchlistResponse) error {
 	return a.db.SaveWatchlistState(wl)
 }
 
-// ReplaceWatchlist updates or replaces watchlist groups with smart diff/merge
+// ReplaceWatchlist updates or replaces watchlist groups with smart diff/merge while preserving existing metadata.
 func (a *App) ReplaceWatchlist(req *models.ReplaceWatchlistRequest) (*models.WatchlistResponse, error) {
 	if req == nil {
 		return nil, fmt.Errorf("request cannot be nil")
 	}
-	id := req.WatchlistID
+	id := strings.TrimSpace(req.WatchlistID)
 	if id == "" {
-		id = "cobalt-telegram"
+		if defWl, err := a.db.LoadWatchlistState(); err == nil && defWl != nil && defWl.ID != "" {
+			id = defWl.ID
+		} else {
+			id = "cobalt-telegram"
+		}
 	}
-	name := req.Name
+
+	name := strings.TrimSpace(req.Name)
+	desc := ""
+	feed := req.Feed
+
+	if existing, err := a.db.GetWatchlistByID(id); err == nil && existing != nil {
+		if name == "" {
+			name = existing.Name
+		}
+		desc = existing.Description
+		if feed == nil {
+			feed = existing.Feed
+		}
+	}
 	if name == "" {
 		name = id
 	}
-	return a.db.MergeAndSaveWatchlist(id, name, "", req.Feed, req.Groups, false)
+
+	groups := req.Groups
+	if len(groups) == 0 {
+		if len(req.Items) > 0 {
+			groups = []models.WatchlistGroup{
+				{
+					ID:     "manual",
+					Name:   "Manual",
+					Source: "manual",
+					Items:  req.Items,
+				},
+			}
+		} else if len(req.Symbols) > 0 {
+			items := make([]models.WatchlistItem, 0, len(req.Symbols))
+			for _, rawSym := range req.Symbols {
+				rawSym = strings.TrimSpace(rawSym)
+				if rawSym == "" {
+					continue
+				}
+				norm := models.NormalizeSymbol(rawSym)
+				items = append(items, models.WatchlistItem{
+					Symbol:            norm.Symbol,
+					Exchange:          norm.Exchange,
+					Venue:             norm.Venue,
+					InstrumentID:      norm.InstrumentID,
+					Name:              norm.Symbol,
+					Enabled:           true,
+					Tier:              "2-Croissance",
+					IsOrderable:       norm.IsOrderable,
+					IsRegimeReference: norm.IsRegimeReference,
+				})
+			}
+			groups = []models.WatchlistGroup{
+				{
+					ID:     "manual",
+					Name:   "Manual",
+					Source: "manual",
+					Items:  items,
+				},
+			}
+		}
+	}
+
+	return a.db.MergeAndSaveWatchlist(id, name, desc, feed, groups, false)
 }
 
 // RefreshWatchlistFeed re-fetches the TradingView feed and merges relationally

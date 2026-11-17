@@ -7,29 +7,35 @@
 
 ## 1. Purpose & Governance Rule
 
-Per operational knowledge governance, **no missing specification has been invented or assumed** across this repository. Every settled architectural choice, codebase discrepancy on `wails3` (`HEAD` `22beb38`), and open domain question across client design notes, Telegram coordination logs, `Méthode de travail 8.8`, `473` `/mon-compte/analyse` briefs, `36` Cobalt course video transcripts, `14` targeted keyframes, and Go/Svelte source files is registered below as a numbered **`D-XX`** entry.
+Per operational knowledge governance, **no missing specification has been invented or assumed** across this repository. Every settled architectural choice, codebase discrepancy on `wails3` (`HEAD` — Cobalt V2 Overhaul), and open domain question across client design notes, Telegram coordination logs, `Méthode de travail 8.8`, `473` `/mon-compte/analyse` briefs, `36` Cobalt course video transcripts, `14` targeted keyframes, and Go/Svelte source files is registered below as a numbered **`D-XX`** entry.
 
 ```mermaid
 flowchart LR
     subgraph SettledArch["Settled Architecture & Desktop Platform"]
         D01["D-01: Local TWS Socket (127.0.0.1:7497)"]
-        D02["D-02: Native Go 1.26 + Wails v3 + Svelte 5 + SQLite"]
+        D02["D-02: Native Go 1.26 + Wails v3 (41 IPC) + Svelte 5"]
         D10["D-10: Local Go Strategy Evaluation (Webhook Deferred)"]
+        D17["D-17: Canonical Cobalt Brand & Wayland Packaging"]
     end
 
     subgraph SettledExecution["Settled Cockpit, Watchlists & Routing Invariants"]
         D03["D-03: 3 Workspaces (Achat/Short/Swing) & 1/1 Concurrency"]
         D04["D-04: SYMBOL.VENUE, 0 Collisions & Smart Diff/Merge"]
         D05["D-05: 3-Mode Sizing (# shares / $ / % portfolio)"]
-        D06["D-06: Buy-First Entry & OCA Child Brackets (STP+LMT)"]
+        D06["D-06: Buy-First Entry & OCA Child Brackets (CreateBracketOrders)"]
+        D13["D-13: Live TWS Telemetry & Empty positions-detenues Sync"]
+        D15["D-15: Pinned/Ordered Strategy Stack & >=78% SlideToArm"]
     end
 
-    subgraph SettledSafety["Settled Engine, Presets & Verification"]
+    subgraph SettledSafety["Settled Engine, Presets, UI & Verification"]
         D07["D-07: 9 Cobalt Timeframes & BarFrameBundle Engine"]
         D08["D-08: 11+ Indicators & 20 Seeded Cobalt Presets"]
         D09["D-09: 9-Gate Fail-Closed, NextValidID & Dry-Run Ledger"]
         D11["D-11: Uni Noir Ticker Rows, Hydration & 100% i18n Parity"]
         D12["D-12: Diagnostic Telemetry, Circuit Breaker & Safety HUD"]
+        D14["D-14: Collapsible Sidebar, Single Badge & Dark Select"]
+        D16["D-16: 4-Panel Trader Monitoring, NY/Toronto & BrokerAlerts"]
+        D18["D-18: 3-Pane Strategy Workbench, F1 Help & 3-Track Tour"]
     end
 
     SettledArch --- SettledExecution --- SettledSafety
@@ -43,7 +49,8 @@ flowchart LR
 * **Status:** **Settled & Verified (`HEAD`)**
 * **Evidence & Verification:**
   * Architecture decision confirmed running directly beside local IBKR TWS / IB Gateway (`127.0.0.1:7497`, `client_id: 1`).
-  * Live paper smoke verification executed against `127.0.0.1:7497` successfully negotiated protocol handshake with `serverVersion 226`, `<ConnectAck>`, and account `DUO185814`.
+  * Live paper smoke verification executed against `127.0.0.1:7497` successfully negotiated protocol handshake with `serverVersion 226`, `<ConnectAck>`, and dynamic account capture via `ManagedAccounts` (e.g., Paper account `DUO185814` persisted to `config.ib.account`).
+  * `github.com/scmhub/ibapi@v0.10.50` is locally patched under `third_party/ibapi` (`go.mod` `replace`) with `watchDone`/CAS synchronization in `EClient.Disconnect()` and atomic `EClient.IsConnected()` so live TWS reconnect/disconnect cycles pass `go test -race` cleanly.
 
 ---
 
@@ -52,7 +59,7 @@ flowchart LR
 * **Evidence & Settled Choices:**
   * Clean-break implementation in Go `1.26` and Wails v3 embedding Svelte 5 (`//go:embed all:frontend/dist`), pure-Go `modernc.org/sqlite` in WAL mode, and `github.com/scmhub/ibapi`.
   * All 15 legacy `/api/v1/*` HTTP stubs, `(window as any).go` guards, and dead `frontend/wailsjs/` directories have been completely purged from `frontend/src/lib/api.ts`.
-  * App exposes 32 native Wails v3 IPC methods via `$Call.ByID`.
+  * App exposes 41 native Wails v3 IPC methods via `$Call.ByID` (`42` Go `*App` methods including `ServiceStartup`).
 
 ---
 
@@ -85,7 +92,7 @@ flowchart LR
 ### D-06: Buy-First / Manual-Exit Scope vs. `Méthode 8.8` Immediate Brackets & `Short` Semantics
 * **Status:** **Settled & Implemented (`HEAD`)**
 * **Evidence & Invariants:**
-  * Release 1 supports automated buy-first entry workflow with optional automated OCA child bracket orders (`CreateBracketOrderPair`: `MKT` parent + OCA `LMT` profit target + OCA `STP` stop loss).
+  * Release 1 supports automated buy-first entry workflow with optional automated OCA child bracket orders (`CreateBracketOrders`: `MKT` parent + OCA `LMT` profit target + OCA `STP` stop loss).
   * All trade actions and simulated dry-run fills are auditable via SQLite `trade_ledger`.
 
 ---
@@ -104,7 +111,7 @@ flowchart LR
 * **Evidence & Invariants:**
   * Thread-safe memoized indicator engine in `backend/strategy/indicators.go` (HA, RVOL, OBV, MACD, RSI, BB, Stoch, Alligator, Guppy, ATR, RS vs SPX) with division-by-zero resilience.
   * All 20 Cobalt presets (13 chart styles, 4 Screener 2.0 presets, 3 Cours setups) pre-seeded in SQLite `strategies` table.
-  * Stale `"ml_signal"` indicator eliminated from codebase.
+  * `"ml_signal"` is deprecated in execution and unseeded across all 20 presets (`backend/strategy/catalog.go`), while `IndicatorMLSignal` remains in `backend/models/strategy.go` and the Rule Inspector dropdown strictly for schema backward-compatibility (falling back to `close` series).
 
 ---
 
@@ -142,3 +149,53 @@ flowchart LR
   * Telemetry HUD in Cockpit and `/monitoring` surfaces live equity, daily PnL, loss limit, circuit breaker state, and heartbeat.
   * Automated daily loss risk breaker halts automated entry orders upon limit breach and requires manual arming via `ResetCircuitBreaker()`.
   * Error status codes (504, 10089) surfaced cleanly with informative diagnostics.
+
+---
+
+### D-13: Live IBKR TWS Telemetry Ingestion & Non-Seeded `positions-detenues`
+* **Status:** **Settled & Verified (`HEAD`)**
+* **Evidence & Invariants:**
+  * `IBWrapper` ingests `ManagedAccounts`, `AccountSummary`, `UpdateAccountValue` (`CashBalance` `USD`/`CAD`/`BASE`), `Position`, `PositionEnd`, `UpdatePortfolio`, `OpenOrder`, `OrderStatus`, and `Pnl`.
+  * `Engine` defaults `Equity` to `0.0` when TWS has not reported (no `100000.0` or hardcoded account stubs), and `db.Connect` uses `SetMaxOpenConns(1)` to serialize concurrent telemetry/watchlist SQLite writes cleanly.
+  * `positions-detenues` (`"Positions détenues ($$$$)"`) seeds empty (`Symbols: []`); `db.SyncLivePositions()` reconciles `is_holding` (`$$$$`) across all watchlists and replaces `positions-detenues` strictly with live `pos != 0` TWS holdings.
+
+---
+
+### D-14: Collapsible Sidebar, Single Authoritative Status Badge & Global Dark `<select>`
+* **Status:** **Settled & Verified (`HEAD`)**
+* **Evidence & Invariants:**
+  * Global `<select>`/`<option>` rules in `frontend/src/app.css` enforce `color-scheme: dark`, `appearance: none`, `#0b1320` surface, and custom SVG chevrons across GTK4/WebKitGTK and Chromium.
+  * `Sidebar.svelte` owns the single authoritative `data-testid="status-badge"` (`TWS Connected` + `RUNNING`/`ARMED`/`STOPPED`) and auto-collapses Broker (`Connexion TWS`) & Risk (`Gestion du portefeuille & Risque`) into 1-line summary chips when connected.
+
+---
+
+### D-15: Cockpit Pinned/Ordered Strategy Stack & `>= 78%` `SlideToArm`
+* **Status:** **Settled & Verified (`HEAD`)**
+* **Evidence & Invariants:**
+  * `strategies` table stores `pinned` and `sort_order` (with idempotent SQLite migration), sorted `(pinned DESC, sort_order ASC, name ASC)` and mutated via `ToggleStrategyPin` / `MoveStrategyOrder`.
+  * `/cockpit` replaces the strategy `<select>` dropdown with a `1/1` Active Strategy Card and Strategy Stack featuring `>= 78%` (`MIN_DRAG_DISTANCE_PX = 16`) `SlideToArm.svelte` hot-swap (`pointercancel`/blur abort-safe) and locked 3-row `.cockpit-shell` + fixed single-bar `.cockpit-hud-strip`.
+
+---
+
+### D-16: Trader-Centric 4-Panel `/monitoring`, `NY/Toronto` Session Status & `BrokerAlerts`
+* **Status:** **Settled & Verified (`HEAD`)**
+* **Evidence & Invariants:**
+  * `/monitoring` and `app_diagnostics.go` purge developer noise (`tws_traderbot.sqlite`, `local_sqlite`, `desktop_local`, `tws_traderbot.log`) and organize telemetry into 4 trader panels: Portfolio & `FXCONV` Currency Readiness (`USD`/`CAD`/`BASE` + breaker headroom), Live Open Positions (`$$$$`), Working Orders & `DryRunBot` Scanner, and Execution & `NY/Toronto` Session / `BrokerAlerts` (`10089`/`504`) Ledger.
+  * `BuildRuntimeState`, `BuildDiagnostics`, and `RunDryRun` resolve the active Cockpit strategy accurately even when paused/stopped.
+
+---
+
+### D-17: Canonical Cobalt Brand Identity, Two-Tier Emblem & Linux Wayland Packaging
+* **Status:** **Settled & Verified (`HEAD`)**
+* **Evidence & Invariants:**
+  * `okf/02_present_state/cobalt_brand_and_ui_guide.md` harmonizes `https://www.cobaltinvestissements.com/` (`#263c8a`, `#0e0c28`, `#faa031`, `#edc44e`) with `Uni Noir` (`#05070b`/`#0b111e`) and `IoskeleyMono`.
+  * Unified Cobalt geometric emblem applied across `frontend/src/lib/assets/favicon.svg`, `Sidebar.svelte`, `build/appicon.png`, `build/windows/icon.ico`, and `site/favicon.svg` (`site/dist/`).
+  * `main.go`, `build/config.yml`, `build/linux/ca.boostao.tws_traderbot.desktop`, and `Taskfile.yml` (`linux:install-desktop`) configure Wayland `ApplicationID: ca.boostao.tws_traderbot` and `hicolor` icon installation.
+
+---
+
+### D-18: 3-Pane Zero-Scroll Strategy Workbench, `F1` Help Drawer & 3-Track Onboarding Tour
+* **Status:** **Settled & Verified (`HEAD`)**
+* **Evidence & Invariants:**
+  * `/strategy` renders a fixed-viewport 3-pane workbench (searchable/workspace-filtered Preset Stack, `Filtres Macro → Entrées → Sorties` pipeline, 2-col Rule Inspector across 22 indicators & 9 timeframes, slide-over JSON drawer), with `ValidateStrategy` allowing `ActionFilter` alongside `ActionBuy`/`ActionSell`.
+  * `HelpDrawer.svelte` (`F1`/`?`) and 3-track `OnboardingTour.svelte` (`localStorage` key `cobalt_onboarding_state`, 1-click launchers on `/manual`) provide in-cockpit guidance while reactive `$language` switching (`928` EN/FR keys) preserves unsaved route state.

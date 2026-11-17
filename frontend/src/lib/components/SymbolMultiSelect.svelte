@@ -11,6 +11,10 @@
 	let lastAdded: string | null = null;
 
 	$: _lang = $language;
+	$: tr = (key: string, params?: Record<string, string | number>) => {
+		void _lang;
+		return t(key, params);
+	};
 
 	function emitChange(next: string[]) {
 		selected = next;
@@ -39,7 +43,7 @@
 	/>
 	<div class="chips">
 		{#if selected.length === 0}
-			<span class="empty">{t('no_symbols_selected')}</span>
+			<span class="empty">{tr('no_symbols_selected')}</span>
 		{:else}
 			{#each selected as sym (sym)}
 				<span class="chip" class:highlight={sym === lastAdded}>

@@ -30,3 +30,4 @@ require (
 )
 
 // replace github.com/wailsapp/wails/v2 v2.12.0 => /home/bruno/go/pkg/mod
+replace github.com/scmhub/ibapi => ./third_party/ibapi

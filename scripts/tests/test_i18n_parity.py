@@ -169,6 +169,23 @@ class TestI18nParity(unittest.TestCase):
             errors = PARITY.check_i18n_parity(root)
             self.assertTrue(any("greater than (>)" in e for e in errors))
 
+    def test_missing_tr_helper_key_detected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._seed_valid_repo(root)
+            (root / "frontend" / "src" / "components" / "TrView.svelte").write_text(
+                """<script>
+  import { t, language } from '$lib/i18n';
+  $: _lang = $language;
+  $: tr = (k) => { void _lang; return t(k); };
+</script>
+<p>{tr('unregistered_tr_helper_key')}</p>
+""",
+                encoding="utf-8",
+            )
+            errors = PARITY.check_i18n_parity(root)
+            self.assertTrue(any("unregistered_tr_helper_key" in e for e in errors))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -3,6 +3,8 @@
 	import {
 		formatApiError,
 		getWatchlist,
+		getWatchlistById,
+		getWatchlists,
 		importTradingViewWatchlist,
 		refreshWatchlistFeed,
 		replaceWatchlist,
@@ -12,41 +14,39 @@
 		type WatchlistFeed,
 		type WatchlistGroup,
 		type WatchlistItem,
-		type WatchlistResponse
+		type WatchlistResponse,
+		type WatchlistSummary
 	} from '$lib/api';
 	import { t, language } from '$lib/i18n';
+	import { watchlistDraftUrl } from '$lib/stores/ui';
 	import SymbolSearch from '$lib/components/SymbolSearch.svelte';
 	import { ChevronDown, ChevronRight, Download, List, Plus, RefreshCcw, Trash2, Upload } from 'lucide-svelte';
 
+	let availableWatchlists: WatchlistSummary[] = [];
+	let activeWatchlistId = '';
 	let watchlist: WatchlistResponse = { symbols: [], groups: [], feed: null, updated_at: null };
 	let message = '';
 	let saving = false;
-	import { watchlistDraftUrl } from "$lib/stores/ui";
-	$: tradingViewUrl = $watchlistDraftUrl;
-	function updateDraft(e: any) { watchlistDraftUrl.set(e.target.value); }
 	let addingToManual = false;
 	let collapsedGroups = new Set<string>();
 
 	$: _lang = $language;
+	$: tr = (key: string, params?: Record<string, string | number>) => {
+		void _lang;
+		return t(key, params);
+	};
 	$: totalTickers = watchlist.groups.reduce((count, group) => count + group.items.length, 0);
 	$: activeTickers = watchlist.symbols.length;
-	$: allEnabled = totalTickers > 0 && watchlist.groups.every((group) => group.items.every((item) => item.enabled));
+	$: allEnabled =
+		totalTickers > 0 && watchlist.groups.every((group) => group.items.every((item) => item.enabled));
+	$: currentWatchlistId = activeWatchlistId || watchlist.id || 'cobalt-telegram';
+	$: isHoldingsWatchlist = currentWatchlistId === 'positions-detenues';
 
 	function cloneGroups(groups: WatchlistGroup[]): WatchlistGroup[] {
 		return groups.map((group) => ({
 			...group,
 			items: group.items.map((item) => ({ ...item }))
 		}));
-	}
-
-	function parseEntry(value: string): WatchlistItem {
-		const [rawTicker, rawMarket] = value.split(':', 2);
-		return {
-			symbol: (rawTicker ?? '').trim().toUpperCase(),
-			exchange: (rawMarket ?? '').trim().toUpperCase(),
-			name: '',
-			enabled: true
-		};
 	}
 
 	function itemKey(item: Pick<WatchlistItem, 'symbol' | 'exchange'>): string {
@@ -64,7 +64,10 @@
 		};
 	}
 
-	function ensureManualGroup(groups: WatchlistGroup[]): WatchlistGroup[] {
+	function ensureManualGroup(groups: WatchlistGroup[], targetId?: string): WatchlistGroup[] {
+		if (targetId === 'positions-detenues') {
+			return groups;
+		}
 		if (groups.some((group) => group.source === 'manual' || group.id === 'manual')) {
 			return groups;
 		}
@@ -72,49 +75,68 @@
 	}
 
 	function normalizeWatchlist(result: WatchlistResponse) {
+		const resolvedId = result.id || activeWatchlistId || 'cobalt-telegram';
+		activeWatchlistId = resolvedId;
 		watchlist = {
 			...result,
-			groups: ensureManualGroup(result.groups ?? []),
+			id: resolvedId,
+			groups: ensureManualGroup(result.groups ?? [], resolvedId),
 			feed: result.feed ?? null
 		};
-		tradingViewUrl = result.feed?.url ?? tradingViewUrl;
+		watchlistDraftUrl.set(result.feed?.url ?? '');
+	}
+
+	async function refreshSummaries() {
+		try {
+			availableWatchlists = await getWatchlists();
+		} catch {
+			// keep existing summaries
+		}
 	}
 
 	async function loadWatchlist(force = false) {
 		try {
-			normalizeWatchlist(await getWatchlist(force));
+			const [summaries, result] = await Promise.all([
+				getWatchlists(),
+				activeWatchlistId ? getWatchlistById(activeWatchlistId, force) : getWatchlist(force)
+			]);
+			availableWatchlists = summaries;
+			normalizeWatchlist(result);
 		} catch (err) {
 			message = formatApiError(err);
 		}
 	}
 
-	onMount(() => {
-		loadWatchlist();
-	});
-
-	function parseSymbols(text: string): string[] {
-		const entries = text
-			.split(/\r?\n|,|\t|;/)
-			.map((value) => value.trim())
-			.filter(Boolean)
-			.map((value) => parseEntry(value));
-		const seen = new Set<string>();
-		const result: string[] = [];
-		for (const entry of entries) {
-			if (!entry.symbol) continue;
-			const key = itemKey(entry);
-			if (seen.has(key)) continue;
-			seen.add(key);
-			result.push(key);
+	async function switchWatchlist(id: string) {
+		if (!id) return;
+		saving = true;
+		message = '';
+		try {
+			activeWatchlistId = id;
+			const result = await getWatchlistById(id, true);
+			normalizeWatchlist(result);
+		} catch (err) {
+			message = formatApiError(err);
+		} finally {
+			saving = false;
 		}
-		return result;
 	}
+
+	onMount(() => {
+		void loadWatchlist();
+	});
 
 	async function persistGroups(nextGroups: WatchlistGroup[], nextFeed: WatchlistFeed | null = watchlist.feed ?? null) {
 		saving = true;
 		message = '';
 		try {
-			normalizeWatchlist(await replaceWatchlist({ groups: nextGroups, feed: nextFeed }));
+			const updated = await replaceWatchlist({
+				watchlist_id: currentWatchlistId,
+				groups: nextGroups,
+				feed: nextFeed
+			});
+			normalizeWatchlist(updated);
+			await refreshSummaries();
 		} catch (err) {
 			message = formatApiError(err);
 		} finally {
@@ -141,6 +163,7 @@
 			const result = await importWatchlistFile();
 			if (result) {
 				normalizeWatchlist(result);
+				await refreshSummaries();
 				message = t('saved');
 			}
 		} catch (err) {
@@ -151,11 +174,15 @@
 	}
 
 	async function handleImportTradingView() {
-		if (!tradingViewUrl.trim()) return;
+		const url = $watchlistDraftUrl.trim();
+		if (!url) return;
 		message = '';
 		saving = true;
 		try {
-			normalizeWatchlist(await importTradingViewWatchlist(tradingViewUrl.trim()));
+			const targetId = isHoldingsWatchlist ? undefined : currentWatchlistId;
+			const imported = await importTradingViewWatchlist(url, targetId);
+			normalizeWatchlist(imported);
+			await refreshSummaries();
 			message = t('saved');
 		} catch (err) {
 			message = formatApiError(err);
@@ -168,7 +195,14 @@
 		message = '';
 		saving = true;
 		try {
-			normalizeWatchlist(await replaceWatchlist({ groups: [createManualGroup()], feed: null }));
+			const nextGroups = isHoldingsWatchlist ? [] : [createManualGroup()];
+			const updated = await replaceWatchlist({
+				watchlist_id: currentWatchlistId,
+				groups: nextGroups,
+				feed: null
+			});
+			normalizeWatchlist(updated);
+			await refreshSummaries();
 			message = t('clear_all');
 		} catch (err) {
 			message = formatApiError(err);
@@ -181,7 +215,9 @@
 		message = '';
 		saving = true;
 		try {
-			normalizeWatchlist(await refreshWatchlistFeed());
+			const refreshed = await refreshWatchlistFeed(currentWatchlistId);
+			normalizeWatchlist(refreshed);
+			await refreshSummaries();
 			message = t('saved');
 		} catch (err) {
 			message = formatApiError(err);
@@ -270,18 +306,18 @@
 		await persistGroups(updated);
 	}
 
-	function formatTimestamp(value?: string | null) {
-		if (!value) return t('watchlist_never_refreshed');
+	$: formatTimestamp = (value?: string | null) => {
+		if (!value) return tr('watchlist_never_refreshed');
 		const date = new Date(value);
 		if (Number.isNaN(date.getTime())) return value;
 		return new Intl.DateTimeFormat(undefined, {
 			dateStyle: 'medium',
 			timeStyle: 'short'
 		}).format(date);
-	}
+	};
 </script>
 
-<h1 class="heading"><span class="heading-icon"><List size={20} strokeWidth={1.6} /></span>{t('watchlist')}</h1>
+<h1 class="heading"><span class="heading-icon"><List size={20} strokeWidth={1.6} /></span>{tr('watchlist')}</h1>
 
 {#if message}
 	<p style="color: #f87171;">{message}</p>
@@ -289,40 +325,63 @@
 
 <div class="card">
 	<div class="watchlist-toolbar">
+		<select
+			class="watchlist-selector"
+			aria-label={tr('watchlist_selector_label')}
+			value={currentWatchlistId}
+			disabled={saving}
+			on:change={(e) => switchWatchlist((e.currentTarget as HTMLSelectElement).value)}
+		>
+			{#each availableWatchlists as wl}
+				<option value={wl.id}>{wl.name}</option>
+			{/each}
+		</select>
+
 		<input
 			type="url"
-			value={tradingViewUrl} on:input={updateDraft}
-			placeholder={t('watchlist_feed_url_placeholder')}
-			style="min-width: min(100%, 420px); flex: 1 1 320px;"
+			value={$watchlistDraftUrl}
+			on:input={(e) => watchlistDraftUrl.set((e.currentTarget as HTMLInputElement).value)}
+			placeholder={tr('watchlist_feed_url_placeholder')}
+			style="min-width: min(100%, 340px); flex: 1 1 280px;"
 		/>
-		<button class="secondary" on:click={handleImportTradingView}>{t('watchlist_import_tradingview')}</button>
-		<button class="secondary" on:click={handleRefreshFeed} disabled={!watchlist.feed?.url}>
+		<button class="secondary" on:click={handleImportTradingView} disabled={saving}>
+			{tr('watchlist_import_tradingview')}
+		</button>
+		<button class="secondary" on:click={handleRefreshFeed} disabled={saving || !watchlist.feed?.url}>
 			<RefreshCcw size={14} strokeWidth={1.8} />
-			<span>{t('refresh')}</span>
+			<span>{tr('refresh')}</span>
 		</button>
-		<button class="secondary" on:click={handleImportFile}>
+		<button class="secondary" on:click={handleImportFile} disabled={saving}>
 			<Upload size={14} strokeWidth={1.8} />
-			<span>{t('watchlist_import_file')}</span>
+			<span>{tr('watchlist_import_file')}</span>
 		</button>
-		<button class="secondary" on:click={handleExportFile}>
+		<button class="secondary" on:click={handleExportFile} disabled={saving}>
 			<Download size={14} strokeWidth={1.8} />
-			<span>{t('watchlist_export_file')}</span>
+			<span>{tr('watchlist_export_file')}</span>
 		</button>
-		<button class="secondary" on:click={() => (addingToManual = !addingToManual)}>
+		<button class="secondary" on:click={() => (addingToManual = !addingToManual)} disabled={saving || isHoldingsWatchlist}>
 			<Plus size={14} strokeWidth={1.8} />
-			<span>{t('watchlist_add_ticker')}</span>
+			<span>{tr('watchlist_add_ticker')}</span>
 		</button>
-		<button class="secondary" on:click={handleClearAll}>{t('clear_all')}</button>
+		<button class="secondary" on:click={handleClearAll} disabled={saving || isHoldingsWatchlist}>{tr('clear_all')}</button>
 		{#if saving}
-			<span class="muted">{t('loading_chart_data')}</span>
+			<span class="muted">{tr('loading_chart_data')}</span>
 		{/if}
 	</div>
 
+	{#if isHoldingsWatchlist}
+		<p class="watchlist-holding-hint">{tr('watchlist_holding_readonly_hint')}</p>
+	{/if}
+
 	<div class="watchlist-summary">
 		<div>
-			<strong>{t('watchlist_active_summary', { active: activeTickers, total: totalTickers })}</strong>
+			<strong class="font-mono">{tr('watchlist_active_summary', { active: activeTickers, total: totalTickers })}</strong>
 		</div>
-		<div>{t('watchlist_last_refreshed', { value: formatTimestamp(watchlist.feed?.last_refreshed_at ?? watchlist.updated_at) })}</div>
+		<div>
+			{tr('watchlist_last_refreshed', {
+				value: formatTimestamp(watchlist.feed?.last_refreshed_at ?? watchlist.updated_at)
+			})}
+		</div>
 		<label class="toggle">
 			<input
 				type="checkbox"
@@ -330,14 +389,14 @@
 				on:change={(event) => handleAllToggle((event.currentTarget as HTMLInputElement).checked)}
 			/>
 			<span class="toggle-slider"></span>
-			<span class="toggle-label">{t('watchlist_all_tickers')}</span>
+			<span class="toggle-label">{tr('watchlist_all_tickers')}</span>
 		</label>
 	</div>
 
-	{#if addingToManual}
+	{#if addingToManual && !isHoldingsWatchlist}
 		<div class="watchlist-add-panel">
 			<SymbolSearch
-				placeholder={t('watchlist_add_ticker_placeholder')}
+				placeholder={tr('watchlist_add_ticker_placeholder')}
 				statusTone={'online'}
 				includeNonStocks={true}
 				autoFocus={true}
@@ -360,7 +419,7 @@
 						<span>{group.name}</span>
 					</button>
 					<div class="watchlist-group-meta">
-						<span>{group.items.filter((item) => item.enabled).length}/{group.items.length}</span>
+						<span class="font-mono">{group.items.filter((item) => item.enabled).length}/{group.items.length}</span>
 						<label class="toggle">
 							<input
 								type="checkbox"
@@ -368,22 +427,44 @@
 								on:change={(event) => handleGroupToggle(group.id, (event.currentTarget as HTMLInputElement).checked)}
 							/>
 							<span class="toggle-slider"></span>
-							<span class="toggle-label">{t('enabled')}</span>
+							<span class="toggle-label">{tr('enabled')}</span>
 						</label>
 					</div>
 				</div>
 
 				{#if !collapsedGroups.has(group.id)}
 					{#if group.items.length === 0}
-						<p class="watchlist-empty">{t('watchlist_no_tickers')}</p>
+						<p class="watchlist-empty">{tr('watchlist_no_tickers')}</p>
 					{:else}
 						<div class="watchlist-group-items">
 							{#each group.items as item}
-								<div class="watchlist-item-row">
+								{@const isHeld = Boolean(item.is_holding) || group.id === 'holding' || isHoldingsWatchlist}
+								<div class="watchlist-item-row" class:is-holding={isHeld}>
 									<div class="watchlist-item-main">
-										<div class="watchlist-item-symbol">{item.symbol}</div>
+										<div class="watchlist-item-title-row">
+											<span class="watchlist-item-symbol font-mono">{item.symbol}</span>
+											<span class="ticker-badge venue-badge font-mono">
+												{item.venue || item.exchange || 'SMART'}
+											</span>
+											{#if item.instrument_id && item.instrument_id !== item.symbol}
+												<span class="ticker-instrument-norm font-mono">{item.instrument_id}</span>
+											{/if}
+											{#if item.tier}
+												<span class="ticker-badge tier-badge tier-{item.tier.slice(0, 1)}">
+													{item.tier}
+												</span>
+											{/if}
+											{#if isHeld}
+												<span
+													class="ticker-badge holding-badge font-mono"
+													title={tr('watchlist_holding_badge_title')}
+												>
+													$$$$
+												</span>
+											{/if}
+										</div>
 										<div class="watchlist-item-subtitle">
-											<span>{item.exchange || '—'}</span>
+											<span>{item.exchange || item.venue || '—'}</span>
 											{#if item.name}
 												<span>• {item.name}</span>
 											{/if}
@@ -394,18 +475,19 @@
 											<input
 												type="checkbox"
 												checked={item.enabled}
-												on:change={(event) => handleItemToggle(group.id, item, (event.currentTarget as HTMLInputElement).checked)}
+												on:change={(event) =>
+													handleItemToggle(group.id, item, (event.currentTarget as HTMLInputElement).checked)}
 											/>
 											<span class="toggle-slider"></span>
-											<span class="toggle-label">{t('enabled')}</span>
+											<span class="toggle-label">{tr('enabled')}</span>
 										</label>
-										{#if group.source === 'manual' || group.id === 'manual'}
+										{#if (group.source === 'manual' || group.id === 'manual') && !isHoldingsWatchlist}
 											<button
 												class="secondary"
 												type="button"
 												on:click={() => handleRemoveItem(group.id, item)}
-												aria-label={t('remove_row')}
-												title={t('remove_row')}
+												aria-label={tr('remove_row')}
+												title={tr('remove_row')}
 											>
 												<Trash2 size={16} strokeWidth={1.6} />
 											</button>

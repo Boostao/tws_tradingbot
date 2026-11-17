@@ -79,7 +79,7 @@ func (db *Database) GetWatchlistByID(id string) (*models.WatchlistResponse, erro
 
 	groupMap := make(map[string]*models.WatchlistGroup)
 	var groupOrder []string
-	var allSymbols []string
+	allSymbols := make([]string, 0)
 
 	for rows.Next() {
 		var item models.WatchlistItem
@@ -211,10 +211,10 @@ func (db *Database) MergeAndSaveWatchlist(
 		INSERT INTO watchlists (id, name, description, is_default, source, feed_url, updated_at)
 		VALUES (?, ?, ?, FALSE, ?, ?, CURRENT_TIMESTAMP)
 		ON CONFLICT(id) DO UPDATE SET
-			name = excluded.name,
-			description = excluded.description,
-			source = excluded.source,
-			feed_url = excluded.feed_url,
+			name = CASE WHEN excluded.name != '' THEN excluded.name ELSE watchlists.name END,
+			description = CASE WHEN excluded.description != '' THEN excluded.description ELSE watchlists.description END,
+			source = CASE WHEN excluded.feed_url != '' THEN excluded.source ELSE watchlists.source END,
+			feed_url = CASE WHEN excluded.feed_url != '' THEN excluded.feed_url ELSE watchlists.feed_url END,
 			updated_at = CURRENT_TIMESTAMP
 	`, watchlistID, name, description, source, feedURL)
 	if err != nil {
@@ -251,9 +251,9 @@ func (db *Database) MergeAndSaveWatchlist(
 		}
 
 		for _, item := range grp.Items {
-			raw := item.Symbol
-			if item.Exchange != "" && !strings.Contains(raw, ":") && !strings.Contains(raw, ".") {
-				raw = item.Exchange + ":" + item.Symbol
+			raw := strings.TrimSpace(item.Symbol)
+			if item.Exchange != "" && !strings.Contains(raw, ":") && !models.HasExchangeSuffix(raw) {
+				raw = strings.TrimSpace(item.Exchange) + ":" + raw
 			}
 			norm := models.NormalizeSymbol(raw)
 
@@ -352,11 +352,324 @@ func (db *Database) SaveWatchlistState(state *models.WatchlistResponse) error {
 		id = "cobalt-telegram"
 	}
 	name := state.Name
+	desc := state.Description
+	feed := state.Feed
+	if name == "" || desc == "" || feed == nil {
+		if existing, err := db.GetWatchlistByID(id); err == nil && existing != nil {
+			if name == "" {
+				name = existing.Name
+			}
+			if desc == "" {
+				desc = existing.Description
+			}
+			if feed == nil {
+				feed = existing.Feed
+			}
+		}
+	}
 	if name == "" {
 		name = "Master Watchlist"
 	}
-	_, err := db.MergeAndSaveWatchlist(id, name, state.Description, state.Feed, state.Groups, false)
+	_, err := db.MergeAndSaveWatchlist(id, name, desc, feed, state.Groups, false)
 	return err
+}
+
+type holdingOverride struct {
+	Enabled   bool
+	Tier      string
+	SizeMode  string
+	SizeValue float64
+	SizeVal   float64
+	Name      string
+}
+
+type resolvedHolding struct {
+	Symbol       string
+	Exchange     string
+	Venue        string
+	InstrumentID string
+	Name         string
+}
+
+// SyncLivePositions atomically reconciles is_holding across all watchlists and replaces positions-detenues
+// strictly with live TWS positions (pos != 0), preserving operator overrides.
+func (db *Database) SyncLivePositions(positions []models.BrokerPosition) error {
+	if db == nil || db.conn == nil {
+		return nil
+	}
+
+	tx, err := db.conn.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	// 1. Clear existing is_holding flags across all watchlists
+	if _, err := tx.Exec("UPDATE watchlist_items SET is_holding = FALSE WHERE is_holding = TRUE"); err != nil {
+		return fmt.Errorf("failed to reset is_holding flags: %w", err)
+	}
+
+	// 2. Ensure positions-detenues watchlist header exists
+	if _, err := tx.Exec(`
+		INSERT INTO watchlists (id, name, description, is_default, source, feed_url, updated_at)
+		VALUES ('positions-detenues', 'Positions détenues ($$$$)', 'Active held portfolio positions tracked according to Méthode 8.8 Step E', FALSE, 'manual', '', CURRENT_TIMESTAMP)
+		ON CONFLICT(id) DO NOTHING
+	`); err != nil {
+		return fmt.Errorf("failed to ensure positions-detenues watchlist: %w", err)
+	}
+
+	// 3. Snapshot operator overrides currently on positions-detenues
+	prevByInst := make(map[string]holdingOverride)
+	prevBySym := make(map[string]holdingOverride)
+	snapRows, err := tx.Query(`
+		SELECT instrument_id, symbol, enabled, tier, size_mode, size_value, size_val, name
+		FROM watchlist_items
+		WHERE watchlist_id = 'positions-detenues'
+	`)
+	if err != nil {
+		return fmt.Errorf("failed to snapshot positions-detenues overrides: %w", err)
+	}
+	for snapRows.Next() {
+		var instID, sym, tier, sizeMode, name string
+		var enabled bool
+		var sizeValue, sizeVal float64
+		if err := snapRows.Scan(&instID, &sym, &enabled, &tier, &sizeMode, &sizeValue, &sizeVal, &name); err == nil {
+			ov := holdingOverride{
+				Enabled:   enabled,
+				Tier:      tier,
+				SizeMode:  sizeMode,
+				SizeValue: sizeValue,
+				SizeVal:   sizeVal,
+				Name:      name,
+			}
+			if instID != "" {
+				prevByInst[strings.ToUpper(instID)] = ov
+			}
+			if sym != "" {
+				prevBySym[strings.ToUpper(sym)] = ov
+			}
+		}
+	}
+	if err := snapRows.Err(); err != nil {
+		snapRows.Close()
+		return err
+	}
+	snapRows.Close()
+
+	// 4. Match active holdings across all non-regime watchlists and resolve canonical instruments
+	var resolved []resolvedHolding
+	seenInst := make(map[string]bool)
+
+	for _, pos := range positions {
+		if pos.Position == 0 || strings.TrimSpace(pos.Symbol) == "" {
+			continue
+		}
+
+		rawSym := strings.ToUpper(strings.TrimSpace(pos.Symbol))
+		dotSym := strings.ReplaceAll(rawSym, " ", ".")
+		venue := strings.ToUpper(strings.TrimSpace(pos.Venue))
+		if venue == "ISLAND" {
+			venue = "NASDAQ"
+		}
+		instInput := strings.ReplaceAll(strings.ToUpper(strings.TrimSpace(pos.InstrumentID)), " ", ".")
+		if strings.HasSuffix(instInput, ".ISLAND") {
+			instInput = strings.TrimSuffix(instInput, ".ISLAND") + ".NASDAQ"
+		}
+
+		raw := dotSym
+		if venue != "" && venue != "SMART" {
+			raw = venue + ":" + dotSym
+		} else if instInput != "" && strings.Contains(instInput, ".") {
+			raw = instInput
+		}
+		norm := models.NormalizeSymbol(raw)
+
+		currency := strings.ToUpper(strings.TrimSpace(pos.Currency))
+		if currency == "" {
+			currency = norm.Currency
+		}
+
+		// Candidate matching in existing non-regime watchlists (excluding positions-detenues)
+		type matchRow struct {
+			id           int64
+			exchange     string
+			venue        string
+			instrumentID string
+			name         string
+		}
+		var matches []matchRow
+
+		var rows *sql.Rows
+		if norm.Exchange != "" && norm.Exchange != "SMART" {
+			rows, err = tx.Query(`
+				SELECT id, exchange, venue, instrument_id, name
+				FROM watchlist_items
+				WHERE watchlist_id != 'positions-detenues'
+				  AND is_regime_reference = FALSE
+				  AND (
+				      instrument_id = ?
+				      OR ((symbol = ? OR symbol = ?) AND exchange = ?)
+				  )
+			`, norm.InstrumentID, dotSym, rawSym, norm.Exchange)
+		} else {
+			if currency == "CAD" {
+				rows, err = tx.Query(`
+					SELECT id, exchange, venue, instrument_id, name
+					FROM watchlist_items
+					WHERE watchlist_id != 'positions-detenues'
+					  AND is_regime_reference = FALSE
+					  AND (symbol = ? OR symbol = ?)
+					  AND exchange IN ('TSX', 'TSXV', 'CSE', 'NEO')
+				`, dotSym, rawSym)
+			} else {
+				rows, err = tx.Query(`
+					SELECT id, exchange, venue, instrument_id, name
+					FROM watchlist_items
+					WHERE watchlist_id != 'positions-detenues'
+					  AND is_regime_reference = FALSE
+					  AND (symbol = ? OR symbol = ?)
+					  AND exchange IN ('NASDAQ', 'NYSE', 'AMEX', 'ARCA', 'BATS', 'CBOE', 'SMART', 'IEX', 'ISLAND')
+				`, dotSym, rawSym)
+			}
+		}
+		if err != nil {
+			return fmt.Errorf("failed to query watchlist matches for %s: %w", norm.InstrumentID, err)
+		}
+
+		for rows.Next() {
+			var mr matchRow
+			if err := rows.Scan(&mr.id, &mr.exchange, &mr.venue, &mr.instrumentID, &mr.name); err == nil {
+				matches = append(matches, mr)
+			}
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return err
+		}
+		rows.Close()
+
+		canonicalExchange := norm.Exchange
+		canonicalVenue := norm.Venue
+		canonicalInst := norm.InstrumentID
+		canonicalName := dotSym
+
+		for _, mr := range matches {
+			if _, err := tx.Exec("UPDATE watchlist_items SET is_holding = TRUE, updated_at = CURRENT_TIMESTAMP WHERE id = ?", mr.id); err != nil {
+				return fmt.Errorf("failed to flag is_holding on item %d: %w", mr.id, err)
+			}
+			if canonicalExchange == "SMART" && mr.exchange != "" && mr.exchange != "SMART" {
+				canonicalExchange = mr.exchange
+				canonicalVenue = mr.venue
+				canonicalInst = mr.instrumentID
+			}
+			if mr.name != "" && canonicalName == dotSym {
+				canonicalName = mr.name
+			}
+		}
+
+		if (canonicalExchange == "" || canonicalExchange == "SMART") && currency == "CAD" {
+			canonicalExchange = "TSX"
+			canonicalVenue = "TSE"
+			canonicalInst = dotSym + "." + canonicalExchange
+		} else if canonicalExchange == "" {
+			canonicalExchange = "SMART"
+			canonicalVenue = "SMART"
+			canonicalInst = dotSym + "." + canonicalExchange
+		}
+
+		if seenInst[canonicalInst] {
+			continue
+		}
+		seenInst[canonicalInst] = true
+
+		resolved = append(resolved, resolvedHolding{
+			Symbol:       dotSym,
+			Exchange:     canonicalExchange,
+			Venue:        canonicalVenue,
+			InstrumentID: canonicalInst,
+			Name:         canonicalName,
+		})
+	}
+
+	// 5. Replace positions-detenues items strictly with current live holdings
+	if _, err := tx.Exec("DELETE FROM watchlist_items WHERE watchlist_id = 'positions-detenues'"); err != nil {
+		return fmt.Errorf("failed to clear positions-detenues: %w", err)
+	}
+
+	if len(resolved) > 0 {
+		insertStmt, err := tx.Prepare(`
+			INSERT INTO watchlist_items (
+				watchlist_id, group_id, group_name, symbol, exchange, venue, instrument_id,
+				name, enabled, tier, is_orderable, is_regime_reference, is_holding,
+				size_mode, size_value, size_val, created_at, updated_at
+			) VALUES ('positions-detenues', 'holding', 'Positions Détenues', ?, ?, ?, ?, ?, ?, ?, TRUE, FALSE, TRUE, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+		`)
+		if err != nil {
+			return err
+		}
+		defer insertStmt.Close()
+
+		for _, h := range resolved {
+			enabled := true
+			tier := "1-Blue Chip"
+			sizeMode := "shares"
+			sizeValue := 100.0
+			sizeVal := 100.0
+			itemName := h.Name
+			if itemName == "" {
+				itemName = h.Symbol
+			}
+
+			if ov, ok := prevByInst[strings.ToUpper(h.InstrumentID)]; ok {
+				enabled = ov.Enabled
+				if ov.Tier != "" {
+					tier = ov.Tier
+				}
+				if ov.SizeMode != "" {
+					sizeMode = ov.SizeMode
+				}
+				if ov.SizeValue > 0 {
+					sizeValue = ov.SizeValue
+				}
+				if ov.SizeVal > 0 {
+					sizeVal = ov.SizeVal
+				} else {
+					sizeVal = sizeValue
+				}
+				if ov.Name != "" {
+					itemName = ov.Name
+				}
+			} else if ov, ok := prevBySym[strings.ToUpper(h.Symbol)]; ok {
+				enabled = ov.Enabled
+				if ov.Tier != "" {
+					tier = ov.Tier
+				}
+				if ov.SizeMode != "" {
+					sizeMode = ov.SizeMode
+				}
+				if ov.SizeValue > 0 {
+					sizeValue = ov.SizeValue
+				}
+				if ov.SizeVal > 0 {
+					sizeVal = ov.SizeVal
+				} else {
+					sizeVal = sizeValue
+				}
+				if ov.Name != "" {
+					itemName = ov.Name
+				}
+			}
+
+			if _, err := insertStmt.Exec(
+				h.Symbol, h.Exchange, h.Venue, h.InstrumentID, itemName,
+				enabled, tier, sizeMode, sizeValue, sizeVal,
+			); err != nil {
+				return fmt.Errorf("failed to insert holding %s into positions-detenues: %w", h.InstrumentID, err)
+			}
+		}
+	}
+
+	return tx.Commit()
 }
 
 // GetSymbols returns matching symbols from the watchlist universe.

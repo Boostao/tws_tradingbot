@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Cobalt — Poste de pilotage TWS
+GenericName=TWS Trading Cockpit
+Comment=Local IBKR/TWS trading workstation for Cobalt Investissements
+Exec=tws_traderbot
+Icon=ca.boostao.tws_traderbot
+Terminal=false
+Categories=Office;Finance;
+StartupNotify=true
+StartupWMClass=ca.boostao.tws_traderbot

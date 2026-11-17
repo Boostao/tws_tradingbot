@@ -39,6 +39,13 @@ func TestSymbolNormalizationAndClassification(t *testing.T) {
 		{"ETHUSD", "ETHUSD", "TVC", "TVC", "ETHUSD.TVC", false, true},
 		{"SOLUSD", "SOLUSD", "TVC", "TVC", "SOLUSD.TVC", false, true},
 		{"SPX.SP", "SPX", "SP", "SP", "SPX.SP", false, true},
+		{"XLE.ARCA", "XLE", "ARCA", "SMART", "XLE.ARCA", true, false},
+		{"SPY.BATS", "SPY", "BATS", "SMART", "SPY.BATS", true, false},
+		{"QQQ.IEX", "QQQ", "IEX", "SMART", "QQQ.IEX", true, false},
+		{"MSFT.ISLAND", "MSFT", "ISLAND", "SMART", "MSFT.ISLAND", true, false},
+		{"ZSP.NEO", "ZSP", "NEO", "NEO", "ZSP.NEO", true, false},
+		{"NEO:ZSP", "ZSP", "NEO", "NEO", "ZSP.NEO", true, false},
+		{"BRK.B", "BRK.B", "SMART", "SMART", "BRK.B.SMART", true, false},
 	}
 
 	for _, tt := range tests {
@@ -88,6 +95,20 @@ func TestBareCryptoAndSPXMacroClassification(t *testing.T) {
 		}
 		if !norm.IsRegimeReference {
 			t.Errorf("expected %s to be regime reference, got is_regime_reference=false", sym)
+		}
+	}
+}
+
+func TestHasExchangeSuffix(t *testing.T) {
+	if HasExchangeSuffix("BRK.B") {
+		t.Errorf("BRK.B is a dot-class ticker, should not report HasExchangeSuffix=true")
+	}
+	if HasExchangeSuffix("CTC.A") {
+		t.Errorf("CTC.A is a dot-class ticker, should not report HasExchangeSuffix=true")
+	}
+	for _, id := range []string{"BRK.B.NYSE", "XLE.ARCA", "SPY.BATS", "QQQ.IEX", "MSFT.ISLAND", "ZSP.NEO", "SHOP.TO"} {
+		if !HasExchangeSuffix(id) {
+			t.Errorf("expected HasExchangeSuffix(%q) to be true", id)
 		}
 	}
 }

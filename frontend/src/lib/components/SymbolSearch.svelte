@@ -28,21 +28,25 @@
 	let inputEl: HTMLInputElement | null = null;
 
 	$: _lang = $language;
-	$: displayPlaceholder = placeholder || t('symbol_search_placeholder');
+	$: tr = (key: string, params?: Record<string, string | number>) => {
+		void _lang;
+		return t(key, params);
+	};
+	$: displayPlaceholder = placeholder || tr('symbol_search_placeholder');
 	$: statusText =
 		statusLabel ||
 		(source === 'tradingview'
-			? t('symbol_source_live')
+			? tr('symbol_source_live')
 			: source === 'cache'
-				? t('symbol_source_cached')
-				: t('local_database_label'));
+				? tr('symbol_source_cached')
+				: tr('local_database_label'));
 	$: warningText = warning ? formatWarning(warning) : '';
 	$: statusBadgeTone = source === 'tradingview' && !warning ? 'online' : statusTone;
 
 	function formatWarning(nextWarning: string): string {
 		const key = `symbol_warning_${nextWarning}`;
-		const translated = t(key);
-		return translated === key ? t('symbol_warning_unknown', { warning: nextWarning }) : translated;
+		const translated = tr(key);
+		return translated === key ? tr('symbol_warning_unknown', { warning: nextWarning }) : translated;
 	}
 
 	function normalize(text?: string): string {
@@ -259,13 +263,13 @@
 			<div class="status-bar">
 				<span>
 					{#if loading}
-						{t('loading_chart_data')}
+						{tr('loading_chart_data')}
 					{:else if query.trim().length === 0}
-						{t('type_to_search')}
+						{tr('type_to_search')}
 					{:else if results.length === 0}
-						{t('no_matches')}
+						{tr('no_matches')}
 					{:else}
-						{results.length} {t('results')}{results.length !== 1 ? 's' : ''}
+						{results.length} {tr('results')}{results.length !== 1 ? 's' : ''}
 					{/if}
 				</span>
 				<span class:online={statusBadgeTone === 'online'} class:offline={statusBadgeTone !== 'online'}>
@@ -277,7 +281,7 @@
 			{/if}
 			<div class="results">
 				{#if results.length === 0 && query.trim().length > 0}
-					<div class="empty">{t('no_results_for')} “{query.trim()}”</div>
+					<div class="empty">{tr('no_results_for')} “{query.trim()}”</div>
 				{:else}
 					{#each results as item, index}
 						<button

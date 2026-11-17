@@ -6,6 +6,8 @@ type CockpitStrategySummary struct {
 	RuleCount        int    `json:"rule_count"`
 	EnabledRuleCount int    `json:"enabled_rule_count"`
 	Source           string `json:"source,omitempty"`
+	Pinned           bool   `json:"pinned"`
+	SortOrder        int    `json:"sort_order"`
 	UpdatedAt        string `json:"updated_at,omitempty"`
 }
 
@@ -21,6 +23,7 @@ type CockpitWorkspace struct {
 	Name          string                `json:"name"`
 	Kind          string                `json:"kind"`
 	Enabled       bool                  `json:"enabled"`
+	WatchlistID   string                `json:"watchlist_id,omitempty"`
 	StrategySlots []CockpitStrategySlot `json:"strategy_slots"`
 }
 

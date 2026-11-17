@@ -1,4 +1,5 @@
 import {
+	AddWatchlistSymbol,
 	ApplyStrategyPreset,
 	ConnectTws,
 	DeleteStrategyPreset,
@@ -6,6 +7,7 @@ import {
 	DryRunBot,
 	ExportStrategyFile,
 	ExportWatchlistFile,
+	FailsafeStop,
 	GetCockpitState,
 	GetConfig,
 	GetDiagnostics,
@@ -15,22 +17,27 @@ import {
 	GetStrategyLibrary,
 	GetStrategyPreset,
 	GetSymbols,
+	GetTWSConnection,
 	GetWatchlist,
 	GetWatchlistById,
 	GetWatchlists,
 	ImportStrategyFile,
 	ImportTradingViewWatchlist,
 	ImportWatchlistFile,
+	MoveStrategyOrder,
 	RefreshWatchlistFeed,
+	RemoveWatchlistSymbol,
 	ReplaceWatchlist,
 	ResetCircuitBreaker,
 	SaveStrategyPreset,
 	SaveWatchlist,
 	StartBot,
 	StopBot,
+	ToggleStrategyPin,
 	UpdateCockpitState,
 	UpdateConfig,
 	UpdateStrategy,
+	UpdateTWSConnection,
 	ValidateStrategy
 } from '../../bindings/tws_traderbot/app';
 
@@ -98,6 +105,19 @@ export function clearCache(key?: string): void {
 		return;
 	}
 	cache.clear();
+}
+
+function clearCacheByPrefix(prefix: string): void {
+	for (const k of Array.from(cache.keys())) {
+		if (k === prefix || k.startsWith(`${prefix}:`)) {
+			cache.delete(k);
+		}
+	}
+}
+
+function clearWatchlistCaches(): void {
+	clearCacheByPrefix('watchlist');
+	cache.delete('cockpit');
 }
 
 export function getLastApiError(): ApiError | null {
@@ -217,6 +237,10 @@ export type WatchlistFeed = {
 };
 
 export type WatchlistResponse = {
+	id?: string;
+	name?: string;
+	description?: string;
+	is_default?: boolean;
 	symbols: string[];
 	groups: WatchlistGroup[];
 	feed?: WatchlistFeed | null;
@@ -228,7 +252,10 @@ export type CockpitStrategySummary = {
 	name: string;
 	rule_count: number;
 	enabled_rule_count: number;
-	source: string;
+	source?: string;
+	pinned?: boolean;
+	sort_order?: number;
+	updated_at?: string | null;
 };
 
 export type CockpitStrategySlot = {
@@ -243,6 +270,7 @@ export type CockpitWorkspace = {
 	name: string;
 	kind: string;
 	enabled: boolean;
+	watchlist_id?: string;
 	strategy_slots: CockpitStrategySlot[];
 };
 
@@ -260,21 +288,95 @@ export type StrategyLibraryEntry = {
 	name: string;
 	rule_count: number;
 	enabled_rule_count: number;
+	source?: string;
+	pinned?: boolean;
+	sort_order?: number;
 	updated_at?: string | null;
+};
+
+export type BrokerPosition = {
+	symbol: string;
+	venue: string;
+	instrument_id: string;
+	currency: string;
+	position: number;
+	avg_cost: number;
+	market_price: number;
+	market_value: number;
+	unrealized_pnl: number;
+	realized_pnl: number;
+};
+
+export type BrokerOrder = {
+	order_id: number;
+	symbol: string;
+	venue: string;
+	instrument_id: string;
+	action: string;
+	order_type: string;
+	total_qty: number;
+	filled_qty: number;
+	remaining_qty: number;
+	limit_price: number;
+	avg_fill_price: number;
+	status: string;
+	outside_rth: boolean;
+};
+
+export type BrokerAlert = {
+	code: number;
+	severity: string;
+	message: string;
+	hint: string;
+	timestamp: string;
+};
+
+export type TradeRecord = {
+	id: number;
+	order_id: number;
+	symbol: string;
+	action: string;
+	quantity: number;
+	price: number;
+	status: string;
+	oca_group?: string;
+	mode: string;
+	created_at: string;
+};
+
+export type TwsConnectionConfig = {
+	host: string;
+	port: number;
+	client_id: number;
 };
 
 export type BotState = {
 	status: string;
+	running?: boolean;
 	tws_connected: boolean;
+	account_id?: string;
+	dry_run?: boolean;
 	equity: number;
+	buying_power?: number;
+	cash_usd?: number;
+	cash_cad?: number;
+	cash_base?: number;
 	daily_pnl: number;
 	daily_pnl_percent: number;
 	total_pnl: number;
+	realized_pnl?: number;
+	unrealized_pnl?: number;
 	daily_loss_limit?: number;
 	circuit_breaker_tripped?: boolean;
+	active_workspace_id?: string;
+	active_strategy_id?: string;
 	active_strategy: string;
+	session_status?: string;
 	open_positions_count: number;
 	pending_orders_count: number;
+	open_positions?: BrokerPosition[];
+	open_orders?: BrokerOrder[];
+	broker_alerts?: BrokerAlert[];
 	trades_today: number;
 	win_rate_today: number;
 	last_update?: string | null;
@@ -292,17 +394,17 @@ export type BotState = {
 };
 
 export type DiagnosticsStartup = {
-	environment: string;
+	environment?: string;
 	trading_mode: string;
 	ib_host: string;
 	ib_port: number;
 	client_id: number;
 	account: string;
-	log_level: string;
-	log_file: string;
-	watchlist_path: string;
-	strategy_path: string;
-	symbol_cache_path: string;
+	log_level?: string;
+	log_file?: string;
+	watchlist_path?: string;
+	strategy_path?: string;
+	symbol_cache_path?: string;
 };
 
 export type DiagnosticsRuntime = {
@@ -323,6 +425,13 @@ export type DiagnosticsResponse = {
 	startup: DiagnosticsStartup;
 	runtime: DiagnosticsRuntime;
 	symbols: DiagnosticsSymbols;
+	session_status?: string;
+	account?: string;
+	dry_run?: boolean;
+	active_workspace_id?: string;
+	active_strategy_id?: string;
+	active_strategy_name?: string;
+	broker_alerts?: BrokerAlert[];
 };
 
 export type BotDryRun = {
@@ -332,7 +441,7 @@ export type BotDryRun = {
 	positions: Record<string, unknown>;
 	open_orders: Array<Record<string, unknown>>;
 	planned_orders: Array<Record<string, unknown>>;
-	state: BotState;
+	state: BotState | null;
 	generated_at: string;
 };
 
@@ -389,11 +498,52 @@ export async function updateConfig(updates: Record<string, Record<string, unknow
 	try {
 		const data = (await timedCall('config.update', () => UpdateConfig(updates as any))) as unknown as ConfigResponse;
 		setCached('config', data, cachePolicy.config);
+		clearCache('state');
+		clearCache('diagnostics');
 		return data;
 	} catch (e) {
 		const err = new ApiError(`Config update failed: ${e}`, 500, 'Server Error', String(e));
 		lastApiError = err;
 		throw err;
+	}
+}
+
+export async function getTwsConnection(): Promise<TwsConnectionConfig> {
+	const data = (await timedCall('tws.config.get', () => GetTWSConnection())) as Record<string, unknown> | null;
+	return {
+		host: typeof data?.host === 'string' && data.host ? data.host : '127.0.0.1',
+		port: typeof data?.port === 'number' && Number.isFinite(data.port) ? data.port : 7497,
+		client_id: typeof data?.client_id === 'number' && Number.isFinite(data.client_id) ? data.client_id : 1
+	};
+}
+
+export async function updateTwsConnection(host: string, port: number, clientId: number): Promise<void> {
+	try {
+		await timedCall('tws.config.update', () => UpdateTWSConnection(host, port, clientId));
+	} finally {
+		clearCache('config');
+		clearCache('state');
+		clearCache('diagnostics');
+		clearWatchlistCaches();
+	}
+}
+
+export async function failsafeStop(): Promise<void> {
+	try {
+		await timedCall('bot.failsafe_stop', () => FailsafeStop());
+	} finally {
+		clearCache('state');
+		clearCache('diagnostics');
+		clearCache('cockpit');
+	}
+}
+
+export async function getRecentTrades(): Promise<TradeRecord[]> {
+	try {
+		const data = await timedCall('trades.recent', () => GetRecentTrades());
+		return (data ?? []) as unknown as TradeRecord[];
+	} catch {
+		return [];
 	}
 }
 
@@ -444,14 +594,22 @@ export async function getDiagnostics(force = false): Promise<DiagnosticsResponse
 	}
 }
 
-export async function connectTws(payload: { host?: string; port?: number; client_id?: number }): Promise<{ status: string }> {
+export async function connectTws(payload: { host?: string; port?: number; client_id?: number }): Promise<{ status: string; message?: string }> {
 	try {
-		const res = await timedCall('tws.connect', () =>
+		const res = (await timedCall('tws.connect', () =>
 			ConnectTws(payload.host || '127.0.0.1', payload.port || 7497, payload.client_id || 1)
-		);
-		return { status: ((res as Record<string, any>)?.status as string) || 'ok' };
+		)) as Record<string, any> | null;
+		return {
+			status: (res?.status as string) || 'ok',
+			...(typeof res?.message === 'string' && res.message ? { message: res.message } : {})
+		};
 	} catch (e) {
-		return { status: 'error' };
+		return { status: 'error', message: formatApiError(e) };
+	} finally {
+		clearCache('state');
+		clearCache('diagnostics');
+		clearCache('config');
+		clearWatchlistCaches();
 	}
 }
 
@@ -461,6 +619,11 @@ export async function disconnectTws(): Promise<{ status: string }> {
 		return { status: ((res as Record<string, any>)?.status as string) || 'ok' };
 	} catch (e) {
 		return { status: 'error' };
+	} finally {
+		clearCache('state');
+		clearCache('diagnostics');
+		clearCache('config');
+		clearWatchlistCaches();
 	}
 }
 
@@ -470,6 +633,9 @@ export async function startBot(): Promise<{ status: string }> {
 		return { status: ((res as Record<string, any>)?.status as string) || 'ok' };
 	} catch (e) {
 		return { status: 'error' };
+	} finally {
+		clearCache('state');
+		clearCache('diagnostics');
 	}
 }
 
@@ -479,6 +645,9 @@ export async function stopBot(): Promise<{ status: string }> {
 		return { status: ((res as Record<string, any>)?.status as string) || 'ok' };
 	} catch (e) {
 		return { status: 'error' };
+	} finally {
+		clearCache('state');
+		clearCache('diagnostics');
 	}
 }
 
@@ -502,6 +671,9 @@ export async function saveStrategy(strategy: Strategy): Promise<Strategy> {
 		const data = await timedCall('strategy.save', () => UpdateStrategy(strategy as any));
 		const res = (data as unknown as Strategy) ?? strategy;
 		setCached('strategy', res, cachePolicy.strategy);
+		clearCache('cockpit');
+		clearCache('state');
+		clearCache('diagnostics');
 		return res;
 	} catch (e) {
 		const err = new ApiError(`Strategy save failed: ${e}`, 500, 'Server Error', String(e));
@@ -559,6 +731,7 @@ export async function saveStrategyPreset(strategy: Strategy, name?: string): Pro
 		if (!data) {
 			throw new Error('SaveStrategyPreset returned empty response');
 		}
+		clearCache('cockpit');
 		return data as unknown as StrategyLibraryEntry;
 	} catch (e) {
 		const err = new ApiError(`Strategy preset save failed: ${e}`, 500, 'Server Error', String(e));
@@ -575,6 +748,7 @@ export async function updateStrategyPreset(strategyId: string, strategy: Strateg
 		if (!data) {
 			throw new Error('UpdateStrategyPreset returned empty response');
 		}
+		clearCache('cockpit');
 		return data as unknown as StrategyLibraryEntry;
 	} catch (e) {
 		const err = new ApiError(`Strategy preset update failed: ${e}`, 500, 'Server Error', String(e));
@@ -603,6 +777,9 @@ export async function applyStrategyPreset(strategyId: string, workspaceId = '', 
 		const preset = await GetStrategyPreset(strategyId);
 		const data = (preset ?? {}) as unknown as Strategy;
 		setCached('strategy', data, cachePolicy.strategy);
+		clearCache('cockpit');
+		clearCache('state');
+		clearCache('diagnostics');
 		return data;
 	} catch (e) {
 		const err = new ApiError(`Strategy preset apply failed: ${e}`, 500, 'Server Error', String(e));
@@ -614,8 +791,33 @@ export async function applyStrategyPreset(strategyId: string, workspaceId = '', 
 export async function deleteStrategyPreset(strategyId: string): Promise<void> {
 	try {
 		await timedCall('strategy.library.delete', () => DeleteStrategyPreset(strategyId));
+		clearCache('cockpit');
 	} catch (e) {
 		const err = new ApiError(`Strategy preset delete failed: ${e}`, 500, 'Server Error', String(e));
+		lastApiError = err;
+		throw err;
+	}
+}
+
+export async function toggleStrategyPin(id: string): Promise<CockpitStrategySummary[]> {
+	try {
+		const data = await timedCall('strategy.library.pin', () => ToggleStrategyPin(id));
+		clearCache('cockpit');
+		return (data ?? []) as unknown as CockpitStrategySummary[];
+	} catch (e) {
+		const err = new ApiError(`Strategy pin toggle failed: ${e}`, 500, 'Server Error', String(e));
+		lastApiError = err;
+		throw err;
+	}
+}
+
+export async function moveStrategyOrder(id: string, direction: 'up' | 'down'): Promise<CockpitStrategySummary[]> {
+	try {
+		const data = await timedCall('strategy.library.move', () => MoveStrategyOrder(id, direction));
+		clearCache('cockpit');
+		return (data ?? []) as unknown as CockpitStrategySummary[];
+	} catch (e) {
+		const err = new ApiError(`Strategy reorder failed: ${e}`, 500, 'Server Error', String(e));
 		lastApiError = err;
 		throw err;
 	}
@@ -644,13 +846,18 @@ export async function getWatchlist(force = false): Promise<WatchlistResponse> {
 	}
 }
 
-export async function getWatchlistById(id: string): Promise<WatchlistResponse> {
+export async function getWatchlistById(id: string, force = false): Promise<WatchlistResponse> {
+	const cacheKey = `watchlist:${id}`;
+	const cached = !force ? getCached<WatchlistResponse>(cacheKey) : null;
+	if (cached) return cached;
 	try {
 		const data = await timedCall('watchlist.get_by_id', () => GetWatchlistById(id));
 		if (!data) {
 			throw new Error(`Watchlist ${id} not found`);
 		}
-		return data as unknown as WatchlistResponse;
+		const res = data as unknown as WatchlistResponse;
+		setCached(cacheKey, res, cachePolicy.watchlist);
+		return res;
 	} catch (e) {
 		const err = new ApiError(`Watchlist fetch failed: ${e}`, 500, 'Server Error', String(e));
 		lastApiError = err;
@@ -670,7 +877,13 @@ export async function getWatchlists(): Promise<WatchlistSummary[]> {
 export async function saveWatchlist(wl: WatchlistResponse): Promise<void> {
 	try {
 		await timedCall('watchlist.save', () => SaveWatchlist(wl as any));
-		setCached('watchlist', wl, cachePolicy.watchlist);
+		clearWatchlistCaches();
+		if (wl.is_default || !wl.id) {
+			setCached('watchlist', wl, cachePolicy.watchlist);
+		}
+		if (wl.id) {
+			setCached(`watchlist:${wl.id}`, wl, cachePolicy.watchlist);
+		}
 	} catch (e) {
 		const err = new ApiError(`Watchlist save failed: ${e}`, 500, 'Server Error', String(e));
 		lastApiError = err;
@@ -717,6 +930,9 @@ export async function saveCockpit(payload: {
 		}
 		const res = data as unknown as CockpitState;
 		setCached('cockpit', res, cachePolicy.cockpit);
+		clearCache('state');
+		clearCache('diagnostics');
+		clearCache('strategy');
 		return res;
 	} catch (e) {
 		const err = new ApiError(`Cockpit save failed: ${e}`, 500, 'Server Error', String(e));
@@ -725,19 +941,42 @@ export async function saveCockpit(payload: {
 	}
 }
 
-export async function replaceWatchlist(
-	payload: string[] | { groups: WatchlistGroup[]; feed?: WatchlistFeed | null }
-): Promise<WatchlistResponse> {
+export type ReplaceWatchlistPayload =
+	| string[]
+	| {
+			watchlist_id?: string;
+			name?: string;
+			source?: string;
+			groups?: WatchlistGroup[];
+			items?: WatchlistItem[];
+			feed?: WatchlistFeed | null;
+	  };
+
+export async function replaceWatchlist(payload: ReplaceWatchlistPayload): Promise<WatchlistResponse> {
 	try {
-		const req = Array.isArray(payload)
+		const req: Record<string, unknown> = Array.isArray(payload)
 			? { symbols: payload }
-			: { groups: payload.groups, feed: payload.feed ?? null };
+			: {
+					...(payload.watchlist_id ? { watchlist_id: payload.watchlist_id } : {}),
+					...(payload.name ? { name: payload.name } : {}),
+					...(payload.source ? { source: payload.source } : {}),
+					...(payload.groups !== undefined ? { groups: payload.groups } : {}),
+					...(payload.items !== undefined ? { items: payload.items } : {}),
+					feed: payload.feed ?? null
+				};
 		const data = await timedCall('watchlist.replace', () => ReplaceWatchlist(req as any));
 		if (!data) {
 			throw new Error('Replace watchlist returned empty response');
 		}
 		const res = data as unknown as WatchlistResponse;
-		setCached('watchlist', res, cachePolicy.watchlist);
+		clearWatchlistCaches();
+		const targetId = typeof req.watchlist_id === 'string' ? req.watchlist_id : res.id;
+		if (res.is_default || (!targetId && !res.id)) {
+			setCached('watchlist', res, cachePolicy.watchlist);
+		}
+		if (targetId) {
+			setCached(`watchlist:${targetId}`, res, cachePolicy.watchlist);
+		}
 		return res;
 	} catch (e) {
 		const err = new ApiError(`Watchlist replace failed: ${e}`, 500, 'Server Error', String(e));
@@ -746,14 +985,23 @@ export async function replaceWatchlist(
 	}
 }
 
-export async function importTradingViewWatchlist(url: string): Promise<WatchlistResponse> {
+export async function importTradingViewWatchlist(url: string, targetWatchlistId?: string): Promise<WatchlistResponse> {
 	try {
-		const data = await timedCall('watchlist.import_tv', () => ImportTradingViewWatchlist(url));
+		const data = await timedCall('watchlist.import_tv', () =>
+			targetWatchlistId ? ImportTradingViewWatchlist(url, targetWatchlistId) : ImportTradingViewWatchlist(url)
+		);
 		if (!data) {
 			throw new Error('Watchlist import returned empty response');
 		}
-		setCached('watchlist', data, cachePolicy.watchlist);
-		return data as unknown as WatchlistResponse;
+		const res = data as unknown as WatchlistResponse;
+		clearWatchlistCaches();
+		if (res.is_default || (!targetWatchlistId && !res.id)) {
+			setCached('watchlist', res, cachePolicy.watchlist);
+		}
+		if (res.id) {
+			setCached(`watchlist:${res.id}`, res, cachePolicy.watchlist);
+		}
+		return res;
 	} catch (e) {
 		const err = new ApiError(`TradingView watchlist import failed: ${e}`, 500, 'Server Error', String(e));
 		lastApiError = err;
@@ -777,8 +1025,15 @@ export async function importWatchlistFile(): Promise<WatchlistResponse> {
 		if (!data) {
 			throw new Error('Watchlist import returned empty response');
 		}
-		setCached('watchlist', data, cachePolicy.watchlist);
-		return data as unknown as WatchlistResponse;
+		const res = data as unknown as WatchlistResponse;
+		clearWatchlistCaches();
+		if (res.is_default || !res.id) {
+			setCached('watchlist', res, cachePolicy.watchlist);
+		}
+		if (res.id) {
+			setCached(`watchlist:${res.id}`, res, cachePolicy.watchlist);
+		}
+		return res;
 	} catch (e) {
 		const err = new ApiError(`Watchlist import failed: ${e}`, 500, 'Server Error', String(e));
 		lastApiError = err;
@@ -793,10 +1048,41 @@ export async function refreshWatchlistFeed(watchlistId = ''): Promise<WatchlistR
 			throw new Error('Watchlist feed refresh returned empty response');
 		}
 		const res = data as unknown as WatchlistResponse;
-		setCached('watchlist', res, cachePolicy.watchlist);
+		clearWatchlistCaches();
+		if (!watchlistId || res.is_default) {
+			setCached('watchlist', res, cachePolicy.watchlist);
+		}
+		const targetId = watchlistId || res.id;
+		if (targetId) {
+			setCached(`watchlist:${targetId}`, res, cachePolicy.watchlist);
+		}
 		return res;
 	} catch (e) {
 		const err = new ApiError(`Watchlist feed refresh failed: ${e}`, 500, 'Server Error', String(e));
+		lastApiError = err;
+		throw err;
+	}
+}
+
+export async function addWatchlistSymbol(symbol: string): Promise<WatchlistResponse | null> {
+	try {
+		const data = await timedCall('watchlist.add_symbol', () => AddWatchlistSymbol(symbol));
+		clearWatchlistCaches();
+		return (data as unknown as WatchlistResponse) ?? null;
+	} catch (e) {
+		const err = new ApiError(`Watchlist add symbol failed: ${e}`, 500, 'Server Error', String(e));
+		lastApiError = err;
+		throw err;
+	}
+}
+
+export async function removeWatchlistSymbol(symbol: string): Promise<WatchlistResponse | null> {
+	try {
+		const data = await timedCall('watchlist.remove_symbol', () => RemoveWatchlistSymbol(symbol));
+		clearWatchlistCaches();
+		return (data as unknown as WatchlistResponse) ?? null;
+	} catch (e) {
+		const err = new ApiError(`Watchlist remove symbol failed: ${e}`, 500, 'Server Error', String(e));
 		lastApiError = err;
 		throw err;
 	}
@@ -843,6 +1129,9 @@ export async function getSymbols(
 export async function resetCircuitBreaker(): Promise<void> {
 	try {
 		await timedCall('breaker.reset', () => ResetCircuitBreaker());
+		clearCache('state');
+		clearCache('diagnostics');
+		clearCache('cockpit');
 	} catch (e) {
 		const err = new ApiError(`Circuit breaker reset failed: ${e}`, 500, 'Server Error', String(e));
 		lastApiError = err;

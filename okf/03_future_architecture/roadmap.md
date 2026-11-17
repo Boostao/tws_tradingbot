@@ -30,7 +30,7 @@ flowchart LR
 **Status: Shipped & Verified in Milestone 1**
 
 1. **Fixed Root Go Test Compilation:** Corrected `package main` declaration in `app_watchlist_test.go`, enabling clean passes for `go test ./...` and `go test -race ./...`.
-2. **Clean-Break Wails v3 Bindings:** Regenerated native bindings exposing 32 methods via `$Call.ByID` in `frontend/bindings/tws_traderbot/app.js`. Purged legacy Wails v2 `frontend/wailsjs/` directories.
+2. **Clean-Break Wails v3 Bindings:** Regenerated native bindings exposing 41 Wails IPC methods (`42` Go `*App` methods including `ServiceStartup`) via `$Call.ByID` in `frontend/bindings/tws_traderbot/app.js`. Purged legacy Wails v2 `frontend/wailsjs/` directories.
 3. **Eliminated Legacy REST Stubs:** Removed all `/api/v1/*` HTTP fallbacks and `(window as any).go` checks in `frontend/src/lib/api.ts`.
 4. **CI/CD Workflow Matrix:** Configured GitHub Actions workflows (`ci.yml`, `release.yml`, `pages.yml`) for multi-platform builds and static release portal deployment.
 
@@ -72,15 +72,15 @@ flowchart LR
 
 ---
 
-## 6. Phase 4 — Shared Feed Automation, Live Account Telemetry & Extensibility
+## 6. Phase 4 — Live TWS Telemetry, Cobalt V2 Overhaul & Hardening
 
-**Status: Shipped & Verified in Milestones 4, 5, 6 & 7**
+**Status: Shipped & Verified (Cobalt V2 Overhaul)**
 
-1. **Telemetry & Risk Breaker HUD:** Real-time equity, daily PnL, loss limit, circuit breaker state, and heartbeat displayed in Cockpit and `/monitoring`.
-2. **Bilingual Parity:** 100% symmetric key coverage across English and French in `translations.ts` with authentic Cobalt methodology lexicon.
-3. **Static Release Portal:** Minimalist static site built into `site/dist/` with zero markdown sprawl and verified SHA-256 hashes.
-4. **Live IBKR Paper Gate:** Verified live socket handshake and dry-run safety against local TWS on `127.0.0.1:7497` (account `DUO185814`).
-5. **E2E & Adversarial Hardening:** 100% pass across 607 opaque-box tests covering all 55 features with zero race conditions.
+1. **Live TWS Telemetry & `positions-detenues` Holdings Sync:** Dynamic account capture (`ManagedAccounts`), `AccountSummary`/`UpdateAccountValue` (`USD`/`CAD`/`BASE`), `Position`/`UpdatePortfolio`/`OpenOrder`/`OrderStatus`/`Pnl`, structured `BrokerAlerts` (`10089`/`504`), empty-seeded `positions-detenues` synced from `pos != 0` holdings, and race-hardened `third_party/ibapi`.
+2. **Cockpit Stack, 4-Panel Monitoring & 3-Pane Strategy Workbench:** Locked HUD strip, pinned/reorderable Strategy Stack + `>= 78%` `SlideToArm`, 4-panel `/monitoring`, zero-scroll 3-pane `/strategy` workbench (`ActionFilter` validation), collapsible `Sidebar`, dark `<select>`, `F1`/`?` `HelpDrawer`, 3-track `OnboardingTour`, and `/manual`.
+3. **Cobalt Brand & Wayland Packaging:** `cobalt_brand_and_ui_guide.md`, unified Cobalt emblem (`favicon.svg`, `appicon.png`, `icon.ico`, `site/favicon.svg`), Wayland `ApplicationID: ca.boostao.tws_traderbot`, `.desktop`/`hicolor` install in `Taskfile.yml`, and `site/dist/`.
+4. **Bilingual Parity & Live IBKR Paper Gate:** `928` symmetric EN/FR keys in `translations.ts`, and read-only live socket telemetry + dry-run verification against `127.0.0.1:7497` (`DUO185814`) passing under `-race`.
+5. **E2E, UI & Packaging Verification:** Full Go `-race` suite (backend + Tier 1–5 E2E), Playwright UI verification (`verify_v2_ui.mjs`), and Python packaging/hygiene/lockstep/i18n unit tests passing with zero failures.
 
 ---
 

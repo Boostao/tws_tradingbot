@@ -129,3 +129,21 @@ func (sg *SessionGate) CanExecuteOrder(orderType string, t time.Time) (bool, str
 
 	return true, "OK"
 }
+
+// FormatSessionStatus returns an operator-friendly NY/Toronto Eastern Time session label.
+func (sg *SessionGate) FormatSessionStatus(t time.Time) string {
+	et := sg.InET(t)
+	sess := sg.GetSession(t)
+	ts := et.Format("15:04")
+
+	switch sess {
+	case SessionRTH:
+		return fmt.Sprintf("NY/Toronto RTH (%s ET)", ts)
+	case SessionPreETH:
+		return fmt.Sprintf("NY/Toronto Pre-ETH (%s ET)", ts)
+	case SessionPostETH:
+		return fmt.Sprintf("NY/Toronto Post-ETH (%s ET)", ts)
+	default:
+		return fmt.Sprintf("NY/Toronto CLOSED (%s ET)", ts)
+	}
+}

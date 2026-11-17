@@ -12,30 +12,30 @@
 ```mermaid
 flowchart TB
     subgraph UI["Svelte 5 WebView (frontend/src/)"]
-        Layout["+layout.svelte<br/>Sidebar + i18n (en/fr)"]
+        Layout["+layout.svelte + Sidebar<br/>HelpDrawer (F1/?) · OnboardingTour · i18n (en/fr)"]
         Routes["Routes:<br/>/cockpit · /watchlist · /strategy<br/>/monitoring · /manual · / (redirect)"]
         ApiTS["lib/api.ts + stores/runtime.ts<br/>Native Wails v3 IPC &amp; Events.On"]
     end
 
     subgraph IPC["Wails v3 Runtime Bridge"]
         Bindings["frontend/bindings/tws_traderbot/app.js<br/>($Call.ByID)"]
-        Events["@wailsio/runtime Events<br/>pulse_tick · matrix_update<br/>ledger_entry · state_update"]
+        Events["@wailsio/runtime Events<br/>pulse_tick · matrix_update · broker_alert<br/>positions_synced · ledger_entry · state_update"]
     end
 
     subgraph AppSvc["Go Wails Service (package main)"]
-        Main["main.go<br/>application.New + RegisterService"]
-        AppCore["app.go · app_config.go · app_watchlist.go<br/>app_strategy.go · app_diagnostics.go<br/>32 Exported App Methods"]
+        Main["main.go<br/>application.New (1440x900) · Wayland AppID"]
+        AppCore["app.go · app_config.go · app_watchlist.go<br/>app_strategy.go · app_diagnostics.go<br/>41 Exported Wails IPC Methods (42 Go Methods)"]
     end
 
     subgraph Backend["Go Backend Packages (backend/)"]
-        DB["backend/db<br/>modernc.org/sqlite<br/>watchlists · strategies · trade_ledger · config"]
+        DB["backend/db<br/>modernc.org/sqlite (MaxOpenConns=1)<br/>watchlists · strategies · trade_ledger · config"]
         Bot["backend/bot<br/>Engine (9 Gates) · IBKRClient · IBWrapper<br/>Resolver · SessionGate · Sizing &amp; Brackets"]
         Strat["backend/strategy<br/>BarFrameBundle (9 TFs) · Memoized Indicators<br/>Evaluator (7 Conditions) · 20 Cobalt Presets"]
-        Models["backend/models<br/>Symbol · Watchlist · Strategy · Cockpit · Ledger"]
+        Models["backend/models<br/>Symbol · Watchlist · Strategy · Cockpit · Runtime · Diagnostics"]
     end
 
     subgraph External["External Systems"]
-        TWS["Interactive Brokers TWS / Gateway<br/>127.0.0.1:7497 (TCP Socket)"]
+        TWS["Interactive Brokers TWS / Gateway<br/>127.0.0.1:7497 (TCP Socket · third_party/ibapi)"]
         TV["TradingView Shared Watchlist<br/>HTTP GET HTML init-data"]
     end
 
@@ -64,45 +64,46 @@ flowchart TB
 
 ### 2.1 Bootstrap & Service Lifecycle ([`main.go`](../../main.go), [`app.go`](../../app.go))
 
-1. [`main.go`](../../main.go) embeds the compiled SvelteKit output (`//go:embed all:frontend/dist`), instantiates `application.New(...)` with `application.AssetFileServerFS(assets)`, registers `NewApp(app)` via `app.RegisterService(application.NewService(svc))`, opens a `1024x768` `WebviewWindow`, and calls `app.Run()`.
-2. `NewApp` opens `tws_traderbot.sqlite` via `db.Connect`, executes `InitSchema()` creating relational tables (`watchlists`, `watchlist_items`, `strategies`, `trade_ledger`, `system_config`), seeds 5 official Cobalt watchlists and 20 strategy presets, initializes `bot.NewEngine()`, attaches the DB to `Engine.AttachDB()`, and wires `bot.NewIBKRClient(engine)`.
-3. `App.ServiceStartup(ctx, options)` attaches the `application.App` reference (`a.engine.AttachApp(a.app)`), loads `tws_connection` from `system_config` (seeding defaults `host: "127.0.0.1"`, `port: 7497`, `client_id: 1` if missing), and launches a background goroutine calling `a.ibkrClient.Connect(host, port, clientID)`.
+1. [`main.go`](../../main.go) embeds the compiled SvelteKit output (`//go:embed all:frontend/dist`) and Cobalt raster icon (`//go:embed build/appicon.png`), instantiates `application.New(...)` with `Linux: application.LinuxOptions{ApplicationID: "ca.boostao.tws_traderbot", ProgramName: "ca.boostao.tws_traderbot"}`, registers `NewApp(app)` via `app.RegisterService(application.NewService(svc))`, opens a `1440x900` (`MinWidth: 1024`, `MinHeight: 700`) `WebviewWindow` titled `"Cobalt — Poste de pilotage TWS"`, and calls `app.Run()`.
+2. `NewApp` opens `tws_traderbot.sqlite` via `db.Connect` (`SetMaxOpenConns(1)`, WAL mode, foreign keys ON), executes `InitSchema()` creating relational tables (`watchlists`, `watchlist_items`, `strategies`, `trade_ledger`, `system_config`), runs idempotent migrations (`migrateStrategiesTable()`, `migrateLegacyCobaltV2Data()`), seeds 5 official Cobalt watchlists (with empty `positions-detenues`) and 20 strategy presets, initializes `bot.NewEngine()`, attaches the DB to `Engine.AttachDB()`, and wires `bot.NewIBKRClient(engine)`.
+3. `App.ServiceStartup(ctx, options)` attaches the `application.App` reference (`a.engine.AttachApp(a.app)`), hydrates config and `CockpitState` / active strategy onto `Engine`, loads `tws_connection` from `system_config` (falling back to `config.ib`, defaults `127.0.0.1:7497`, `client_id: 1`), launches `a.ibkrClient.Connect(host, port, clientID)` asynchronously, and starts a `1s` `state_update`/`pulse_tick` telemetry ticker.
 
-### 2.2 Exported Wails v3 Methods ([`frontend/bindings/tws_traderbot/app.js`](../../frontend/bindings/tws_traderbot/app.js))
+### 2.2 Exported Wails v3 Methods ([`frontend/bindings/tws_traderbot/app.js`](../../frontend/bindings/tws_traderbot/app.js) — 41 IPC Functions / 42 Go `*App` Methods)
 
 | Domain | Method | Source File | Responsibility |
 |---|---|---|---|
 | **TWS Connection** | `GetTWSConnection()` | [`app.go`](../../app.go) | Load `tws_connection` JSON map from `system_config` |
-| **TWS Connection** | `UpdateTWSConnection(host, port, clientID)` | [`app.go`](../../app.go) | Persist `tws_connection`, disconnect, and reconnect `ibkrClient` |
+| **TWS Connection** | `UpdateTWSConnection(host, port, clientID)` | [`app.go`](../../app.go) | Persist `tws_connection` & `config.ib`, disconnect, and reconnect `ibkrClient` |
 | **TWS Connection** | `ConnectTws(host, port, clientID)` | [`app.go`](../../app.go) | Wrapper returning `{"status": "ok" \| "error"}` |
 | **TWS Connection** | `DisconnectTws()` | [`app.go`](../../app.go) | Disconnect `ibkrClient` socket |
-| **Runtime & Safety** | `GetRuntimeState()` | [`app.go`](../../app.go) | Return `*models.BotState` (`{running}`) |
-| **Runtime & Safety** | `StartBot()` | [`app.go`](../../app.go) | Call `a.engine.StartBot(&models.Strategy{})` |
+| **Runtime & Safety** | `GetRuntimeState()` | [`app.go`](../../app.go) | Return full `*models.BotState` (live equity, cash USD/CAD/BASE, positions, orders, alerts, strategy) |
+| **Runtime & Safety** | `StartBot()` | [`app.go`](../../app.go) | Start `Engine` with active/resolved strategy |
 | **Runtime & Safety** | `StopBot()` | [`app.go`](../../app.go) | Call `a.engine.StopBot()` |
-| **Runtime & Safety** | `FailsafeStop()` | [`app.go`](../../app.go) | Stop engine and disconnect TWS socket |
-| **Runtime & Safety** | `ResetCircuitBreaker()` | [`app.go`](../../app.go) | Reset automated daily loss risk breaker |
-| **Runtime & Safety** | `DryRunBot()` | [`app.go`](../../app.go) | Trigger dry-run preflight evaluation |
-| **System Config** | `GetConfig()` / `UpdateConfig(update)` | [`app_config.go`](../../app_config.go) | Read/merge-write `system_config['config']` |
-| **Cockpit State** | `GetCockpitState()` / `UpdateCockpitState(update)` | [`app.go`](../../app.go) | Load/seed/save relational cockpit state with 1/1 strategy slot concurrency |
+| **Runtime & Safety** | `FailsafeStop()` | [`app.go`](../../app.go) | Persist `GlobalEnabled=false`, stop engine, and disconnect TWS socket |
+| **Runtime & Safety** | `ResetCircuitBreaker()` | [`app_diagnostics.go`](../../app_diagnostics.go) | Reset automated daily loss risk breaker (guarding against active breach) |
+| **Runtime & Safety** | `DryRunBot()` | [`app_diagnostics.go`](../../app_diagnostics.go) | Evaluate active workspace, strategy, and watchlist against `BarFrameBundle` without live orders |
+| **System Config** | `GetConfig()` / `UpdateConfig(update)` | [`app_config.go`](../../app_config.go) | Read/deep-merge `system_config['config']` & sync `ib.*` back to `tws_connection` |
+| **Cockpit State** | `GetCockpitState()` / `UpdateCockpitState(update)` | [`app.go`](../../app.go) | Load/seed/save relational cockpit state with `1/1` concurrency & breaker clamping |
 | **Watchlists** | `GetWatchlists()` | [`app_watchlist.go`](../../app_watchlist.go) | Return summaries for all stored watchlists |
-| **Watchlists** | `GetWatchlistById(id)` | [`app_watchlist.go`](../../app_watchlist.go) | Return full relational watchlist by ID |
+| **Watchlists** | `GetWatchlist()` / `GetWatchlistById(id)` | [`app_watchlist.go`](../../app_watchlist.go) | Return default watchlist or full relational watchlist by ID |
 | **Watchlists** | `SaveWatchlist(wl)` | [`app_watchlist.go`](../../app_watchlist.go) | Persist complete watchlist and its normalized child items |
-| **Watchlists** | `ReplaceWatchlist(req)` | [`app_watchlist.go`](../../app_watchlist.go) | Atomically swap active watchlist binding |
+| **Watchlists** | `ReplaceWatchlist(req)` | [`app_watchlist.go`](../../app_watchlist.go) | Atomically swap watchlist groups/items while preserving title & feed URL |
 | **Watchlists** | `RefreshWatchlistFeed(id)` | [`app_watchlist.go`](../../app_watchlist.go) | Re-fetch feed with smart diff/merge preserving operator overrides |
-| **Watchlists** | `ImportTradingViewWatchlist(url)` | [`app_watchlist.go`](../../app_watchlist.go) | Fetch HTML, extract `application/prs.init-data+json`, normalize to SYMBOL.VENUE |
-| **Watchlists** | `ImportWatchlistFile()` / `ExportWatchlistFile(id)` | [`app_watchlist.go`](../../app_watchlist.go) | Native OS open/save JSON file dialogs for `WatchlistResponse` |
+| **Watchlists** | `ImportTradingViewWatchlist(url, ...targetWatchlistID)` | [`app_watchlist.go`](../../app_watchlist.go) | Fetch HTML, extract `application/prs.init-data+json`, normalize to `SYMBOL.VENUE` |
+| **Watchlists** | `ImportWatchlistFile()` / `ExportWatchlistFile()` | [`app_watchlist.go`](../../app_watchlist.go) | Native OS open/save JSON file dialogs for `WatchlistResponse` |
 | **Watchlists** | `AddWatchlistSymbol(symbol)` / `RemoveWatchlistSymbol(symbol)` | [`app_watchlist.go`](../../app_watchlist.go) | Add normalized item or remove across watchlist |
-| **Strategy Library** | `GetStrategyLibrary()` | [`app_strategy.go`](../../app_strategy.go) | Return all strategy presets from `strategies` table |
+| **Strategy Library** | `GetStrategyLibrary()` | [`app_strategy.go`](../../app_strategy.go) | Return all strategy presets ordered by `(pinned DESC, sort_order ASC, name ASC)` |
 | **Strategy Library** | `GetStrategyPreset(id)` | [`app_strategy.go`](../../app_strategy.go) | Retrieve specific strategy preset by ID |
-| **Strategy Library** | `SaveStrategyPreset(strat)` | [`app_strategy.go`](../../app_strategy.go) | Create or update strategy preset in library |
-| **Strategy Library** | `DeleteStrategyPreset(id)` | [`app_strategy.go`](../../app_strategy.go) | Delete non-core strategy preset from library |
-| **Strategy Library** | `ApplyStrategyPreset(ws, slot, stratID)` | [`app_strategy.go`](../../app_strategy.go) | Bind preset to workspace slot with 1/1 concurrency check |
-| **Strategy Library** | `ValidateStrategy(strat)` | [`app_strategy.go`](../../app_strategy.go) | Validate condition structure, indicator periods, and timeframes |
+| **Strategy Library** | `SaveStrategyPreset(strat)` | [`app_strategy.go`](../../app_strategy.go) | Save/update strategy preset (preserving `pinned`/`sort_order` & refreshing active engine strategy) |
+| **Strategy Library** | `ToggleStrategyPin(id)` / `MoveStrategyOrder(id, direction)` | [`app_strategy.go`](../../app_strategy.go) | Persist stack pin toggle and intra-group `up`/`down` ordering |
+| **Strategy Library** | `DeleteStrategyPreset(id)` | [`app_strategy.go`](../../app_strategy.go) | Delete strategy preset from library |
+| **Strategy Library** | `ApplyStrategyPreset(ws, slot, stratID)` | [`app_strategy.go`](../../app_strategy.go) | Bind preset to workspace slot with `1/1` concurrency check |
+| **Strategy Library** | `ValidateStrategy(strat)` | [`app_strategy.go`](../../app_strategy.go) | Validate rule names, supported condition types, `IndicatorA`, and `buy`/`sell`/`filter` actions |
 | **Active Strategy** | `GetStrategy()` / `UpdateStrategy(update)` | [`app_config.go`](../../app_config.go) | Persist `system_config['strategy']` & hot-reload `engine.ActiveStrategy` |
 | **Strategy Files** | `ImportStrategyFile()` / `ExportStrategyFile(strategy)` | [`app_config.go`](../../app_config.go) | Native OS open/save JSON file dialogs via `a.app.Dialog` |
-| **Diagnostics** | `GetDiagnostics()` | [`app_diagnostics.go`](../../app_diagnostics.go) | Return connection telemetry, broker account, PnL, and breaker status |
-| **Diagnostics** | `GetRecentTrades(limit)` | [`app_diagnostics.go`](../../app_diagnostics.go) | Return historical execution records from `trade_ledger` |
-| **Diagnostics** | `GetSymbols()` | [`app_diagnostics.go`](../../app_diagnostics.go) | Return all subscribed symbols across active watchlists |
+| **Diagnostics** | `GetDiagnostics()` | [`app_diagnostics.go`](../../app_diagnostics.go) | Return clean connection, runtime, `NY/Toronto` session status, and `BrokerAlerts` |
+| **Diagnostics** | `GetRecentTrades()` | [`app_diagnostics.go`](../../app_diagnostics.go) | Return last 50 execution records from `trade_ledger` |
+| **Diagnostics** | `GetSymbols(query)` | [`app_watchlist.go`](../../app_watchlist.go) | Query matching symbols from SQLite `watchlist_items` |
 | **Utility** | `Greet(name)` | [`app.go`](../../app.go) | Template diagnostic greeting |
 
 ---
@@ -115,37 +116,40 @@ flowchart TB
 CREATE TABLE IF NOT EXISTS watchlists (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
+    description TEXT DEFAULT '',
     is_default BOOLEAN DEFAULT FALSE,
-    feed JSON,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    source TEXT DEFAULT 'manual',
+    feed_url TEXT DEFAULT '',
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS watchlist_items (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     watchlist_id TEXT NOT NULL,
-    group_id TEXT,
-    group_name TEXT,
+    group_id TEXT DEFAULT 'default',
+    group_name TEXT DEFAULT 'Default',
     symbol TEXT NOT NULL,
-    exchange TEXT,
-    venue TEXT,
+    exchange TEXT NOT NULL,
+    venue TEXT DEFAULT 'SMART',
     instrument_id TEXT NOT NULL,
-    name TEXT,
+    name TEXT DEFAULT '',
     enabled BOOLEAN DEFAULT TRUE,
-    tier TEXT DEFAULT '',
+    tier TEXT DEFAULT '2-Croissance',
     is_orderable BOOLEAN DEFAULT TRUE,
     is_regime_reference BOOLEAN DEFAULT FALSE,
     is_holding BOOLEAN DEFAULT FALSE,
     size_mode TEXT DEFAULT 'shares',
-    size_value REAL DEFAULT 100,
-    size_val REAL DEFAULT 100,
-    FOREIGN KEY(watchlist_id) REFERENCES watchlists(id) ON DELETE CASCADE,
+    size_value REAL DEFAULT 100.0,
+    size_val REAL DEFAULT 100.0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (watchlist_id) REFERENCES watchlists(id) ON DELETE CASCADE,
     UNIQUE(watchlist_id, instrument_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_watchlist_items_wid ON watchlist_items(watchlist_id);
 CREATE INDEX IF NOT EXISTS idx_watchlist_items_inst ON watchlist_items(instrument_id);
-CREATE INDEX IF NOT EXISTS idx_watchlist_items_enabled ON watchlist_items(enabled);
+CREATE INDEX IF NOT EXISTS idx_watchlist_items_enabled ON watchlist_items(watchlist_id, enabled);
 CREATE INDEX IF NOT EXISTS idx_watchlist_items_orderable ON watchlist_items(is_orderable);
 CREATE INDEX IF NOT EXISTS idx_watchlist_items_tier ON watchlist_items(tier);
 
@@ -157,8 +161,10 @@ CREATE TABLE IF NOT EXISTS system_config (
 CREATE TABLE IF NOT EXISTS strategies (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
-    summary TEXT,
-    data JSON NOT NULL,
+    summary JSON,
+    data JSON,
+    pinned BOOLEAN NOT NULL DEFAULT 0,
+    sort_order INTEGER NOT NULL DEFAULT 0,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -170,7 +176,7 @@ CREATE TABLE IF NOT EXISTS trade_ledger (
     quantity INTEGER NOT NULL,
     price REAL NOT NULL,
     status TEXT NOT NULL,
-    oca_group TEXT,
+    oca_group TEXT DEFAULT '',
     mode TEXT NOT NULL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
@@ -179,22 +185,22 @@ CREATE INDEX IF NOT EXISTS idx_trade_ledger_symbol ON trade_ledger(symbol);
 CREATE INDEX IF NOT EXISTS idx_trade_ledger_mode ON trade_ledger(mode);
 ```
 
-- **Relational Watchlist & Strategy Store:** All watchlist entries, groups, and items are stored relationally with cascading deletion and multi-column indexes. Official Cobalt lists and 20 strategy presets are automatically seeded at bootstrap.
-- **System Config & Ledger:** Global runtime settings (`tws_connection`, sidebar config, active strategy) are managed via `system_config`, while all executed orders and dry-run fills are auditable via `trade_ledger`.
+- **Relational Watchlist & Strategy Store:** All watchlist entries, groups, and items are stored relationally with cascading deletion and multi-column indexes. `db.Connect` configures `SetMaxOpenConns(1)` / `SetMaxIdleConns(1)` with `WAL` + `busy_timeout(5000)` + `foreign_keys(1)` to avoid `SQLITE_BUSY` on concurrent writes. `InitSchema()` runs `migrateStrategiesTable()` (`pinned`/`sort_order` on legacy DBs) and `migrateLegacyCobaltV2Data()` (purging legacy seeded `AAPL.NASDAQ`/`SHOP.TSX` from `positions-detenues`).
+- **System Config & Ledger:** Global runtime settings (`tws_connection`, `config`, `strategy`, `cockpit_state`, `migration_cobalt_v2_clean_holdings`) live in `system_config`, while all executed orders and dry-run fills are auditable via `trade_ledger`.
 
 ---
 
 ## 4. Domain Models (`backend/models/`)
 
-- [`symbol.go`](../../backend/models/symbol.go): Classification enums `OrderableEquity`, `RegimeReference`, `Untradeable`; normalization functions `ParseInstrumentID` and `NormalizeSymbolVenue`.
+- [`symbol.go`](../../backend/models/symbol.go): `NormalizedSymbol`, `ClassifySymbol`, `HasExchangeSuffix`, and `NormalizeSymbol` (`SYMBOL.VENUE` qualification and orderable vs. regime classification).
 - [`watchlist.go`](../../backend/models/watchlist.go): `WatchlistSummary`, `WatchlistResponse`, `WatchlistGroup`, `WatchlistItem` (with `Tier`, `IsOrderable`, `IsRegimeReference`, `IsHolding`, `SizeMode`, `SizeValue`).
-- [`cockpit.go`](../../backend/models/cockpit.go): `CockpitStateResponse`, `CockpitWorkspace` (`Achat`, `Short`, `Swing`), `CockpitStrategySlot` (enforcing strict `1/1` active slot concurrency).
+- [`cockpit.go`](../../backend/models/cockpit.go): `CockpitStateResponse`, `CockpitWorkspace` (`Achat`, `Short`, `Swing`), `CockpitStrategySlot` (strict `1/1` active slot concurrency), and `CockpitStrategySummary` (`Pinned`, `SortOrder`).
 - [`strategy.go`](../../backend/models/strategy.go):
   - 9 Timeframes: `1m`, `5m`, `15m`, `30m`, `1h`, `4h`, `1d`, `1w`, `1M`.
-  - 11+ Indicators: HA, RVOL, OBV, MACD, RSI, BB, Stoch, Alligator, Guppy, ATR, RS vs SPX.
-  - 7 Condition Types: `cross_above`, `cross_below`, `greater_than`, `less_than`, `slope_above`, `slope_below`, `within_range`.
-  - Position Sizing Modes: `shares`, `notional`, `percent`.
-- [`diagnostics.go`](../../backend/models/diagnostics.go): `DiagnosticsResponse` (`TradingMode`, `IBHost`, `IBPort`, `ClientID`, `Account`, `BreakerStatus`, `DailyPnL`, `DailyLossLimit`).
+  - 22 `IndicatorType` definitions (`price`..`ml_signal`, with `ml_signal` retained only as a legacy compatibility fallback).
+  - Condition Types: `cross_above`, `crosses_above`, `cross_below`, `crosses_below`, `greater_than`, `less_than`, `slope_above`, `slope_below`, `within_range`; `ActionBuy`, `ActionSell`, `ActionFilter`; `ValidateStrategy` enforcing condition type & `IndicatorA`.
+  - Position Sizing Modes: `shares`, `dollar` / `notional`, `percent`.
+- [`runtime.go`](../../backend/models/runtime.go) & [`diagnostics.go`](../../backend/models/diagnostics.go): `BrokerPosition`, `BrokerOrder`, `BrokerAlert`, `BotState` (`account_id`, `dry_run`, `equity` `0` when unreported, `buying_power`, `cash_usd`, `cash_cad`, `cash_base`, `realized_pnl`, `unrealized_pnl`, `session_status`, `open_positions`, `open_orders`, `broker_alerts`), `BotDryRun`, and de-noised `DiagnosticsResponse`.
 - [`ledger.go`](../../backend/models/ledger.go): `TradeRecord` (`OrderID`, `Symbol`, `Action`, `Quantity`, `Price`, `Status`, `OCAGroup`, `Mode`, `CreatedAt`).
 
 ---
@@ -262,20 +268,27 @@ sequenceDiagram
   - Multi-venue contract resolution for US (`SMART/USD`) and Canadian (`SMART/CAD` with TSE/VENTURE/PURE) instruments; dot-class normalization (`BRK B`, `CTC A`).
 - **[`order.go`](../../backend/bot/order.go):**
   - Atomic thread-safe `NextValidID` sequencing; OCA child bracket order creation (`MKT` parent + OCA `LMT` + OCA `STP`).
+- **[`ibkr.go`](../../backend/bot/ibkr.go) & `third_party/ibapi`:**
+  - `IBWrapper` implements live TWS telemetry ingestion (`ConnectAck`, `ConnectionClosed`, `ManagedAccounts` dynamic account capture, `AccountSummary`, `UpdateAccountValue` native `USD`/`CAD`/`BASE` cash, `Position`, `PositionEnd` $\rightarrow$ `SyncLivePositionsToDB`, `UpdatePortfolio`, `OpenOrder`, `OpenOrderEnd`, `OrderStatus`, `Pnl`, and `BuildBrokerAlert` for `10089`/`504`/`502`/`1100`–`1102`) using race-hardened `third_party/ibapi@v0.10.50` (`watchDone`/atomic `IsConnected()`).
 - **[`session.go`](../../backend/bot/session.go):**
-  - Market session classification (RTH, Pre-ETH, Post-ETH, Closed) enforcing session-safe order routing.
+  - NY/Toronto Eastern Time market session classification (`RTH`, `Pre-ETH`, `Post-ETH`, `CLOSED`) and `FormatSessionStatus`, enforcing session-safe order routing.
 
 ---
 
 ## 7. Frontend Cockpit, Routes & i18n (`frontend/src/`)
 
-[`frontend/svelte.config.js`](../../frontend/svelte.config.js) compiles Svelte 5 with `runes: false` and `@sveltejs/adapter-static` (`fallback: 'index.html'`, output `frontend/dist/`).
+[`frontend/svelte.config.js`](../../frontend/svelte.config.js) compiles Svelte 5 with `compilerOptions: { runes: false }` and `@sveltejs/adapter-static` (`fallback: 'index.html'`, output `frontend/dist/`).
 
 - **Clean-Break Wails v3 IPC ([`lib/api.ts`](../../frontend/src/lib/api.ts)):**
   - 100% native IPC bindings through `$Call.ByID` without legacy REST stubs or `(window as any).go` shims.
+- **Cobalt Brand Shell, Sidebar & Global Overlays ([`cobalt_brand_and_ui_guide.md`](./cobalt_brand_and_ui_guide.md)):**
+  - [`Sidebar.svelte`](../../frontend/src/lib/components/Sidebar.svelte): Cobalt geometric emblem, single authoritative `status-badge`, and collapsible Broker & Risk sections with 1-line summary chips; global dark `<select>`/`<option>` styling in [`app.css`](../../frontend/src/app.css).
+  - [`HelpDrawer.svelte`](../../frontend/src/lib/components/HelpDrawer.svelte) (`F1`/`?`) & 3-track [`OnboardingTour.svelte`](../../frontend/src/lib/components/OnboardingTour.svelte) (`localStorage`-persisted `cobalt_onboarding_state`).
 - **Operator Cockpit ([`routes/cockpit/+page.svelte`](../../frontend/src/routes/cockpit/+page.svelte)):**
-  - High-density single-page F1 cockpit with 3 workspaces (`Achat`, `Short`, `Swing`), strict `1/1` active strategy slot concurrency, 1-click strategy and watchlist swapping, telemetry and circuit breaker HUD, and Uni Noir single-line ticker rows displaying normalized venue, Cobalt tier, `$$$$` holding badge, and inline sizing controls.
-- **Watchlist & Strategy Views:**
-  - Full relational watchlist library management (`/watchlist`) and preset library editor (`/strategy`).
+  - Locked `.cockpit-shell` (`auto auto minmax(0, 1fr)`) & compact single-bar `.cockpit-hud-strip`, 3 workspaces (`Achat`, `Short`, `Swing`), `1/1` Active Strategy Card + `(pinned DESC, sort_order ASC)` Strategy Stack (`📌`, `↑`/`↓`, `>= 78%` [`SlideToArm.svelte`](../../frontend/src/lib/components/SlideToArm.svelte)), watchlist pills, and Uni Noir single-line ticker rows (`SYMBOL`, `VENUE`, tier, `$$$$` holding badge, `#`/`$`/`%` sizing, suspend toggle).
+- **Monitoring, Strategy Workbench, Watchlist & Manual Views:**
+  - [`routes/monitoring/+page.svelte`](../../frontend/src/routes/monitoring/+page.svelte): 4 trader panels (Portfolio & `FXCONV` Currency Readiness, Live Open Positions, Working Orders & Dry-Run Scanner, Execution & Session/Alert Ledger).
+  - [`routes/strategy/+page.svelte`](../../frontend/src/routes/strategy/+page.svelte): Zero-scroll 3-pane workbench (Preset Stack, `Filtres Macro → Entrées → Sorties` pipeline, 2-col Rule Inspector, slide-over JSON drawer).
+  - [`routes/watchlist/+page.svelte`](../../frontend/src/routes/watchlist/+page.svelte) (with live `$$$$` holdings view) & [`routes/manual/+page.svelte`](../../frontend/src/routes/manual/+page.svelte) (Cobalt Operator Manual + 1-click tour launchers).
 - **Bilingual i18n Parity ([`lib/i18n/translations.ts`](../../frontend/src/lib/i18n/translations.ts)):**
-  - 100% key parity between English and French with authentic Cobalt methodology lexicon and zero developer jargon.
+  - 100% key parity (`928` symmetric EN/FR keys) with reactive live switching (`$language`) preserving unsaved route state.

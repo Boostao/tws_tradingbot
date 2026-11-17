@@ -7,6 +7,16 @@ import (
 	"tws_traderbot/backend/models"
 )
 
+var easternLoc = loadEasternLocation()
+
+func loadEasternLocation() *time.Location {
+	loc, err := time.LoadLocation("America/New_York")
+	if err != nil {
+		return time.FixedZone("EST", -5*3600)
+	}
+	return loc
+}
+
 // -----------------------------------------------------------------------------
 // 1. Backward-Compatible Flat Map Evaluator (Feature 34)
 // -----------------------------------------------------------------------------
@@ -21,7 +31,7 @@ func EvaluateConditions(c *models.Condition, data map[string][]float64) bool {
 		if c.IndicatorB != nil {
 			return false
 		}
-		return WithinRange(time.Now().Format("15:04"), c.RangeStart, c.RangeEnd)
+		return WithinRange(time.Now().In(easternLoc).Format("15:04"), c.RangeStart, c.RangeEnd)
 	}
 	if len(data) == 0 {
 		return false
@@ -137,7 +147,7 @@ func EvaluateConditions(c *models.Condition, data map[string][]float64) bool {
 			return false
 		}
 		if c.RangeStart != "" && c.RangeEnd != "" {
-			return WithinRange(time.Now().Format("15:04"), c.RangeStart, c.RangeEnd)
+			return WithinRange(time.Now().In(easternLoc).Format("15:04"), c.RangeStart, c.RangeEnd)
 		}
 		a, okA := data["indicatorA"]
 		if okA && len(a) > 0 {
@@ -164,10 +174,18 @@ func ResolveIndicatorSeries(bundle *BarFrameBundle, symbol string, ind *models.I
 	targetSymbol := symbol
 	if ind.Symbol != nil && *ind.Symbol != "" {
 		targetSymbol = *ind.Symbol
+	} else if ind.Type == models.IndicatorVIX {
+		targetSymbol = "VIX"
 	}
 
 	tf := ind.GetTimeframe(defaultTf)
 	frame := bundle.GetFrame(targetSymbol, tf)
+	if (frame == nil || frame.Len() == 0) && ind.Type == models.IndicatorVIX && (ind.Symbol == nil || *ind.Symbol == "") {
+		if alt := bundle.GetFrame("VIX.TVC", tf); alt != nil && alt.Len() > 0 {
+			targetSymbol = "VIX.TVC"
+			frame = alt
+		}
+	}
 	if frame == nil || frame.Len() == 0 {
 		return nil
 	}
@@ -396,7 +414,7 @@ func EvaluateRule(rule *models.Rule, bundle *BarFrameBundle, symbol string, now 
 
 	// Special case: Time-of-day condition without market data
 	if cond.Type == models.ConditionWithin && cond.RangeStart != "" && cond.RangeEnd != "" {
-		timeStr := now.Format("15:04")
+		timeStr := now.In(easternLoc).Format("15:04")
 		return WithinRange(timeStr, cond.RangeStart, cond.RangeEnd)
 	}
 
@@ -501,7 +519,7 @@ func EvaluateRules(strat *models.Strategy, bundle *BarFrameBundle, symbol string
 			continue
 		}
 
-		if (rule.Scope == models.ScopeSymbol || rule.Scope == models.ScopePerTicker) && rule.Name != symbol {
+		if rule.Scope == models.ScopeSymbol && rule.Name != symbol {
 			continue
 		}
 

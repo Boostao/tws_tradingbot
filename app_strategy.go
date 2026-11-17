@@ -49,6 +49,14 @@ func (a *App) SaveStrategyPreset(strat *models.Strategy) (*models.CockpitStrateg
 		return nil, fmt.Errorf("failed to save preset: %w", err)
 	}
 
+	if a.engine != nil {
+		active := a.engine.GetActiveStrategy()
+		_, selectedID, _ := a.engine.ResolveSelectedStrategy(nil)
+		if (active != nil && active.ID == strat.ID) || selectedID == strat.ID {
+			a.engine.SetActiveStrategy(strat)
+		}
+	}
+
 	return summary, nil
 }
 
@@ -59,6 +67,9 @@ func (a *App) GetStrategyPreset(id string) (*models.Strategy, error) {
 
 // ApplyStrategyPreset binds a strategy preset to a workspace slot and updates active engine
 func (a *App) ApplyStrategyPreset(workspaceId string, slotId string, strategyId string) error {
+	a.cockpitMu.Lock()
+	defer a.cockpitMu.Unlock()
+
 	strat, err := a.db.LoadStrategyPreset(strategyId)
 	if err != nil {
 		return fmt.Errorf("preset %s not found: %w", strategyId, err)
@@ -117,14 +128,36 @@ func (a *App) ApplyStrategyPreset(workspaceId string, slotId string, strategyId 
 
 	_ = a.db.SaveCockpitState(state)
 
-	// Hot reload in Engine
+	// Hot reload in Engine (respect global_enabled & circuit breaker)
 	if a.engine != nil {
 		a.engine.SetCockpitState(state)
-		a.engine.StopBot()
-		_ = a.engine.StartBot(strat)
+		a.engine.SetActiveStrategy(strat)
+		if state.GlobalEnabled && !a.engine.RiskBreakerTripped.Load() {
+			a.engine.StopBot()
+			_ = a.engine.StartBot(strat)
+		} else {
+			a.engine.StopBot()
+		}
+		a.engine.RecordRuntimeReload("strategy_applied")
 	}
 
 	return nil
+}
+
+// ToggleStrategyPin toggles the pinned status of a strategy preset and returns the sorted library.
+func (a *App) ToggleStrategyPin(id string) ([]models.CockpitStrategySummary, error) {
+	if err := a.db.ToggleStrategyPin(id); err != nil {
+		return nil, err
+	}
+	return a.GetStrategyLibrary()
+}
+
+// MoveStrategyOrder moves a strategy up or down within its pinned group and returns the sorted library.
+func (a *App) MoveStrategyOrder(id string, direction string) ([]models.CockpitStrategySummary, error) {
+	if err := a.db.MoveStrategyOrder(id, direction); err != nil {
+		return nil, err
+	}
+	return a.GetStrategyLibrary()
 }
 
 // DeleteStrategyPreset removes a preset from the database
@@ -134,36 +167,5 @@ func (a *App) DeleteStrategyPreset(id string) error {
 
 // ValidateStrategy performs structural validation on strategy rules and indicators
 func (a *App) ValidateStrategy(strat *models.Strategy) (*models.ValidationResult, error) {
-	var errors []string
-
-	if strat == nil {
-		return &models.ValidationResult{Valid: false, Errors: []string{"strategy is nil"}}, nil
-	}
-	if strat.Name == "" {
-		errors = append(errors, "strategy name is required")
-	}
-	if len(strat.Rules) == 0 {
-		errors = append(errors, "strategy must have at least one rule")
-	}
-
-	for i, rule := range strat.Rules {
-		if rule.Name == "" {
-			errors = append(errors, fmt.Sprintf("rule %d: name is required", i))
-		}
-		if rule.Condition == nil {
-			errors = append(errors, fmt.Sprintf("rule %s: condition is missing", rule.Name))
-			continue
-		}
-		if rule.Condition.Type == "" {
-			errors = append(errors, fmt.Sprintf("rule %s: condition type is missing", rule.Name))
-		}
-		if rule.Action != models.ActionBuy && rule.Action != models.ActionSell {
-			errors = append(errors, fmt.Sprintf("rule %s: invalid action %q", rule.Name, rule.Action))
-		}
-	}
-
-	return &models.ValidationResult{
-		Valid:  len(errors) == 0,
-		Errors: errors,
-	}, nil
+	return models.ValidateStrategy(strat), nil
 }
