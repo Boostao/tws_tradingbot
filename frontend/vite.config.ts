@@ -4,7 +4,8 @@ import { defineConfig } from 'vite';
 export default defineConfig({
         plugins: [sveltekit()],
         server: {
-                allowedHosts: ['cazpe.com'],
+                host: '127.0.0.1',
+                allowedHosts: ['cazpe.com', 'localhost', 'wails.localhost'],
                 fs: {
                         allow: [
                                 '..',

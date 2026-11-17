@@ -23,7 +23,8 @@ tasks:
   build:dev:
     summary: Builds the development Go binary for wails3 dev
     cmds:
-      - mkdir -p {{.BIN_DIR}}
+      - mkdir -p frontend/dist {{.BIN_DIR}}
+      - test -f frontend/dist/index.html || touch frontend/dist/.gitkeep
       - go build -buildvcs=false -o {{.BIN_DIR}}/{{.APP_NAME}} .
     env:
       CGO_ENABLED: "1"
@@ -64,7 +65,8 @@ tasks:
     summary: Runs the Vite frontend dev server for wails3 dev
     dir: frontend
     cmds:
-      - npm run dev -- --port {{.VITE_PORT}} --strictPort
+      - test -d node_modules || npm install
+      - npm run dev -- --host 127.0.0.1 --port {{.VITE_PORT}} --strictPort
 
   generate:bindings:
     summary: Generates TypeScript bindings for the frontend

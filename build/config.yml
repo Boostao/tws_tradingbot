@@ -31,8 +31,6 @@ dev_mode:
       - "*.go"
     git_ignore: true
   executes:
-    - cmd: wails3 task build:frontend
-      type: once
     - cmd: wails3 task build:dev
       type: blocking
     - cmd: wails3 task dev:frontend
