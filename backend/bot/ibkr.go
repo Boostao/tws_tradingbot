@@ -167,8 +167,11 @@ func (w *IBWrapper) ManagedAccounts(accountsList []string) {
 	client := w.client
 	w.mu.Unlock()
 
-	if !alreadySubscribed && client != nil && w.connected != nil && w.connected.Load() {
+	if !alreadySubscribed && client != nil && w.connected != nil && w.connected.Load() && !w.disconnecting.Load() {
 		go func(c *ibapi.EClient, account string, reqID int64) {
+			if w.disconnecting.Load() || !w.connected.Load() || !c.IsConnected() {
+				return
+			}
 			c.ReqPnL(reqID, account, "")
 			c.ReqAccountUpdates(true, account)
 		}(client, acct, pnlReqID)
@@ -388,8 +391,11 @@ func (w *IBWrapper) Error(reqID int64, errTime int64, errCode int64, errString s
 		}
 	}
 
-	if errCode == 1102 && w.client != nil && w.connected != nil && w.connected.Load() {
+	if errCode == 1102 && w.client != nil && w.connected != nil && w.connected.Load() && !w.disconnecting.Load() {
 		go func(c *ibapi.EClient) {
+			if w.disconnecting.Load() || !w.connected.Load() || !c.IsConnected() {
+				return
+			}
 			c.ReqPositions()
 			c.ReqAllOpenOrders()
 		}(w.client)
@@ -567,16 +573,20 @@ func (c *IBKRClient) Connect(host string, port int, clientID int) error {
 		return fmt.Errorf("failed to connect to TWS on %s:%d (clientID: %d): %w", host, port, clientID, err)
 	}
 
-	c.connected.Store(true)
-	time.Sleep(500 * time.Millisecond)
-	c.StartAccountSubscriptions()
-	fmt.Printf("Connected to TWS locally on %s:%d\n", host, port)
+	if c.client.IsConnected() {
+		c.connected.Store(true)
+		time.Sleep(500 * time.Millisecond)
+		c.StartAccountSubscriptions()
+		fmt.Printf("Connected to TWS locally on %s:%d\n", host, port)
+	} else {
+		c.connected.Store(false)
+	}
 	return nil
 }
 
 // StartAccountSubscriptions requests managed accounts, summary metrics, positions, and open orders.
 func (c *IBKRClient) StartAccountSubscriptions() {
-	if c.client == nil || !c.connected.Load() {
+	if c.client == nil || !c.IsConnected() {
 		return
 	}
 
@@ -629,7 +639,7 @@ func (c *IBKRClient) Disconnect() {
 }
 
 func (c *IBKRClient) IsConnected() bool {
-	return c.connected.Load() && c.client != nil
+	return c.connected.Load() && c.client != nil && c.client.IsConnected()
 }
 
 // HistoricalData parses incoming bars into float arrays protected by write-lock.

@@ -56,10 +56,10 @@ func (sg *SessionGate) GetSession(t time.Time) SessionType {
 	totalMinutes := hour*60 + min
 
 	const (
-		preMarketOpen  = 4 * 60        // 04:00 ET
-		rthOpen        = 9*60 + 30     // 09:30 ET
-		rthClose       = 16 * 60       // 16:00 ET
-		postMarketClose = 20 * 60      // 20:00 ET
+		preMarketOpen   = 4 * 60    // 04:00 ET
+		rthOpen         = 9*60 + 30 // 09:30 ET
+		rthClose        = 16 * 60   // 16:00 ET
+		postMarketClose = 20 * 60   // 20:00 ET
 	)
 
 	switch {

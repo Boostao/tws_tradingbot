@@ -11,8 +11,8 @@ func TestWatchlistState_Persistence(t *testing.T) {
 
 	// Save a state
 	state := &models.WatchlistResponse{
-		ID:   "custom-list",
-		Name: "Custom List",
+		ID:      "custom-list",
+		Name:    "Custom List",
 		Symbols: []string{"AAPL"},
 		Groups: []models.WatchlistGroup{
 			{ID: "g1", Name: "Tech", Source: "manual", Items: []models.WatchlistItem{

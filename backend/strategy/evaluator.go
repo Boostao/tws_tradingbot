@@ -507,11 +507,16 @@ func EvaluateRule(rule *models.Rule, bundle *BarFrameBundle, symbol string, now 
 
 // EvaluateRules evaluates all enabled rules of a strategy against a BarFrameBundle and returns fired signals (Feature 34).
 func EvaluateRules(strat *models.Strategy, bundle *BarFrameBundle, symbol string) []models.RuleSignal {
+	return EvaluateRulesAt(strat, bundle, symbol, time.Now())
+}
+
+// EvaluateRulesAt evaluates all enabled rules of a strategy against a BarFrameBundle at the specified timestamp.
+// Optional aliases allow ScopeSymbol rules (e.g., bare "NVDA") to match InstrumentID-keyed bundles (e.g., "NVDA.NASDAQ").
+func EvaluateRulesAt(strat *models.Strategy, bundle *BarFrameBundle, symbol string, now time.Time, aliases ...string) []models.RuleSignal {
 	if strat == nil || bundle == nil {
 		return nil
 	}
 
-	now := time.Now()
 	var signals []models.RuleSignal
 
 	for _, rule := range strat.Rules {
@@ -519,8 +524,19 @@ func EvaluateRules(strat *models.Strategy, bundle *BarFrameBundle, symbol string
 			continue
 		}
 
-		if rule.Scope == models.ScopeSymbol && rule.Name != symbol {
-			continue
+		if rule.Scope == models.ScopeSymbol {
+			matched := rule.Name == symbol
+			if !matched {
+				for _, alias := range aliases {
+					if alias != "" && rule.Name == alias {
+						matched = true
+						break
+					}
+				}
+			}
+			if !matched {
+				continue
+			}
 		}
 
 		active := EvaluateRule(&rule, bundle, symbol, now)

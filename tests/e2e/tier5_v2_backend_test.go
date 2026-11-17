@@ -703,3 +703,194 @@ func TestV2_Tier5_SyncLivePositions_DualListedAndTransitions(t *testing.T) {
 		}
 	}
 }
+
+// [DEFECT-1 & DEFECT-2 REGRESSION] Clean TCP FIN during Connect() returns error + disconnected;
+// immediate post-handshake EOF + concurrent ManagedAccounts/Error(1102) Req* vs Disconnect passes -race.
+func TestV2_Tier5_IBKRClient_HandshakeEOFAndPostHandshakeDropRace(t *testing.T) {
+	// 1. Handshake clean TCP FIN EOF
+	eofLn, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("net.Listen failed: %v", err)
+	}
+	defer eofLn.Close()
+
+	go func() {
+		for {
+			conn, err := eofLn.Accept()
+			if err != nil {
+				return
+			}
+			go func(c net.Conn) {
+				hdr := make([]byte, 8)
+				if _, err := io.ReadFull(c, hdr); err == nil {
+					vLen := binary.BigEndian.Uint32(hdr[4:8])
+					if vLen > 0 && vLen < 4096 {
+						_, _ = io.ReadFull(c, make([]byte, vLen))
+					}
+				}
+				_ = c.Close()
+			}(conn)
+		}
+	}()
+
+	eofAddr := eofLn.Addr().(*net.TCPAddr)
+	_, _, eofClient, _ := newV2TestEnv(t)
+	if err := eofClient.Connect("127.0.0.1", eofAddr.Port, 1); err == nil {
+		t.Fatalf("expected non-nil error on clean handshake FIN EOF, got nil (IsConnected=%v)", eofClient.IsConnected())
+	}
+	if eofClient.IsConnected() {
+		t.Fatalf("expected IsConnected()==false after clean handshake FIN EOF")
+	}
+
+	// 2. Post-handshake immediate EOF + concurrent ManagedAccounts / Error(1102) / Disconnect under -race
+	dropLn, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("net.Listen failed: %v", err)
+	}
+	defer dropLn.Close()
+
+	go func() {
+		for {
+			conn, err := dropLn.Accept()
+			if err != nil {
+				return
+			}
+			go func(c net.Conn) {
+				defer c.Close()
+				hdr := make([]byte, 8)
+				if _, err := io.ReadFull(c, hdr); err != nil {
+					return
+				}
+				vLen := binary.BigEndian.Uint32(hdr[4:8])
+				if vLen > 0 && vLen < 4096 {
+					_, _ = io.ReadFull(c, make([]byte, vLen))
+				}
+				payload := []byte("176\x0020261117 10:00:00 EST\x00")
+				frame := make([]byte, 4+len(payload))
+				binary.BigEndian.PutUint32(frame[:4], uint32(len(payload)))
+				copy(frame[4:], payload)
+				_, _ = c.Write(frame)
+			}(conn)
+		}
+	}()
+
+	dropAddr := dropLn.Addr().(*net.TCPAddr)
+	_, _, dropClient, w := newV2TestEnv(t)
+	for cycle := 0; cycle < 10; cycle++ {
+		_ = dropClient.Connect("127.0.0.1", dropAddr.Port, 50+cycle)
+		var wg sync.WaitGroup
+		wg.Add(3)
+		go func() {
+			defer wg.Done()
+			w.ManagedAccounts([]string{"DU555111"})
+		}()
+		go func() {
+			defer wg.Done()
+			w.Error(-1, 0, 1102, "Connectivity restored", "")
+		}()
+		go func() {
+			defer wg.Done()
+			dropClient.Disconnect()
+		}()
+		wg.Wait()
+	}
+}
+
+// [DEFECT-3 REGRESSION] RunDryRun honors Engine.Now() (not wall clock) and ScopeSymbol bare symbol rules on InstrumentID-keyed bundles.
+func TestV2_Tier5_RunDryRun_TimeProviderAndScopeSymbolOnInstrumentID(t *testing.T) {
+	database, engine, _, _ := newV2TestEnv(t)
+
+	_, err := database.MergeAndSaveWatchlist("wl-def3", "DEFECT-3 WL", "", nil, []models.WatchlistGroup{
+		{
+			ID:   "core",
+			Name: "Core",
+			Items: []models.WatchlistItem{
+				{Symbol: "NVDA", Exchange: "NASDAQ", Enabled: true, SizeMode: "shares", SizeValue: 10},
+				{Symbol: "AAPL", Exchange: "NASDAQ", Enabled: true, SizeMode: "shares", SizeValue: 10},
+			},
+		},
+	}, false)
+	if err != nil {
+		t.Fatalf("MergeAndSaveWatchlist: %v", err)
+	}
+
+	engine.SetEquity(100000.0)
+	strat := &models.Strategy{
+		ID:   "strat_def3_time_and_scope",
+		Name: "Time Window + ScopeSymbol",
+		Rules: []models.Rule{
+			{
+				ID:      "r_hours_buy",
+				Name:    "Hours",
+				Scope:   models.ScopeGlobal,
+				Action:  models.ActionBuy,
+				Enabled: true,
+				Condition: &models.Condition{
+					Type:       models.ConditionWithin,
+					RangeStart: "09:30",
+					RangeEnd:   "16:00",
+				},
+			},
+			{
+				ID:      "r_nvda_symbol",
+				Name:    "NVDA", // Bare symbol name matching NVDA.NASDAQ bundle key
+				Scope:   models.ScopeSymbol,
+				Action:  models.ActionBuy,
+				Enabled: true,
+				Condition: &models.Condition{
+					Type:       models.ConditionGreater,
+					Threshold:  100.0,
+					IndicatorA: &models.Indicator{Type: models.IndicatorPrice, Timeframe: models.TimeframeD1},
+				},
+			},
+		},
+	}
+	_ = database.SaveStrategyPreset(strat, &models.CockpitStrategySummary{
+		ID: strat.ID, Name: strat.Name, RuleCount: 2, EnabledRuleCount: 2,
+	})
+
+	cs := engine.GetCockpitState()
+	cs.GlobalEnabled = true
+	cs.ActiveWorkspaceID = "achat"
+	cs.Workspaces[0].Enabled = true
+	cs.Workspaces[0].WatchlistID = "wl-def3"
+	cs.Workspaces[0].StrategySlots[0].StrategyID = strat.ID
+	cs.Workspaces[0].StrategySlots[0].Enabled = true
+	engine.SetCockpitState(cs)
+
+	// Populate InstrumentID-keyed frames for both NVDA.NASDAQ and AAPL.NASDAQ
+	engine.GetBarBundle().AddBar("NVDA.NASDAQ", models.TimeframeD1, 1700000000, 120, 125, 119, 124.0, 10000)
+	engine.GetBarBundle().AddBar("AAPL.NASDAQ", models.TimeframeD1, 1700000000, 180, 185, 179, 184.0, 10000)
+
+	// Case A: Engine.Now() is Saturday 22:00 EST (outside ConditionWithin 09:30-16:00) even if wall clock is in RTH.
+	// Disable r_nvda_symbol temporarily or check only Hours rule fires 0 orders when outside RTH.
+	est := time.FixedZone("EST", -5*3600)
+	engine.SetTimeProvider(func() time.Time {
+		return time.Date(2026, 11, 21, 22, 0, 0, 0, est) // Saturday 22:00 EST
+	})
+	drOffHours, err := engine.RunDryRun(true)
+	if err != nil {
+		t.Fatalf("RunDryRun(off-hours): %v", err)
+	}
+	for _, ord := range drOffHours.PlannedOrders {
+		if ord["rule"] == "Hours" {
+			t.Fatalf("RunDryRun leaked wall clock: 'Hours' ConditionWithin fired at Saturday 22:00 EST: %+v", ord)
+		}
+	}
+	// ScopeSymbol bare rule "NVDA" must fire ONLY for NVDA.NASDAQ (not AAPL.NASDAQ)
+	if len(drOffHours.PlannedOrders) != 1 || drOffHours.PlannedOrders[0]["instrument_id"] != "NVDA.NASDAQ" || drOffHours.PlannedOrders[0]["rule"] != "NVDA" {
+		t.Fatalf("expected exactly 1 ScopeSymbol planned order for NVDA.NASDAQ, got %+v", drOffHours.PlannedOrders)
+	}
+
+	// Case B: Engine.Now() is Wednesday 10:30 EST (inside ConditionWithin 09:30-16:00) -> 'Hours' must fire for both + 'NVDA' for NVDA.NASDAQ = 3 planned orders.
+	engine.SetTimeProvider(func() time.Time {
+		return time.Date(2026, 11, 18, 10, 30, 0, 0, est) // Wednesday 10:30 EST
+	})
+	drRTH, err := engine.RunDryRun(true)
+	if err != nil {
+		t.Fatalf("RunDryRun(RTH): %v", err)
+	}
+	if len(drRTH.PlannedOrders) != 3 {
+		t.Fatalf("expected 3 planned orders in RTH (Hours x2 + ScopeSymbol NVDA x1), got %d: %+v", len(drRTH.PlannedOrders), drRTH.PlannedOrders)
+	}
+}

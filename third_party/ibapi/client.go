@@ -16,6 +16,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"strconv"
@@ -50,14 +51,20 @@ func (cs ConnState) String() string {
 
 // MsgEncoder efficiently encodes messages for IB API
 type MsgEncoder struct {
-	buf     bytes.Buffer
-	eClient *EClient
+	buf           bytes.Buffer
+	eClient       *EClient
+	serverVersion Version
 }
 
 // NewMsgEncoder creates a new MsgEncoder with an initial number of fields and server version
 func NewMsgEncoder(nFields int, eClient *EClient) *MsgEncoder {
+	var sv Version
+	if eClient != nil {
+		sv = eClient.ServerVersion()
+	}
 	me := &MsgEncoder{
-		eClient: eClient,
+		eClient:       eClient,
+		serverVersion: sv,
 	}
 	me.buf.Grow(8*nFields + 4)
 
@@ -68,7 +75,7 @@ func NewMsgEncoder(nFields int, eClient *EClient) *MsgEncoder {
 
 // encodeMsgID encodes a message ID with appropriate format based on server version
 func (me *MsgEncoder) encodeMsgID(msgID int64) *MsgEncoder {
-	if me.eClient.serverVersion >= MIN_SERVER_VER_PROTOBUF {
+	if me.serverVersion >= MIN_SERVER_VER_PROTOBUF {
 		// Encode as raw int (4 bytes, byte-swapped)
 		me.encodeRawInt64(msgID)
 	} else {
@@ -282,7 +289,7 @@ type EClient struct {
 	optionalCapabilities string
 	conn                 *Connection
 	connPtr              atomic.Pointer[Connection]
-	serverVersion        Version
+	serverVersion        atomic.Int64
 	connTime             string
 	connState            int32
 	writer               *bufio.Writer
@@ -294,7 +301,6 @@ type EClient struct {
 	cancel               context.CancelFunc
 	extraAuth            bool
 	wg                   sync.WaitGroup
-	watchOnce            sync.Once
 	mu                   sync.Mutex
 	watchDone            chan struct{}
 	err                  error
@@ -312,39 +318,36 @@ func NewEClient(wrapper EWrapper) *EClient {
 }
 
 func (c *EClient) reset() {
+	conn := &Connection{wrapper: c.wrapper}
+	writer := bufio.NewWriter(conn)
+	scanner := bufio.NewScanner(conn)
+	scanner.Split(scanFields)
+	scanner.Buffer(make([]byte, 4096), MAX_MSG_LEN)
+	reqChan := make(chan []byte, 10)
+	ctx, cancel := context.WithCancel(context.Background())
 
+	c.serverVersion.Store(-1)
+	c.connPtr.Store(conn)
+
+	c.mu.Lock()
 	c.host = ""
 	c.port = -1
 	c.clientID = -1
 	c.connectOptions = ""
 	c.optionalCapabilities = ""
 	c.extraAuth = false
-	c.conn = &Connection{wrapper: c.wrapper}
-	c.connPtr.Store(c.conn)
-	c.serverVersion = -1
+	c.conn = conn
 	c.connTime = ""
-
-	// writer
-	c.writer = bufio.NewWriter(c.conn)
-	// init scanner
-	c.scanner = bufio.NewScanner(c.conn)
-	c.scanner.Split(scanFields)
-	c.scanner.Buffer(make([]byte, 4096), MAX_MSG_LEN)
-
-	c.reqChan = make(chan []byte, 10)
-
-	c.ctx, c.cancel = context.WithCancel(context.Background())
-
-	c.wg = sync.WaitGroup{}
-	c.err = nil
-
-	c.watchOnce = sync.Once{}
-	c.mu.Lock()
+	c.writer = writer
+	c.scanner = scanner
+	c.reqChan = reqChan
+	c.ctx = ctx
+	c.cancel = cancel
 	c.watchDone = nil
+	c.err = nil
 	c.mu.Unlock()
 
 	c.setConnState(DISCONNECTED)
-	c.connectOptions = ""
 }
 
 func (c *EClient) setConnState(state ConnState) {
@@ -353,37 +356,57 @@ func (c *EClient) setConnState(state ConnState) {
 	log.Debug().Stringer("from", cs).Stringer("to", state).Msg("connection state changed")
 }
 
+// enqueueReq safely sends an encoded request to the active connection's reqChan without racing with reset()
+// and without blocking if the connection context has been cancelled.
+func (c *EClient) enqueueReq(payload []byte) {
+	if payload == nil {
+		return
+	}
+	c.mu.Lock()
+	reqChan := c.reqChan
+	ctx := c.ctx
+	c.mu.Unlock()
+
+	if reqChan == nil || ctx == nil {
+		return
+	}
+
+	select {
+	case <-ctx.Done():
+		return
+	case reqChan <- payload:
+	}
+}
+
 // request is a goroutine that will get the req from reqChan and send it to TWS.
-func (c *EClient) request() {
+func (c *EClient) request(ctx context.Context, cancel context.CancelFunc, reqChan <-chan []byte, writer *bufio.Writer) {
 	log.Debug().Msg("requester started")
 	defer log.Debug().Msg("requester ended")
-
-	c.wg.Add(1)
 	defer c.wg.Done()
 
 	for {
 		select {
-		case <-c.ctx.Done():
+		case <-ctx.Done():
 			return
-		case req := <-c.reqChan:
+		case req := <-reqChan:
 			log.Trace().Bytes("req", req).Msg("sending request")
 			if !c.IsConnected() {
 				c.wrapper.Error(NO_VALID_ID, currentTimeMillis(), NOT_CONNECTED.Code, NOT_CONNECTED.Msg, "")
-				c.cancel()
+				cancel()
 				return
 			}
-			nn, err := c.writer.Write(req)
+			nn, err := writer.Write(req)
 			if err != nil {
 				log.Error().Err(err).Int("nbytes", nn).Bytes("reqMsg", req).Msg("requester write error")
-				// Cancel context so watchOnce handles disconnect after request() exits wg
+				// Cancel context so watcher handles disconnect after request() exits wg
 				log.Info().Msg("Disconnecting client due to write error.")
-				c.cancel()
+				cancel()
 				return
 			}
-			err = c.writer.Flush()
+			err = writer.Flush()
 			if err != nil {
 				log.Error().Err(err).Bytes("reqMsg", req).Msg("requester flush error")
-				c.cancel()
+				cancel()
 				return
 			}
 		}
@@ -405,13 +428,14 @@ func (c *EClient) validateInvalidSymbols(host string) error {
 
 func (c *EClient) useProtoBuf(msgID int64) bool {
 	if version, exists := PROTOBUF_MSG_IDS[OUT(msgID)]; exists {
-		return version <= c.serverVersion
+		return version <= c.ServerVersion()
 	}
 	return false
 }
 
 // startAPI initiates the message exchange between the client application and the TWS/IB Gateway.
 func (c *EClient) startAPI() error {
+	sv := c.ServerVersion()
 
 	if c.useProtoBuf(START_API) {
 		return c.startApiProtoBuf(createStartApiRequestProto(c.clientID, c.optionalCapabilities))
@@ -426,11 +450,11 @@ func (c *EClient) startAPI() error {
 
 	msg := makeField(VERSION) + makeField(c.clientID)
 
-	if c.serverVersion >= MIN_SERVER_VER_OPTIONAL_CAPABILITIES {
+	if sv >= MIN_SERVER_VER_OPTIONAL_CAPABILITIES {
 		msg += makeField(c.optionalCapabilities)
 	}
 	var payload []byte
-	if c.serverVersion >= MIN_SERVER_VER_PROTOBUF {
+	if sv >= MIN_SERVER_VER_PROTOBUF {
 		idBytes := make([]byte, 4)
 		binary.BigEndian.PutUint32(idBytes, uint32(START_API))
 		payload = append(idBytes, []byte(msg)...)
@@ -490,26 +514,43 @@ func (c *EClient) startApiProtoBuf(startApiRequestProto *protobuf.StartApiReques
 // There is no feedback for a successful connection, but a subsequent attempt to connect will return the message "Already connected.".
 // You should wait for the connection to be established and NextValidID to be returned before calling any other function. If you don't wait, you will get a broken pipe error.
 func (c *EClient) Connect(host string, port int, clientID int64) error {
-
-	if c.IsConnected() {
+	if !atomic.CompareAndSwapInt32(&c.connState, int32(DISCONNECTED), int32(CONNECTING)) {
 		c.wrapper.Error(NO_VALID_ID, currentTimeMillis(), ALREADY_CONNECTED.Code, ALREADY_CONNECTED.Msg, "")
 		return ALREADY_CONNECTED
 	}
 
 	if err := c.validateInvalidSymbols(host); err != nil {
+		c.setConnState(DISCONNECTED)
 		c.wrapper.Error(NO_VALID_ID, currentTimeMillis(), INVALID_SYMBOL.Code, INVALID_SYMBOL.Msg+err.Error(), "")
 		return err
 	}
 
+	c.mu.Lock()
 	c.host = host
 	c.port = port
 	c.clientID = clientID
+	conn := c.conn
+	writer := c.writer
+	scanner := c.scanner
+	ctx := c.ctx
+	cancel := c.cancel
+	reqChan := c.reqChan
+	c.mu.Unlock()
 
-	c.setConnState(CONNECTING)
+	cleanupFailedConnect := func() {
+		if cancel != nil {
+			cancel()
+		}
+		if conn != nil {
+			_ = conn.disconnect()
+		}
+		c.wg.Wait()
+		c.reset()
+	}
 
 	// Connecting to IB server
 	log.Info().Str("host", host).Int("port", port).Int64("clientID", clientID).Msg("Connecting to IB server")
-	if err := c.conn.connect(c.host, c.port); err != nil {
+	if err := conn.connect(host, port); err != nil {
 		log.Error().Err(CONNECT_FAIL).Msg("Connection fail")
 		c.wrapper.Error(NO_VALID_ID, currentTimeMillis(), CONNECT_FAIL.Code, CONNECT_FAIL.Msg, "")
 		c.reset()
@@ -537,66 +578,89 @@ func (c *EClient) Connect(host string, port int, clientID int64) error {
 
 	log.Debug().Bytes("header", msg.Bytes()).Msg("Sending handshake header")
 
-	if _, err := c.writer.Write(msg.Bytes()); err != nil {
+	if _, err := writer.Write(msg.Bytes()); err != nil {
+		cleanupFailedConnect()
 		return err
 	}
 
-	if err := c.writer.Flush(); err != nil {
+	if err := writer.Flush(); err != nil {
+		cleanupFailedConnect()
 		return err
 	}
 
 	log.Debug().Msg("Receiving handshake Info")
 
 	// scan once to get server info
-	if !c.scanner.Scan() {
-		return c.scanner.Err()
-	}
-
-	// Init server info
-	msgBytes := c.scanner.Bytes()
-	serverInfo := splitMsgBytes(msgBytes)
-	v, _ := strconv.Atoi(string(serverInfo[0]))
-	c.serverVersion = Version(v)
-	if c.serverVersion < MIN_SERVER_VER_SUPPORTED {
-		c.wrapper.Error(NO_VALID_ID, currentTimeMillis(), UNSUPPORTED_VERSION.Code, UNSUPPORTED_VERSION.Msg, "")
-		return UNSUPPORTED_VERSION
-	}
-
-	c.connTime = string(serverInfo[1])
-	log.Info().Int("serverVersion", v).Str("connectionTime", c.connTime).Msg("Handshake completed")
-
-	// init decoder
-	c.decoder = &EDecoder{wrapper: c.wrapper, serverVersion: c.serverVersion}
-
-	//start Ereader
-	go EReader(c.ctx, c.cancel, c.scanner, c.decoder, &c.wg)
-
-	// start requester
-	go c.request()
-
-	// startAPI
-	if err := c.startAPI(); err != nil {
+	if !scanner.Scan() {
+		err := scanner.Err()
+		if err == nil {
+			err = io.ErrUnexpectedEOF
+		}
+		cleanupFailedConnect()
 		return err
 	}
 
+	// Init server info
+	msgBytes := scanner.Bytes()
+	serverInfo := splitMsgBytes(msgBytes)
+	if len(serverInfo) < 2 {
+		cleanupFailedConnect()
+		return fmt.Errorf("ibapi invalid handshake response: %w", io.ErrUnexpectedEOF)
+	}
+	v, err := strconv.Atoi(string(serverInfo[0]))
+	if err != nil {
+		cleanupFailedConnect()
+		return fmt.Errorf("ibapi invalid server version in handshake: %w", err)
+	}
+	sv := Version(v)
+	c.serverVersion.Store(int64(sv))
+	if sv < MIN_SERVER_VER_SUPPORTED {
+		c.wrapper.Error(NO_VALID_ID, currentTimeMillis(), UNSUPPORTED_VERSION.Code, UNSUPPORTED_VERSION.Msg, "")
+		cleanupFailedConnect()
+		return UNSUPPORTED_VERSION
+	}
+
+	connTime := string(serverInfo[1])
+	decoder := &EDecoder{wrapper: c.wrapper, serverVersion: sv}
+	c.mu.Lock()
+	c.connTime = connTime
+	c.decoder = decoder
+	c.mu.Unlock()
+	log.Info().Int("serverVersion", v).Str("connectionTime", connTime).Msg("Handshake completed")
+
+	// start EReader synchronously so wg.Add(2) completes before Connect proceeds
+	EReader(ctx, cancel, scanner, decoder, &c.wg)
+
+	// start requester with wg.Add(1) before launching goroutine
+	c.wg.Add(1)
+	go c.request(ctx, cancel, reqChan, writer)
+
+	// startAPI
+	if err := c.startAPI(); err != nil {
+		cleanupFailedConnect()
+		return err
+	}
+
+	// Launch per-connection shutdown watcher without sync.Once mutation races.
+	// The started gate guarantees ConnectAck() finishes before ConnectionClosed() can run.
+	done := make(chan struct{})
+	started := make(chan struct{})
+	c.mu.Lock()
+	c.watchDone = done
+	c.mu.Unlock()
+
+	go func(ctx context.Context, started <-chan struct{}, done chan struct{}) {
+		defer close(done)
+		<-started
+		<-ctx.Done() // waits for c.cancel()
+		if err := c.disconnect(true); err != nil {
+			log.Error().Err(err).Msg("Disconnect error in watcher")
+		}
+	}(ctx, started, done)
+
 	c.setConnState(CONNECTED)
 	c.wrapper.ConnectAck()
-
-	// 4) Launch the shutdown watcher exactly once
-	c.watchOnce.Do(func() {
-		done := make(chan struct{})
-		c.mu.Lock()
-		c.watchDone = done
-		c.mu.Unlock()
-		ctx := c.ctx
-		go func(ctx context.Context, done chan struct{}) {
-			defer close(done)
-			<-ctx.Done() // waits for c.cancel()
-			if err := c.disconnect(true); err != nil {
-				log.Error().Err(err).Msg("Disconnect error in watcher")
-			}
-		}(ctx, done)
-	})
+	close(started)
 
 	log.Debug().Msg("IB Client Connected!")
 
@@ -642,16 +706,26 @@ func (c *EClient) disconnect(fromWatcher bool) error {
 
 	log.Debug().Stringer("from", CONNECTED).Stringer("to", DISCONNECTED).Msg("connection state changed")
 
+	c.mu.Lock()
+	cancel := c.cancel
+	conn := c.conn
+	c.mu.Unlock()
+
 	// 1) Cancel to unblock request Loop
-	c.cancel()
+	if cancel != nil {
+		cancel()
+	}
 
 	// 2) Close the socket to unblock reader loop
-	err := c.conn.disconnect()
+	var err error
+	if conn != nil {
+		err = conn.disconnect()
+	}
 
 	// 3) Wait for loops to exit
 	c.wg.Wait()
 
-	// 4) Wait for watchOnce goroutine to finish before resetting internal state
+	// 4) Wait for watcher goroutine to finish before resetting internal state
 	if !fromWatcher {
 		c.mu.Lock()
 		wd := c.watchDone
@@ -671,6 +745,8 @@ func (c *EClient) disconnect(fromWatcher bool) error {
 }
 
 func (c *EClient) Ctx() context.Context {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	return c.ctx
 }
 
@@ -720,7 +796,7 @@ func (c *EClient) ReqCurrentTime() {
 
 	me.encodeMsgID(REQ_CURRENT_TIME).encodeInt(VERSION)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 func (c *EClient) reqCurrentTimeProtoBuf(currentTimeRequestProto *protobuf.CurrentTimeRequest) {
@@ -742,12 +818,12 @@ func (c *EClient) reqCurrentTimeProtoBuf(currentTimeRequestProto *protobuf.Curre
 
 	me.encodeProto(msg)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 // ServerVersion returns the version of the TWS instance to which the API application is connected.
 func (c *EClient) ServerVersion() Version {
-	return c.serverVersion
+	return Version(c.serverVersion.Load())
 }
 
 // SetServerLogLevel sets the log level of the server.
@@ -775,7 +851,7 @@ func (c *EClient) SetServerLogLevel(logLevel int64) {
 
 	me.encodeMsgID(SET_SERVER_LOGLEVEL).encodeInt(VERSION).encodeInt64(logLevel)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 func (c *EClient) setServerLogLevelProtoBuf(SetServerLogLevelRequest *protobuf.SetServerLogLevelRequest) {
@@ -797,11 +873,13 @@ func (c *EClient) setServerLogLevelProtoBuf(SetServerLogLevelRequest *protobuf.S
 
 	me.encodeProto(msg)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 // ConnectionTime is the time the API application made a connection to TWS.
 func (c *EClient) TWSConnectionTime() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	return c.connTime
 }
 
@@ -831,15 +909,15 @@ func (c *EClient) ReqMktData(reqID int64, contract *Contract, genericTickList st
 		return
 	}
 
-	if c.serverVersion < MIN_SERVER_VER_DELTA_NEUTRAL && contract.DeltaNeutralContract != nil {
+	if c.ServerVersion() < MIN_SERVER_VER_DELTA_NEUTRAL && contract.DeltaNeutralContract != nil {
 		c.wrapper.Error(reqID, currentTimeMillis(), UPDATE_TWS.Code, UPDATE_TWS.Msg+" It does not support delta-neutral orders.", "")
 		return
 	}
-	if c.serverVersion < MIN_SERVER_VER_REQ_MKT_DATA_CONID && contract.ConID > 0 {
+	if c.ServerVersion() < MIN_SERVER_VER_REQ_MKT_DATA_CONID && contract.ConID > 0 {
 		c.wrapper.Error(reqID, currentTimeMillis(), UPDATE_TWS.Code, UPDATE_TWS.Msg+" It does not support conId parameter.", "")
 		return
 	}
-	if c.serverVersion < MIN_SERVER_VER_TRADING_CLASS && contract.TradingClass != "" {
+	if c.ServerVersion() < MIN_SERVER_VER_TRADING_CLASS && contract.TradingClass != "" {
 		c.wrapper.Error(reqID, currentTimeMillis(), UPDATE_TWS.Code, UPDATE_TWS.Msg+" It does not support tradingClass parameter in reqMktData.", "")
 		return
 	}
@@ -850,7 +928,7 @@ func (c *EClient) ReqMktData(reqID int64, contract *Contract, genericTickList st
 
 	me.encodeMsgID(REQ_MKT_DATA).encodeInt(VERSION).encodeInt64(reqID)
 
-	if c.serverVersion >= MIN_SERVER_VER_REQ_MKT_DATA_CONID {
+	if c.ServerVersion() >= MIN_SERVER_VER_REQ_MKT_DATA_CONID {
 		me.encodeInt64(contract.ConID)
 	}
 
@@ -865,7 +943,7 @@ func (c *EClient) ReqMktData(reqID int64, contract *Contract, genericTickList st
 	me.encodeString(contract.Currency)
 	me.encodeString(contract.LocalSymbol)
 
-	if c.serverVersion >= MIN_SERVER_VER_TRADING_CLASS {
+	if c.ServerVersion() >= MIN_SERVER_VER_TRADING_CLASS {
 		me.encodeString(contract.TradingClass)
 	}
 
@@ -881,7 +959,7 @@ func (c *EClient) ReqMktData(reqID int64, contract *Contract, genericTickList st
 		}
 	}
 
-	if c.serverVersion >= MIN_SERVER_VER_DELTA_NEUTRAL {
+	if c.ServerVersion() >= MIN_SERVER_VER_DELTA_NEUTRAL {
 		if contract.DeltaNeutralContract != nil {
 			me.encodeBool(true)
 			me.encodeInt64(contract.DeltaNeutralContract.ConID)
@@ -895,16 +973,16 @@ func (c *EClient) ReqMktData(reqID int64, contract *Contract, genericTickList st
 	me.encodeString(genericTickList)
 	me.encodeBool(snapshot)
 
-	if c.serverVersion >= MIN_SERVER_VER_REQ_SMART_COMPONENTS {
+	if c.ServerVersion() >= MIN_SERVER_VER_REQ_SMART_COMPONENTS {
 		me.encodeBool(regulatorySnapshot)
 	}
 
 	// send mktDataOptions parameter
-	if c.serverVersion >= MIN_SERVER_VER_LINKING {
+	if c.ServerVersion() >= MIN_SERVER_VER_LINKING {
 		me.encodeTagValues(mktDataOptions)
 	}
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 func (c *EClient) reqMarketDataProtoBuf(marketDataRequestProto *protobuf.MarketDataRequest) {
@@ -931,7 +1009,7 @@ func (c *EClient) reqMarketDataProtoBuf(marketDataRequestProto *protobuf.MarketD
 
 	me.encodeProto(msg)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 // CancelMktData stops the market data flow for the specified TickerId.
@@ -953,7 +1031,7 @@ func (c *EClient) CancelMktData(reqID int64) {
 
 	me.encodeMsgID(CANCEL_MKT_DATA).encodeInt(VERSION).encodeInt64(reqID)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 func (c *EClient) cancelMarketDataProtoBuf(cancelMarketDataProto *protobuf.CancelMarketData) {
@@ -980,7 +1058,7 @@ func (c *EClient) cancelMarketDataProtoBuf(cancelMarketDataProto *protobuf.Cance
 
 	me.encodeProto(msg)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 // ReqMarketDataType changes the market data type.
@@ -1012,7 +1090,7 @@ func (c *EClient) ReqMarketDataType(marketDataType int64) {
 		return
 	}
 
-	if c.serverVersion < MIN_SERVER_VER_REQ_MARKET_DATA_TYPE {
+	if c.ServerVersion() < MIN_SERVER_VER_REQ_MARKET_DATA_TYPE {
 		c.wrapper.Error(NO_VALID_ID, currentTimeMillis(), UPDATE_TWS.Code, UPDATE_TWS.Msg+" It does not support market data type requests.", "")
 		return
 	}
@@ -1023,7 +1101,7 @@ func (c *EClient) ReqMarketDataType(marketDataType int64) {
 
 	me.encodeMsgID(REQ_MARKET_DATA_TYPE).encodeInt(VERSION).encodeInt64(marketDataType)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 func (c *EClient) reqMarketDataTypeProtoBuf(marketDataTypeRequestProto *protobuf.MarketDataTypeRequest) {
@@ -1045,7 +1123,7 @@ func (c *EClient) reqMarketDataTypeProtoBuf(marketDataTypeRequestProto *protobuf
 
 	me.encodeProto(msg)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 // ReqSmartComponents request the smartComponents.
@@ -1061,7 +1139,7 @@ func (c *EClient) ReqSmartComponents(reqID int64, bboExchange string) {
 		return
 	}
 
-	if c.serverVersion < MIN_SERVER_VER_REQ_SMART_COMPONENTS {
+	if c.ServerVersion() < MIN_SERVER_VER_REQ_SMART_COMPONENTS {
 		c.wrapper.Error(reqID, currentTimeMillis(), UPDATE_TWS.Code, UPDATE_TWS.Msg+"  It does not support smart components request.", "")
 		return
 	}
@@ -1070,7 +1148,7 @@ func (c *EClient) ReqSmartComponents(reqID int64, bboExchange string) {
 
 	me.encodeMsgID(REQ_SMART_COMPONENTS).encodeInt64(reqID).encodeString(bboExchange)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 func (c *EClient) reqSmartComponentsProtoBuf(smartComponentsRequestProto *protobuf.SmartComponentsRequest) {
@@ -1097,7 +1175,7 @@ func (c *EClient) reqSmartComponentsProtoBuf(smartComponentsRequestProto *protob
 
 	me.encodeProto(msg)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 // ReqMarketRule requests the market rule.
@@ -1113,7 +1191,7 @@ func (c *EClient) ReqMarketRule(marketRuleID int64) {
 		return
 	}
 
-	if c.serverVersion < MIN_SERVER_VER_MARKET_RULES {
+	if c.ServerVersion() < MIN_SERVER_VER_MARKET_RULES {
 		c.wrapper.Error(NO_VALID_ID, currentTimeMillis(), UPDATE_TWS.Code, UPDATE_TWS.Msg+" It does not support market rule requests.", "")
 		return
 	}
@@ -1122,7 +1200,7 @@ func (c *EClient) ReqMarketRule(marketRuleID int64) {
 
 	me.encodeMsgID(REQ_MARKET_RULE).encodeInt64(marketRuleID)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 func (c *EClient) reqMarketRuleProtoBuf(marketRuleRequestProto *protobuf.MarketRuleRequest) {
@@ -1144,7 +1222,7 @@ func (c *EClient) reqMarketRuleProtoBuf(marketRuleRequestProto *protobuf.MarketR
 
 	me.encodeProto(msg)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 // ReqTickByTickData request the tick-by-tick data.
@@ -1164,12 +1242,12 @@ func (c *EClient) ReqTickByTickData(reqID int64, contract *Contract, tickType st
 		return
 	}
 
-	if c.serverVersion < MIN_SERVER_VER_TICK_BY_TICK {
+	if c.ServerVersion() < MIN_SERVER_VER_TICK_BY_TICK {
 		c.wrapper.Error(reqID, currentTimeMillis(), UPDATE_TWS.Code, UPDATE_TWS.Msg+" It does not support tick-by-tick data requests.", "")
 		return
 	}
 
-	if c.serverVersion < MIN_SERVER_VER_TICK_BY_TICK_IGNORE_SIZE {
+	if c.ServerVersion() < MIN_SERVER_VER_TICK_BY_TICK_IGNORE_SIZE {
 		c.wrapper.Error(reqID, currentTimeMillis(), UPDATE_TWS.Code, UPDATE_TWS.Msg+" It does not support ignoreSize and numberOfTicks parameters in tick-by-tick data requests.", "")
 		return
 	}
@@ -1193,11 +1271,11 @@ func (c *EClient) ReqTickByTickData(reqID int64, contract *Contract, tickType st
 	me.encodeString(contract.TradingClass)
 	me.encodeString(tickType)
 
-	if c.serverVersion >= MIN_SERVER_VER_TICK_BY_TICK_IGNORE_SIZE {
+	if c.ServerVersion() >= MIN_SERVER_VER_TICK_BY_TICK_IGNORE_SIZE {
 		me.encodeInt64(numberOfTicks).encodeBool(ignoreSize)
 	}
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 func (c *EClient) reqTickByTickDataProtoBuf(tickByTickRequestProto *protobuf.TickByTickRequest) {
@@ -1224,7 +1302,7 @@ func (c *EClient) reqTickByTickDataProtoBuf(tickByTickRequestProto *protobuf.Tic
 
 	me.encodeProto(msg)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 // CancelTickByTickData cancel the tick-by-tick data
@@ -1240,7 +1318,7 @@ func (c *EClient) CancelTickByTickData(reqID int64) {
 		return
 	}
 
-	if c.serverVersion < MIN_SERVER_VER_TICK_BY_TICK {
+	if c.ServerVersion() < MIN_SERVER_VER_TICK_BY_TICK {
 		c.wrapper.Error(reqID, currentTimeMillis(), UPDATE_TWS.Code, UPDATE_TWS.Msg+" It does not support tick-by-tick data requests.", "")
 		return
 	}
@@ -1249,7 +1327,7 @@ func (c *EClient) CancelTickByTickData(reqID int64) {
 
 	me.encodeMsgID(CANCEL_TICK_BY_TICK_DATA).encodeInt64(reqID)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 func (c *EClient) cancelTickByTickDataProtoBuf(cancelTickByTickProto *protobuf.CancelTickByTick) {
@@ -1276,7 +1354,7 @@ func (c *EClient) cancelTickByTickDataProtoBuf(cancelTickByTickProto *protobuf.C
 
 	me.encodeProto(msg)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 //	##########################################################################
@@ -1297,12 +1375,12 @@ func (c *EClient) CalculateImpliedVolatility(reqID int64, contract *Contract, op
 		return
 	}
 
-	if c.serverVersion < MIN_SERVER_VER_REQ_CALC_IMPLIED_VOLAT {
+	if c.ServerVersion() < MIN_SERVER_VER_REQ_CALC_IMPLIED_VOLAT {
 		c.wrapper.Error(reqID, currentTimeMillis(), UPDATE_TWS.Code, UPDATE_TWS.Msg+" It does not support calculateImpliedVolatility req.", "")
 		return
 	}
 
-	if c.serverVersion < MIN_SERVER_VER_TRADING_CLASS && contract.TradingClass != "" {
+	if c.ServerVersion() < MIN_SERVER_VER_TRADING_CLASS && contract.TradingClass != "" {
 		c.wrapper.Error(reqID, currentTimeMillis(), UPDATE_TWS.Code, UPDATE_TWS.Msg+" It does not support tradingClass parameter in calculateImpliedVolatility.", "")
 		return
 	}
@@ -1328,18 +1406,18 @@ func (c *EClient) CalculateImpliedVolatility(reqID int64, contract *Contract, op
 	me.encodeString(contract.Currency)
 	me.encodeString(contract.LocalSymbol)
 
-	if c.serverVersion >= MIN_SERVER_VER_TRADING_CLASS {
+	if c.ServerVersion() >= MIN_SERVER_VER_TRADING_CLASS {
 		me.encodeString(contract.TradingClass)
 	}
 
 	me.encodeFloat64(optionPrice)
 	me.encodeFloat64(underPrice)
 
-	if c.serverVersion >= MIN_SERVER_VER_LINKING {
+	if c.ServerVersion() >= MIN_SERVER_VER_LINKING {
 		me.encodeTagValues(miscOptions)
 	}
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 func (c *EClient) calculateImpliedVolatilityProtoBuf(calculateImpliedVolatilityRequestProto *protobuf.CalculateImpliedVolatilityRequest) {
@@ -1366,7 +1444,7 @@ func (c *EClient) calculateImpliedVolatilityProtoBuf(calculateImpliedVolatilityR
 
 	me.encodeProto(msg)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 // CancelCalculateImpliedVolatility cancels a request to calculate volatility for a supplied option price and underlying price.
@@ -1382,7 +1460,7 @@ func (c *EClient) CancelCalculateImpliedVolatility(reqID int64) {
 		return
 	}
 
-	if c.serverVersion < MIN_SERVER_VER_REQ_CALC_IMPLIED_VOLAT {
+	if c.ServerVersion() < MIN_SERVER_VER_REQ_CALC_IMPLIED_VOLAT {
 		c.wrapper.Error(reqID, currentTimeMillis(), UPDATE_TWS.Code, UPDATE_TWS.Msg+" It does not support calculateImpliedVolatility req.", "")
 		return
 	}
@@ -1396,7 +1474,7 @@ func (c *EClient) CancelCalculateImpliedVolatility(reqID int64) {
 	me.encodeInt(VERSION)
 	me.encodeInt64(reqID)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 func (c *EClient) cancelCalculateImpliedVolatilityProtoBuf(cancelCalculateImpliedVolatilityProto *protobuf.CancelCalculateImpliedVolatility) {
@@ -1423,7 +1501,7 @@ func (c *EClient) cancelCalculateImpliedVolatilityProtoBuf(cancelCalculateImplie
 
 	me.encodeProto(msg)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 // CalculateOptionPrice calculate the price of the option
@@ -1441,12 +1519,12 @@ func (c *EClient) CalculateOptionPrice(reqID int64, contract *Contract, volatili
 		return
 	}
 
-	if c.serverVersion < MIN_SERVER_VER_REQ_CALC_IMPLIED_VOLAT {
+	if c.ServerVersion() < MIN_SERVER_VER_REQ_CALC_IMPLIED_VOLAT {
 		c.wrapper.Error(reqID, currentTimeMillis(), UPDATE_TWS.Code, UPDATE_TWS.Msg+" It does not support calculateImpliedVolatility req.", "")
 		return
 	}
 
-	if c.serverVersion < MIN_SERVER_VER_TRADING_CLASS {
+	if c.ServerVersion() < MIN_SERVER_VER_TRADING_CLASS {
 		c.wrapper.Error(reqID, currentTimeMillis(), UPDATE_TWS.Code, UPDATE_TWS.Msg+" It does not support tradingClass parameter in calculateImpliedVolatility.", "")
 		return
 	}
@@ -1472,18 +1550,18 @@ func (c *EClient) CalculateOptionPrice(reqID int64, contract *Contract, volatili
 	me.encodeString(contract.Currency)
 	me.encodeString(contract.LocalSymbol)
 
-	if c.serverVersion >= MIN_SERVER_VER_TRADING_CLASS {
+	if c.ServerVersion() >= MIN_SERVER_VER_TRADING_CLASS {
 		me.encodeString(contract.TradingClass)
 	}
 
 	me.encodeFloat64(volatility)
 	me.encodeFloat64(underPrice)
 
-	if c.serverVersion >= MIN_SERVER_VER_LINKING {
+	if c.ServerVersion() >= MIN_SERVER_VER_LINKING {
 		me.encodeTagValues(miscOptions)
 	}
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 func (c *EClient) calculateOptionPriceProtoBuf(calculateOptionPriceRequestProto *protobuf.CalculateOptionPriceRequest) {
@@ -1510,7 +1588,7 @@ func (c *EClient) calculateOptionPriceProtoBuf(calculateOptionPriceRequestProto 
 
 	me.encodeProto(msg)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 // CancelCalculateOptionPrice cancels the calculation of option price.
@@ -1526,7 +1604,7 @@ func (c *EClient) CancelCalculateOptionPrice(reqID int64) {
 		return
 	}
 
-	if c.serverVersion < MIN_SERVER_VER_REQ_CALC_IMPLIED_VOLAT {
+	if c.ServerVersion() < MIN_SERVER_VER_REQ_CALC_IMPLIED_VOLAT {
 		c.wrapper.Error(reqID, currentTimeMillis(), UPDATE_TWS.Code, UPDATE_TWS.Msg+" It does not support calculateImpliedVolatility req.", "")
 		return
 	}
@@ -1540,7 +1618,7 @@ func (c *EClient) CancelCalculateOptionPrice(reqID int64) {
 	me.encodeInt(VERSION)
 	me.encodeInt64(reqID)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 func (c *EClient) cancelCalculateOptionPriceProtoBuf(cancelCalculateOptionPriceProto *protobuf.CancelCalculateOptionPrice) {
@@ -1567,7 +1645,7 @@ func (c *EClient) cancelCalculateOptionPriceProtoBuf(cancelCalculateOptionPriceP
 
 	me.encodeProto(msg)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 // ExerciseOptions exercises the option defined by the contract.
@@ -1598,22 +1676,22 @@ func (c *EClient) ExerciseOptions(reqID int64, contract *Contract, exerciseActio
 		return
 	}
 
-	if c.serverVersion < MIN_SERVER_VER_TRADING_CLASS && (contract.TradingClass != "" || contract.ConID > 0) {
+	if c.ServerVersion() < MIN_SERVER_VER_TRADING_CLASS && (contract.TradingClass != "" || contract.ConID > 0) {
 		c.wrapper.Error(reqID, currentTimeMillis(), UPDATE_TWS.Code, UPDATE_TWS.Msg+" It does not support conId, multiplier, tradingClass parameter in exerciseOptions.", "")
 		return
 	}
 
-	if c.serverVersion < MIN_SERVER_VER_MANUAL_ORDER_TIME_EXERCISE_OPTIONS && manualOrderTime != "" {
+	if c.ServerVersion() < MIN_SERVER_VER_MANUAL_ORDER_TIME_EXERCISE_OPTIONS && manualOrderTime != "" {
 		c.wrapper.Error(reqID, currentTimeMillis(), UPDATE_TWS.Code, UPDATE_TWS.Msg+" It does not support manual order time parameter in exerciseOptions.", "")
 		return
 	}
 
-	if c.serverVersion < MIN_SERVER_VER_CUSTOMER_ACCOUNT && customerAccount != "" {
+	if c.ServerVersion() < MIN_SERVER_VER_CUSTOMER_ACCOUNT && customerAccount != "" {
 		c.wrapper.Error(reqID, currentTimeMillis(), UPDATE_TWS.Code, UPDATE_TWS.Msg+" It does not support customer account parameter in exerciseOptions.", "")
 		return
 	}
 
-	if c.serverVersion < MIN_SERVER_VER_PROFESSIONAL_CUSTOMER && professionalCustomer {
+	if c.ServerVersion() < MIN_SERVER_VER_PROFESSIONAL_CUSTOMER && professionalCustomer {
 		c.wrapper.Error(reqID, currentTimeMillis(), UPDATE_TWS.Code, UPDATE_TWS.Msg+" It does not support professional customer parameter in exerciseOptions.", "")
 		return
 	}
@@ -1628,7 +1706,7 @@ func (c *EClient) ExerciseOptions(reqID int64, contract *Contract, exerciseActio
 	me.encodeInt64(reqID)
 
 	// send contract fields
-	if c.serverVersion >= MIN_SERVER_VER_TRADING_CLASS {
+	if c.ServerVersion() >= MIN_SERVER_VER_TRADING_CLASS {
 		me.encodeInt64(contract.ConID)
 	}
 
@@ -1642,7 +1720,7 @@ func (c *EClient) ExerciseOptions(reqID int64, contract *Contract, exerciseActio
 	me.encodeString(contract.Currency)
 	me.encodeString(contract.LocalSymbol)
 
-	if c.serverVersion >= MIN_SERVER_VER_TRADING_CLASS {
+	if c.ServerVersion() >= MIN_SERVER_VER_TRADING_CLASS {
 		me.encodeString(contract.TradingClass)
 	}
 
@@ -1651,19 +1729,19 @@ func (c *EClient) ExerciseOptions(reqID int64, contract *Contract, exerciseActio
 	me.encodeString(account)
 	me.encodeInt(override)
 
-	if c.serverVersion >= MIN_SERVER_VER_MANUAL_ORDER_TIME_EXERCISE_OPTIONS {
+	if c.ServerVersion() >= MIN_SERVER_VER_MANUAL_ORDER_TIME_EXERCISE_OPTIONS {
 		me.encodeString(manualOrderTime)
 	}
 
-	if c.serverVersion >= MIN_SERVER_VER_CUSTOMER_ACCOUNT {
+	if c.ServerVersion() >= MIN_SERVER_VER_CUSTOMER_ACCOUNT {
 		me.encodeString(customerAccount)
 	}
 
-	if c.serverVersion >= MIN_SERVER_VER_PROFESSIONAL_CUSTOMER {
+	if c.ServerVersion() >= MIN_SERVER_VER_PROFESSIONAL_CUSTOMER {
 		me.encodeBool(professionalCustomer)
 	}
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 func (c *EClient) exerciseOptionsProtoBuf(exerciseOptionsRequestProto *protobuf.ExerciseOptionsRequest) {
@@ -1690,7 +1768,7 @@ func (c *EClient) exerciseOptionsProtoBuf(exerciseOptionsRequestProto *protobuf.
 
 	me.encodeProto(msg)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 //	##########################################################################
@@ -1719,42 +1797,42 @@ func (c *EClient) PlaceOrder(orderID int64, contract *Contract, order *Order) {
 		return
 	}
 
-	if c.serverVersion < MIN_SERVER_VER_DELTA_NEUTRAL && contract.DeltaNeutralContract != nil {
+	if c.ServerVersion() < MIN_SERVER_VER_DELTA_NEUTRAL && contract.DeltaNeutralContract != nil {
 		c.wrapper.Error(orderID, currentTimeMillis(), UPDATE_TWS.Code, UPDATE_TWS.Msg+" It does not support delta-neutral orders.", "")
 		return
 	}
 
-	if c.serverVersion < MIN_SERVER_VER_SCALE_ORDERS2 && order.ScaleSubsLevelSize != UNSET_INT {
+	if c.ServerVersion() < MIN_SERVER_VER_SCALE_ORDERS2 && order.ScaleSubsLevelSize != UNSET_INT {
 		c.wrapper.Error(orderID, currentTimeMillis(), UPDATE_TWS.Code, UPDATE_TWS.Msg+" It does not support Subsequent Level Size for Scale orders.", "")
 		return
 	}
 
-	if c.serverVersion < MIN_SERVER_VER_ALGO_ORDERS && order.AlgoStrategy != "" {
+	if c.ServerVersion() < MIN_SERVER_VER_ALGO_ORDERS && order.AlgoStrategy != "" {
 		c.wrapper.Error(orderID, currentTimeMillis(), UPDATE_TWS.Code, UPDATE_TWS.Msg+" It does not support algo orders.", "")
 		return
 	}
 
-	if c.serverVersion < MIN_SERVER_VER_NOT_HELD && order.NotHeld {
+	if c.ServerVersion() < MIN_SERVER_VER_NOT_HELD && order.NotHeld {
 		c.wrapper.Error(orderID, currentTimeMillis(), UPDATE_TWS.Code, UPDATE_TWS.Msg+" It does not support notHeld parameter.", "")
 		return
 	}
 
-	if c.serverVersion < MIN_SERVER_VER_SEC_ID_TYPE && (contract.SecType != "" || contract.SecID != "") {
+	if c.ServerVersion() < MIN_SERVER_VER_SEC_ID_TYPE && (contract.SecType != "" || contract.SecID != "") {
 		c.wrapper.Error(orderID, currentTimeMillis(), UPDATE_TWS.Code, UPDATE_TWS.Msg+" It does not support secIdType and secId parameters.", "")
 		return
 	}
 
-	if c.serverVersion < MIN_SERVER_VER_PLACE_ORDER_CONID && contract.ConID != UNSET_INT && contract.ConID > 0 {
+	if c.ServerVersion() < MIN_SERVER_VER_PLACE_ORDER_CONID && contract.ConID != UNSET_INT && contract.ConID > 0 {
 		c.wrapper.Error(orderID, currentTimeMillis(), UPDATE_TWS.Code, UPDATE_TWS.Msg+" It does not support conId parameter.", "")
 		return
 	}
 
-	if c.serverVersion < MIN_SERVER_VER_SSHORTX && order.ExemptCode != -1 {
+	if c.ServerVersion() < MIN_SERVER_VER_SSHORTX && order.ExemptCode != -1 {
 		c.wrapper.Error(orderID, currentTimeMillis(), UPDATE_TWS.Code, UPDATE_TWS.Msg+" It does not support exemptCode parameter.", "")
 		return
 	}
 
-	if c.serverVersion < MIN_SERVER_VER_SSHORTX {
+	if c.ServerVersion() < MIN_SERVER_VER_SSHORTX {
 		for _, comboLeg := range contract.ComboLegs {
 			if comboLeg.ExemptCode != -1 {
 				c.wrapper.Error(orderID, currentTimeMillis(), UPDATE_TWS.Code, UPDATE_TWS.Msg+" It does not support exemptCode parameter.", "")
@@ -1763,24 +1841,24 @@ func (c *EClient) PlaceOrder(orderID int64, contract *Contract, order *Order) {
 		}
 	}
 
-	if c.serverVersion < MIN_SERVER_VER_HEDGE_ORDERS && order.HedgeType != "" {
+	if c.ServerVersion() < MIN_SERVER_VER_HEDGE_ORDERS && order.HedgeType != "" {
 		c.wrapper.Error(orderID, currentTimeMillis(), UPDATE_TWS.Code, UPDATE_TWS.Msg+" It does not support hedge orders.", "")
 		return
 	}
 
-	if c.serverVersion < MIN_SERVER_VER_OPT_OUT_SMART_ROUTING && order.OptOutSmartRouting {
+	if c.ServerVersion() < MIN_SERVER_VER_OPT_OUT_SMART_ROUTING && order.OptOutSmartRouting {
 		c.wrapper.Error(orderID, currentTimeMillis(), UPDATE_TWS.Code, UPDATE_TWS.Msg+" It does not support optOutSmartRouting parameter.", "")
 		return
 	}
 
-	if c.serverVersion < MIN_SERVER_VER_DELTA_NEUTRAL_CONID {
+	if c.ServerVersion() < MIN_SERVER_VER_DELTA_NEUTRAL_CONID {
 		if order.DeltaNeutralConID > 0 || order.DeltaNeutralSettlingFirm != "" || order.DeltaNeutralClearingAccount != "" || order.DeltaNeutralClearingIntent != "" {
 			c.wrapper.Error(orderID, currentTimeMillis(), UPDATE_TWS.Code, UPDATE_TWS.Msg+" It does not support deltaNeutral parameters: ConId, SettlingFirm, ClearingAccount, ClearingIntent.", "")
 			return
 		}
 	}
 
-	if c.serverVersion < MIN_SERVER_VER_DELTA_NEUTRAL_OPEN_CLOSE {
+	if c.ServerVersion() < MIN_SERVER_VER_DELTA_NEUTRAL_OPEN_CLOSE {
 		if order.DeltaNeutralOpenClose != "" ||
 			order.DeltaNeutralShortSale ||
 			order.DeltaNeutralShortSaleSlot > 0 ||
@@ -1790,7 +1868,7 @@ func (c *EClient) PlaceOrder(orderID int64, contract *Contract, order *Order) {
 		}
 	}
 
-	if c.serverVersion < MIN_SERVER_VER_SCALE_ORDERS3 {
+	if c.ServerVersion() < MIN_SERVER_VER_SCALE_ORDERS3 {
 		if (order.ScalePriceIncrement > 0 && order.ScalePriceIncrement != UNSET_FLOAT) &&
 			(order.ScalePriceAdjustValue != UNSET_FLOAT ||
 				order.ScalePriceAdjustInterval != UNSET_INT ||
@@ -1806,7 +1884,7 @@ func (c *EClient) PlaceOrder(orderID int64, contract *Contract, order *Order) {
 		}
 	}
 
-	if c.serverVersion < MIN_SERVER_VER_ORDER_COMBO_LEGS_PRICE && contract.SecType == "BAG" {
+	if c.ServerVersion() < MIN_SERVER_VER_ORDER_COMBO_LEGS_PRICE && contract.SecType == "BAG" {
 		for _, orderComboLeg := range order.OrderComboLegs {
 			if orderComboLeg.Price != UNSET_FLOAT {
 				c.wrapper.Error(orderID, currentTimeMillis(), UPDATE_TWS.Code, UPDATE_TWS.Msg+"  It does not support per-leg prices for order combo legs.", "")
@@ -1815,98 +1893,98 @@ func (c *EClient) PlaceOrder(orderID int64, contract *Contract, order *Order) {
 
 		}
 	}
-	if c.serverVersion < MIN_SERVER_VER_TRAILING_PERCENT && order.TrailingPercent != UNSET_FLOAT {
+	if c.ServerVersion() < MIN_SERVER_VER_TRAILING_PERCENT && order.TrailingPercent != UNSET_FLOAT {
 		c.wrapper.Error(orderID, currentTimeMillis(), UPDATE_TWS.Code, UPDATE_TWS.Msg+" It does not support trailing percent parameter.", "")
 		return
 	}
 
-	if c.serverVersion < MIN_SERVER_VER_TRADING_CLASS && contract.TradingClass != "" {
+	if c.ServerVersion() < MIN_SERVER_VER_TRADING_CLASS && contract.TradingClass != "" {
 		c.wrapper.Error(orderID, currentTimeMillis(), UPDATE_TWS.Code, UPDATE_TWS.Msg+" It does not support tradingClass parameter in placeOrder.", "")
 		return
 	}
 
-	if c.serverVersion < MIN_SERVER_VER_SCALE_TABLE &&
+	if c.ServerVersion() < MIN_SERVER_VER_SCALE_TABLE &&
 		(order.ScaleTable != "" || order.ActiveStartTime != "" || order.ActiveStopTime != "") {
 		c.wrapper.Error(orderID, currentTimeMillis(), UPDATE_TWS.Code, UPDATE_TWS.Msg+" It does not support scaleTable, activeStartTime and activeStopTime parameters.", "")
 		return
 	}
 
-	if c.serverVersion < MIN_SERVER_VER_ALGO_ID && order.AlgoID != "" {
+	if c.ServerVersion() < MIN_SERVER_VER_ALGO_ID && order.AlgoID != "" {
 		c.wrapper.Error(orderID, currentTimeMillis(), UPDATE_TWS.Code, UPDATE_TWS.Msg+" It does not support algoId parameter.", "")
 		return
 	}
 
-	if c.serverVersion < MIN_SERVER_VER_ORDER_SOLICITED && order.Solicited {
+	if c.ServerVersion() < MIN_SERVER_VER_ORDER_SOLICITED && order.Solicited {
 		c.wrapper.Error(orderID, currentTimeMillis(), UPDATE_TWS.Code, UPDATE_TWS.Msg+" It does not support order solicited parameter.", "")
 		return
 	}
 
-	if c.serverVersion < MIN_SERVER_VER_MODELS_SUPPORT && order.ModelCode != "" {
+	if c.ServerVersion() < MIN_SERVER_VER_MODELS_SUPPORT && order.ModelCode != "" {
 		c.wrapper.Error(orderID, currentTimeMillis(), UPDATE_TWS.Code, UPDATE_TWS.Msg+" It does not support model code parameter.", "")
 		return
 	}
 
-	if c.serverVersion < MIN_SERVER_VER_EXT_OPERATOR && order.ExtOperator != "" {
+	if c.ServerVersion() < MIN_SERVER_VER_EXT_OPERATOR && order.ExtOperator != "" {
 		c.wrapper.Error(orderID, currentTimeMillis(), UPDATE_TWS.Code, UPDATE_TWS.Msg+" It does not support ext operator parameter", "")
 		return
 	}
 
-	if c.serverVersion < MIN_SERVER_VER_SOFT_DOLLAR_TIER && (order.SoftDollarTier.Name != "" || order.SoftDollarTier.Value != "") {
+	if c.ServerVersion() < MIN_SERVER_VER_SOFT_DOLLAR_TIER && (order.SoftDollarTier.Name != "" || order.SoftDollarTier.Value != "") {
 		c.wrapper.Error(orderID, currentTimeMillis(), UPDATE_TWS.Code, UPDATE_TWS.Msg+" It does not support soft dollar tier", "")
 		return
 	}
 
-	if c.serverVersion < MIN_SERVER_VER_CASH_QTY && order.CashQty != UNSET_FLOAT {
+	if c.ServerVersion() < MIN_SERVER_VER_CASH_QTY && order.CashQty != UNSET_FLOAT {
 		c.wrapper.Error(orderID, currentTimeMillis(), UPDATE_TWS.Code, UPDATE_TWS.Msg+" It does not support cash quantity parameter", "")
 		return
 	}
 
-	if c.serverVersion < MIN_SERVER_VER_DECISION_MAKER && (order.Mifid2DecisionMaker != "" || order.Mifid2DecisionAlgo != "") {
+	if c.ServerVersion() < MIN_SERVER_VER_DECISION_MAKER && (order.Mifid2DecisionMaker != "" || order.Mifid2DecisionAlgo != "") {
 		c.wrapper.Error(orderID, currentTimeMillis(), UPDATE_TWS.Code, UPDATE_TWS.Msg+" It does not support MIFID II decision maker parameters", "")
 		return
 	}
 
-	if c.serverVersion < MIN_SERVER_VER_MIFID_EXECUTION && (order.Mifid2ExecutionTrader != "" || order.Mifid2ExecutionAlgo != "") {
+	if c.ServerVersion() < MIN_SERVER_VER_MIFID_EXECUTION && (order.Mifid2ExecutionTrader != "" || order.Mifid2ExecutionAlgo != "") {
 		c.wrapper.Error(orderID, currentTimeMillis(), UPDATE_TWS.Code, UPDATE_TWS.Msg+" It does not support MIFID II execution parameters", "")
 		return
 	}
 
-	if c.serverVersion < MIN_SERVER_VER_AUTO_PRICE_FOR_HEDGE && order.DontUseAutoPriceForHedge {
+	if c.ServerVersion() < MIN_SERVER_VER_AUTO_PRICE_FOR_HEDGE && order.DontUseAutoPriceForHedge {
 		c.wrapper.Error(orderID, currentTimeMillis(), UPDATE_TWS.Code, UPDATE_TWS.Msg+" It does not support dontUseAutoPriceForHedge parameter", "")
 		return
 	}
 
-	if c.serverVersion < MIN_SERVER_VER_ORDER_CONTAINER && order.IsOmsContainer {
+	if c.ServerVersion() < MIN_SERVER_VER_ORDER_CONTAINER && order.IsOmsContainer {
 		c.wrapper.Error(orderID, currentTimeMillis(), UPDATE_TWS.Code, UPDATE_TWS.Msg+" It does not support oms container parameter", "")
 		return
 	}
 
-	if c.serverVersion < MIN_SERVER_VER_PRICE_MGMT_ALGO && order.UsePriceMgmtAlgo != USE_PRICE_MGMT_ALGO_DEFAULT {
+	if c.ServerVersion() < MIN_SERVER_VER_PRICE_MGMT_ALGO && order.UsePriceMgmtAlgo != USE_PRICE_MGMT_ALGO_DEFAULT {
 		c.wrapper.Error(orderID, currentTimeMillis(), UPDATE_TWS.Code, UPDATE_TWS.Msg+" It does not support Use price management algo requests", "")
 		return
 	}
 
-	if c.serverVersion < MIN_SERVER_VER_DURATION && order.Duration != UNSET_INT {
+	if c.ServerVersion() < MIN_SERVER_VER_DURATION && order.Duration != UNSET_INT {
 		c.wrapper.Error(orderID, currentTimeMillis(), UPDATE_TWS.Code, UPDATE_TWS.Msg+" It does not support duration attribute", "")
 		return
 	}
 
-	if c.serverVersion < MIN_SERVER_VER_POST_TO_ATS && order.PostToAts != UNSET_INT {
+	if c.ServerVersion() < MIN_SERVER_VER_POST_TO_ATS && order.PostToAts != UNSET_INT {
 		c.wrapper.Error(orderID, currentTimeMillis(), UPDATE_TWS.Code, UPDATE_TWS.Msg+" It does not support postToAts attribute", "")
 		return
 	}
 
-	if c.serverVersion < MIN_SERVER_VER_AUTO_CANCEL_PARENT && order.AutoCancelParent {
+	if c.ServerVersion() < MIN_SERVER_VER_AUTO_CANCEL_PARENT && order.AutoCancelParent {
 		c.wrapper.Error(orderID, currentTimeMillis(), UPDATE_TWS.Code, UPDATE_TWS.Msg+" It does not support autoCancelParent attribute", "")
 		return
 	}
 
-	if c.serverVersion < MIN_SERVER_VER_ADVANCED_ORDER_REJECT && order.AdvancedErrorOverride != "" {
+	if c.ServerVersion() < MIN_SERVER_VER_ADVANCED_ORDER_REJECT && order.AdvancedErrorOverride != "" {
 		c.wrapper.Error(orderID, currentTimeMillis(), UPDATE_TWS.Code, UPDATE_TWS.Msg+" It does not support advanced error override attribute", "")
 		return
 	}
 
-	if c.serverVersion < MIN_SERVER_VER_PEGBEST_PEGMID_OFFSETS {
+	if c.ServerVersion() < MIN_SERVER_VER_PEGBEST_PEGMID_OFFSETS {
 		if order.MinTradeQty != UNSET_INT ||
 			order.MinCompeteSize != UNSET_INT ||
 			order.CompeteAgainstBestOffset != UNSET_FLOAT ||
@@ -1919,33 +1997,33 @@ func (c *EClient) PlaceOrder(orderID int64, contract *Contract, order *Order) {
 		}
 	}
 
-	if c.serverVersion < MIN_SERVER_VER_CUSTOMER_ACCOUNT && order.CustomerAccount != "" {
+	if c.ServerVersion() < MIN_SERVER_VER_CUSTOMER_ACCOUNT && order.CustomerAccount != "" {
 		c.wrapper.Error(orderID, currentTimeMillis(), UPDATE_TWS.Code, UPDATE_TWS.Msg+" It does not support customer account parameter", "")
 		return
 	}
 
-	if c.serverVersion < MIN_SERVER_VER_PROFESSIONAL_CUSTOMER && order.ProfessionalCustomer {
+	if c.ServerVersion() < MIN_SERVER_VER_PROFESSIONAL_CUSTOMER && order.ProfessionalCustomer {
 		c.wrapper.Error(orderID, currentTimeMillis(), UPDATE_TWS.Code, UPDATE_TWS.Msg+" It does not support professional customer parameter", "")
 		return
 	}
 
-	if c.serverVersion < MIN_SERVER_VER_INCLUDE_OVERNIGHT && order.IncludeOvernight {
+	if c.ServerVersion() < MIN_SERVER_VER_INCLUDE_OVERNIGHT && order.IncludeOvernight {
 		c.wrapper.Error(orderID, currentTimeMillis(), UPDATE_TWS.Code, UPDATE_TWS.Msg+" It does not support include overnight parameter", "")
 		return
 	}
 
-	if c.serverVersion < MIN_SERVER_VER_CME_TAGGING_FIELDS && order.ManualOrderIndicator != UNSET_INT {
+	if c.ServerVersion() < MIN_SERVER_VER_CME_TAGGING_FIELDS && order.ManualOrderIndicator != UNSET_INT {
 		c.wrapper.Error(orderID, currentTimeMillis(), UPDATE_TWS.Code, UPDATE_TWS.Msg+" It does not support manual indicator parameter", "")
 		return
 	}
 
-	if c.serverVersion < MIN_SERVER_VER_IMBALANCE_ONLY && order.ImbalanceOnly {
+	if c.ServerVersion() < MIN_SERVER_VER_IMBALANCE_ONLY && order.ImbalanceOnly {
 		c.wrapper.Error(orderID, currentTimeMillis(), UPDATE_TWS.Code, UPDATE_TWS.Msg+" It does not support imbalance only parameter", "")
 		return
 	}
 
 	var VERSION int
-	if c.serverVersion < MIN_SERVER_VER_NOT_HELD {
+	if c.ServerVersion() < MIN_SERVER_VER_NOT_HELD {
 		VERSION = 27
 	} else {
 		VERSION = 45
@@ -1956,14 +2034,14 @@ func (c *EClient) PlaceOrder(orderID int64, contract *Contract, order *Order) {
 
 	me.encodeMsgID(PLACE_ORDER)
 
-	if c.serverVersion < MIN_SERVER_VER_ORDER_CONTAINER {
+	if c.ServerVersion() < MIN_SERVER_VER_ORDER_CONTAINER {
 		me.encodeInt(VERSION)
 	}
 
 	me.encodeInt64(orderID)
 
 	// send contract fields
-	if c.serverVersion >= MIN_SERVER_VER_PLACE_ORDER_CONID {
+	if c.ServerVersion() >= MIN_SERVER_VER_PLACE_ORDER_CONID {
 		me.encodeInt64(contract.ConID)
 	}
 	me.encodeString(contract.Symbol)
@@ -1977,11 +2055,11 @@ func (c *EClient) PlaceOrder(orderID int64, contract *Contract, order *Order) {
 	me.encodeString(contract.Currency)
 	me.encodeString(contract.LocalSymbol) // srv v2 and above
 
-	if c.serverVersion >= MIN_SERVER_VER_TRADING_CLASS {
+	if c.ServerVersion() >= MIN_SERVER_VER_TRADING_CLASS {
 		me.encodeString(contract.TradingClass)
 	}
 
-	if c.serverVersion >= MIN_SERVER_VER_SEC_ID_TYPE {
+	if c.ServerVersion() >= MIN_SERVER_VER_SEC_ID_TYPE {
 		me.encodeString(contract.SecIDType)
 		me.encodeString(contract.SecID)
 	}
@@ -1989,7 +2067,7 @@ func (c *EClient) PlaceOrder(orderID int64, contract *Contract, order *Order) {
 	// send main order fields
 	me.encodeString(order.Action)
 
-	if c.serverVersion >= MIN_SERVER_VER_FRACTIONAL_POSITIONS {
+	if c.ServerVersion() >= MIN_SERVER_VER_FRACTIONAL_POSITIONS {
 		me.encodeDecimal(order.TotalQuantity)
 	} else {
 		me.encodeInt64(order.TotalQuantity.Int())
@@ -1997,7 +2075,7 @@ func (c *EClient) PlaceOrder(orderID int64, contract *Contract, order *Order) {
 
 	me.encodeString(order.OrderType)
 
-	if c.serverVersion < MIN_SERVER_VER_ORDER_COMBO_LEGS_PRICE {
+	if c.ServerVersion() < MIN_SERVER_VER_ORDER_COMBO_LEGS_PRICE {
 		if order.LmtPrice != UNSET_FLOAT {
 			me.encodeFloat64(order.LmtPrice)
 		} else {
@@ -2007,7 +2085,7 @@ func (c *EClient) PlaceOrder(orderID int64, contract *Contract, order *Order) {
 		me.encodeFloatMax(order.LmtPrice)
 	}
 
-	if c.serverVersion < MIN_SERVER_VER_TRAILING_PERCENT {
+	if c.ServerVersion() < MIN_SERVER_VER_TRAILING_PERCENT {
 		if order.AuxPrice != UNSET_FLOAT {
 			me.encodeFloat64(order.AuxPrice)
 		} else {
@@ -2049,14 +2127,14 @@ func (c *EClient) PlaceOrder(orderID int64, contract *Contract, order *Order) {
 
 			me.encodeInt64(comboLeg.ShortSaleSlot)       // srv v35 and above
 			me.encodeString(comboLeg.DesignatedLocation) // srv v35 and above
-			if c.serverVersion >= MIN_SERVER_VER_SSHORTX_OLD {
+			if c.ServerVersion() >= MIN_SERVER_VER_SSHORTX_OLD {
 				me.encodeInt64(comboLeg.ExemptCode)
 			}
 		}
 	}
 
 	// Send order combo legs for BAG requests
-	if c.serverVersion >= MIN_SERVER_VER_ORDER_COMBO_LEGS_PRICE && contract.SecType == "BAG" {
+	if c.ServerVersion() >= MIN_SERVER_VER_ORDER_COMBO_LEGS_PRICE && contract.SecType == "BAG" {
 		orderComboLegsCount := len(order.OrderComboLegs)
 		me.encodeInt(orderComboLegsCount)
 		for _, orderComboLeg := range order.OrderComboLegs {
@@ -2064,7 +2142,7 @@ func (c *EClient) PlaceOrder(orderID int64, contract *Contract, order *Order) {
 		}
 	}
 
-	if c.serverVersion >= MIN_SERVER_VER_SMART_COMBO_ROUTING_PARAMS && contract.SecType == "BAG" {
+	if c.ServerVersion() >= MIN_SERVER_VER_SMART_COMBO_ROUTING_PARAMS && contract.SecType == "BAG" {
 		smartComboRoutingParamsCount := len(order.SmartComboRoutingParams)
 		me.encodeInt(smartComboRoutingParamsCount)
 		for _, tv := range order.SmartComboRoutingParams {
@@ -2095,11 +2173,11 @@ func (c *EClient) PlaceOrder(orderID int64, contract *Contract, order *Order) {
 	me.encodeString(order.FAMethod)     //srv v13 and above
 	me.encodeString(order.FAPercentage) //srv v13 and above
 
-	if c.serverVersion < MIN_SERVER_VER_FA_PROFILE_DESUPPORT {
+	if c.ServerVersion() < MIN_SERVER_VER_FA_PROFILE_DESUPPORT {
 		me.encodeString("") // send deprecated faProfile field
 	}
 
-	if c.serverVersion >= MIN_SERVER_VER_MODELS_SUPPORT {
+	if c.ServerVersion() >= MIN_SERVER_VER_MODELS_SUPPORT {
 		me.encodeString(order.ModelCode)
 	}
 
@@ -2107,7 +2185,7 @@ func (c *EClient) PlaceOrder(orderID int64, contract *Contract, order *Order) {
 	me.encodeInt64(order.ShortSaleSlot)       // 0 for retail, 1 or 2 for institutions
 	me.encodeString(order.DesignatedLocation) // populate only when shortSaleSlot = 2.
 
-	if c.serverVersion >= MIN_SERVER_VER_SSHORTX_OLD {
+	if c.ServerVersion() >= MIN_SERVER_VER_SSHORTX_OLD {
 		me.encodeInt64(order.ExemptCode)
 	}
 
@@ -2137,14 +2215,14 @@ func (c *EClient) PlaceOrder(orderID int64, contract *Contract, order *Order) {
 	me.encodeString(order.DeltaNeutralOrderType)  // srv v28 and above
 	me.encodeFloatMax(order.DeltaNeutralAuxPrice) // srv v28 and above
 
-	if c.serverVersion >= MIN_SERVER_VER_DELTA_NEUTRAL_CONID && order.DeltaNeutralOrderType != "" {
+	if c.ServerVersion() >= MIN_SERVER_VER_DELTA_NEUTRAL_CONID && order.DeltaNeutralOrderType != "" {
 		me.encodeInt64(order.DeltaNeutralConID)
 		me.encodeString(order.DeltaNeutralSettlingFirm)
 		me.encodeString(order.DeltaNeutralClearingAccount)
 		me.encodeString(order.DeltaNeutralClearingIntent)
 	}
 
-	if c.serverVersion >= MIN_SERVER_VER_DELTA_NEUTRAL_OPEN_CLOSE && order.DeltaNeutralOrderType != "" {
+	if c.ServerVersion() >= MIN_SERVER_VER_DELTA_NEUTRAL_OPEN_CLOSE && order.DeltaNeutralOrderType != "" {
 		me.encodeString(order.DeltaNeutralOpenClose)
 		me.encodeBool(order.DeltaNeutralShortSale)
 		me.encodeInt64(order.DeltaNeutralShortSaleSlot)
@@ -2157,12 +2235,12 @@ func (c *EClient) PlaceOrder(orderID int64, contract *Contract, order *Order) {
 
 	me.encodeFloatMax(order.TrailStopPrice) // srv v30 and above
 
-	if c.serverVersion >= MIN_SERVER_VER_TRAILING_PERCENT {
+	if c.ServerVersion() >= MIN_SERVER_VER_TRAILING_PERCENT {
 		me.encodeFloatMax(order.TrailingPercent)
 	}
 
 	// scale orders
-	if c.serverVersion >= MIN_SERVER_VER_SCALE_ORDERS2 {
+	if c.ServerVersion() >= MIN_SERVER_VER_SCALE_ORDERS2 {
 		me.encodeIntMax(order.ScaleInitLevelSize)
 		me.encodeIntMax(order.ScaleSubsLevelSize)
 	} else {
@@ -2173,7 +2251,7 @@ func (c *EClient) PlaceOrder(orderID int64, contract *Contract, order *Order) {
 
 	me.encodeFloatMax(order.ScalePriceIncrement)
 
-	if c.serverVersion >= MIN_SERVER_VER_SCALE_ORDERS3 && order.ScalePriceIncrement != UNSET_FLOAT && order.ScalePriceIncrement > 0.0 {
+	if c.ServerVersion() >= MIN_SERVER_VER_SCALE_ORDERS3 && order.ScalePriceIncrement != UNSET_FLOAT && order.ScalePriceIncrement > 0.0 {
 		me.encodeFloatMax(order.ScalePriceAdjustValue)
 		me.encodeIntMax(order.ScalePriceAdjustInterval)
 		me.encodeFloatMax(order.ScaleProfitOffset)
@@ -2183,34 +2261,34 @@ func (c *EClient) PlaceOrder(orderID int64, contract *Contract, order *Order) {
 		me.encodeBool(order.ScaleRandomPercent)
 	}
 
-	if c.serverVersion >= MIN_SERVER_VER_SCALE_TABLE {
+	if c.ServerVersion() >= MIN_SERVER_VER_SCALE_TABLE {
 		me.encodeString(order.ScaleTable)
 		me.encodeString(order.ActiveStartTime)
 		me.encodeString(order.ActiveStopTime)
 	}
 
 	// hedge orders
-	if c.serverVersion >= MIN_SERVER_VER_HEDGE_ORDERS {
+	if c.ServerVersion() >= MIN_SERVER_VER_HEDGE_ORDERS {
 		me.encodeString(order.HedgeType)
 		if order.HedgeType != "" {
 			me.encodeString(order.HedgeParam)
 		}
 	}
 
-	if c.serverVersion >= MIN_SERVER_VER_OPT_OUT_SMART_ROUTING {
+	if c.ServerVersion() >= MIN_SERVER_VER_OPT_OUT_SMART_ROUTING {
 		me.encodeBool(order.OptOutSmartRouting)
 	}
 
-	if c.serverVersion >= MIN_SERVER_VER_PTA_ORDERS {
+	if c.ServerVersion() >= MIN_SERVER_VER_PTA_ORDERS {
 		me.encodeString(order.ClearingAccount)
 		me.encodeString(order.ClearingIntent)
 	}
 
-	if c.serverVersion >= MIN_SERVER_VER_NOT_HELD {
+	if c.ServerVersion() >= MIN_SERVER_VER_NOT_HELD {
 		me.encodeBool(order.NotHeld)
 	}
 
-	if c.serverVersion >= MIN_SERVER_VER_DELTA_NEUTRAL {
+	if c.ServerVersion() >= MIN_SERVER_VER_DELTA_NEUTRAL {
 		if contract.DeltaNeutralContract != nil {
 			me.encodeBool(true)
 			me.encodeInt64(contract.DeltaNeutralContract.ConID)
@@ -2221,7 +2299,7 @@ func (c *EClient) PlaceOrder(orderID int64, contract *Contract, order *Order) {
 		}
 	}
 
-	if c.serverVersion >= MIN_SERVER_VER_ALGO_ORDERS {
+	if c.ServerVersion() >= MIN_SERVER_VER_ALGO_ORDERS {
 		me.encodeString(order.AlgoStrategy)
 
 		if order.AlgoStrategy != "" {
@@ -2234,27 +2312,27 @@ func (c *EClient) PlaceOrder(orderID int64, contract *Contract, order *Order) {
 		}
 	}
 
-	if c.serverVersion >= MIN_SERVER_VER_ALGO_ID {
+	if c.ServerVersion() >= MIN_SERVER_VER_ALGO_ID {
 		me.encodeString(order.AlgoID)
 	}
 
 	me.encodeBool(order.WhatIf) // srv v36 and above
 
 	// send miscOptions parameter
-	if c.serverVersion >= MIN_SERVER_VER_LINKING {
+	if c.ServerVersion() >= MIN_SERVER_VER_LINKING {
 		me.encodeTagValues(order.OrderMiscOptions)
 	}
 
-	if c.serverVersion >= MIN_SERVER_VER_ORDER_SOLICITED {
+	if c.ServerVersion() >= MIN_SERVER_VER_ORDER_SOLICITED {
 		me.encodeBool(order.Solicited)
 	}
 
-	if c.serverVersion >= MIN_SERVER_VER_RANDOMIZE_SIZE_AND_PRICE {
+	if c.ServerVersion() >= MIN_SERVER_VER_RANDOMIZE_SIZE_AND_PRICE {
 		me.encodeBool(order.RandomizeSize)
 		me.encodeBool(order.RandomizePrice)
 	}
 
-	if c.serverVersion >= MIN_SERVER_VER_PEGGED_TO_BENCHMARK {
+	if c.ServerVersion() >= MIN_SERVER_VER_PEGGED_TO_BENCHMARK {
 		if order.OrderType == "PEG BENCH" {
 			me.encodeInt64(order.ReferenceContractID)
 			me.encodeBool(order.IsPeggedChangeAmountDecrease)
@@ -2283,66 +2361,66 @@ func (c *EClient) PlaceOrder(orderID int64, contract *Contract, order *Order) {
 		me.encodeFloat64(order.AdjustedTrailingAmount)
 		me.encodeInt64(order.AdjustableTrailingUnit)
 	}
-	if c.serverVersion >= MIN_SERVER_VER_EXT_OPERATOR {
+	if c.ServerVersion() >= MIN_SERVER_VER_EXT_OPERATOR {
 		me.encodeString(order.ExtOperator)
 	}
 
-	if c.serverVersion >= MIN_SERVER_VER_SOFT_DOLLAR_TIER {
+	if c.ServerVersion() >= MIN_SERVER_VER_SOFT_DOLLAR_TIER {
 		me.encodeString(order.SoftDollarTier.Name)
 		me.encodeString(order.SoftDollarTier.Value)
 	}
 
-	if c.serverVersion >= MIN_SERVER_VER_CASH_QTY {
+	if c.ServerVersion() >= MIN_SERVER_VER_CASH_QTY {
 		me.encodeFloatMax(order.CashQty)
 	}
 
-	if c.serverVersion >= MIN_SERVER_VER_DECISION_MAKER {
+	if c.ServerVersion() >= MIN_SERVER_VER_DECISION_MAKER {
 		me.encodeString(order.Mifid2DecisionMaker)
 		me.encodeString(order.Mifid2DecisionAlgo)
 	}
 
-	if c.serverVersion >= MIN_SERVER_VER_MIFID_EXECUTION {
+	if c.ServerVersion() >= MIN_SERVER_VER_MIFID_EXECUTION {
 		me.encodeString(order.Mifid2ExecutionTrader)
 		me.encodeString(order.Mifid2ExecutionAlgo)
 	}
 
-	if c.serverVersion >= MIN_SERVER_VER_AUTO_PRICE_FOR_HEDGE {
+	if c.ServerVersion() >= MIN_SERVER_VER_AUTO_PRICE_FOR_HEDGE {
 		me.encodeBool(order.DontUseAutoPriceForHedge)
 	}
 
-	if c.serverVersion >= MIN_SERVER_VER_ORDER_CONTAINER {
+	if c.ServerVersion() >= MIN_SERVER_VER_ORDER_CONTAINER {
 		me.encodeBool(order.IsOmsContainer)
 	}
 
-	if c.serverVersion >= MIN_SERVER_VER_D_PEG_ORDERS {
+	if c.ServerVersion() >= MIN_SERVER_VER_D_PEG_ORDERS {
 		me.encodeBool(order.DiscretionaryUpToLimitPrice)
 	}
 
-	if c.serverVersion >= MIN_SERVER_VER_PRICE_MGMT_ALGO {
+	if c.ServerVersion() >= MIN_SERVER_VER_PRICE_MGMT_ALGO {
 		me.encodeIntMax(order.UsePriceMgmtAlgo)
 	}
 
-	if c.serverVersion >= MIN_SERVER_VER_DURATION {
+	if c.ServerVersion() >= MIN_SERVER_VER_DURATION {
 		me.encodeInt64(order.Duration)
 	}
 
-	if c.serverVersion >= MIN_SERVER_VER_POST_TO_ATS {
+	if c.ServerVersion() >= MIN_SERVER_VER_POST_TO_ATS {
 		me.encodeInt64(order.PostToAts)
 	}
 
-	if c.serverVersion >= MIN_SERVER_VER_AUTO_CANCEL_PARENT {
+	if c.ServerVersion() >= MIN_SERVER_VER_AUTO_CANCEL_PARENT {
 		me.encodeBool(order.AutoCancelParent)
 	}
 
-	if c.serverVersion >= MIN_SERVER_VER_ADVANCED_ORDER_REJECT {
+	if c.ServerVersion() >= MIN_SERVER_VER_ADVANCED_ORDER_REJECT {
 		me.encodeString(order.AdvancedErrorOverride)
 	}
 
-	if c.serverVersion >= MIN_SERVER_VER_MANUAL_ORDER_TIME {
+	if c.ServerVersion() >= MIN_SERVER_VER_MANUAL_ORDER_TIME {
 		me.encodeString(order.ManualOrderTime)
 	}
 
-	if c.serverVersion >= MIN_SERVER_VER_PEGBEST_PEGMID_OFFSETS {
+	if c.ServerVersion() >= MIN_SERVER_VER_PEGBEST_PEGMID_OFFSETS {
 		var sendMidOffsets bool
 		if contract.Exchange == "IBKRATS" {
 			me.encodeIntMax(order.MinTradeQty)
@@ -2363,32 +2441,32 @@ func (c *EClient) PlaceOrder(orderID int64, contract *Contract, order *Order) {
 		}
 	}
 
-	if c.serverVersion >= MIN_SERVER_VER_CUSTOMER_ACCOUNT {
+	if c.ServerVersion() >= MIN_SERVER_VER_CUSTOMER_ACCOUNT {
 		me.encodeString(order.CustomerAccount)
 	}
 
-	if c.serverVersion >= MIN_SERVER_VER_PROFESSIONAL_CUSTOMER {
+	if c.ServerVersion() >= MIN_SERVER_VER_PROFESSIONAL_CUSTOMER {
 		me.encodeBool(order.ProfessionalCustomer)
 	}
 
-	if c.serverVersion >= MIN_SERVER_VER_RFQ_FIELDS && c.serverVersion < MIN_SERVER_VER_UNDO_RFQ_FIELDS {
+	if c.ServerVersion() >= MIN_SERVER_VER_RFQ_FIELDS && c.ServerVersion() < MIN_SERVER_VER_UNDO_RFQ_FIELDS {
 		me.encodeString("")
 		me.encodeInt64(UNSET_INT)
 	}
 
-	if c.serverVersion >= MIN_SERVER_VER_INCLUDE_OVERNIGHT {
+	if c.ServerVersion() >= MIN_SERVER_VER_INCLUDE_OVERNIGHT {
 		me.encodeBool(order.IncludeOvernight)
 	}
 
-	if c.serverVersion >= MIN_SERVER_VER_CME_TAGGING_FIELDS {
+	if c.ServerVersion() >= MIN_SERVER_VER_CME_TAGGING_FIELDS {
 		me.encodeInt64(order.ManualOrderIndicator)
 	}
 
-	if c.serverVersion >= MIN_SERVER_VER_IMBALANCE_ONLY {
+	if c.ServerVersion() >= MIN_SERVER_VER_IMBALANCE_ONLY {
 		me.encodeBool(order.ImbalanceOnly)
 	}
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 func (c *EClient) placeOrderProtoBuf(placeOrderRequestProto *protobuf.PlaceOrderRequest) {
@@ -2432,11 +2510,11 @@ func (c *EClient) placeOrderProtoBuf(placeOrderRequestProto *protobuf.PlaceOrder
 
 	me.encodeProto(msg)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 func (c *EClient) validateOrderParameters(order *protobuf.Order) string {
-	if c.serverVersion < MIN_SERVER_VER_ADDITIONAL_ORDER_PARAMS_1 {
+	if c.ServerVersion() < MIN_SERVER_VER_ADDITIONAL_ORDER_PARAMS_1 {
 		if order.Deactivate != nil {
 			return "deactivate"
 		}
@@ -2454,7 +2532,7 @@ func (c *EClient) validateOrderParameters(order *protobuf.Order) string {
 		}
 	}
 
-	if c.serverVersion < MIN_SERVER_VER_ADDITIONAL_ORDER_PARAMS_2 {
+	if c.ServerVersion() < MIN_SERVER_VER_ADDITIONAL_ORDER_PARAMS_2 {
 		if order.RouteMarketableToBbo != nil {
 			return "routeMarketableToBbo"
 		}
@@ -2468,13 +2546,13 @@ func (c *EClient) validateOrderParameters(order *protobuf.Order) string {
 		}
 	}
 
-	if c.serverVersion < MIN_SERVER_VER_HEDGE_MAX_SIZE {
+	if c.ServerVersion() < MIN_SERVER_VER_HEDGE_MAX_SIZE {
 		if order.HedgeMaxSize != nil {
 			return "hedgeMaxSize"
 		}
 	}
 
-	if c.serverVersion < UNIFIED_VERSION_COND_ORDER_WITH_OVERNIGHT_PARAM {
+	if c.ServerVersion() < UNIFIED_VERSION_COND_ORDER_WITH_OVERNIGHT_PARAM {
 		if order.ConditionsIncludeOvernight != nil {
 			return "conditionsIncludeOvernight"
 		}
@@ -2483,7 +2561,7 @@ func (c *EClient) validateOrderParameters(order *protobuf.Order) string {
 }
 
 func (c *EClient) validateAttachedOrdersParameters(attachedOrders *protobuf.AttachedOrders) string {
-	if c.serverVersion < MIN_SERVER_VER_ATTACHED_ORDERS {
+	if c.ServerVersion() < MIN_SERVER_VER_ATTACHED_ORDERS {
 		if attachedOrders.SlOrderId != nil {
 			return "slOrderId"
 		}
@@ -2514,12 +2592,12 @@ func (c *EClient) CancelOrder(orderID int64, orderCancel OrderCancel) {
 		return
 	}
 
-	if c.serverVersion < MIN_SERVER_VER_MANUAL_ORDER_TIME && orderCancel.ManualOrderCancelTime != "" {
+	if c.ServerVersion() < MIN_SERVER_VER_MANUAL_ORDER_TIME && orderCancel.ManualOrderCancelTime != "" {
 		c.wrapper.Error(orderID, currentTimeMillis(), UPDATE_TWS.Code, UPDATE_TWS.Msg+" It does not support manual order cancel time attribute.", "")
 		return
 	}
 
-	if c.serverVersion < MIN_SERVER_VER_CME_TAGGING_FIELDS && (orderCancel.ExtOperator != "" || orderCancel.ManualOrderIndicator != UNSET_INT) {
+	if c.ServerVersion() < MIN_SERVER_VER_CME_TAGGING_FIELDS && (orderCancel.ExtOperator != "" || orderCancel.ManualOrderIndicator != UNSET_INT) {
 		c.wrapper.Error(orderID, currentTimeMillis(), UPDATE_TWS.Code, UPDATE_TWS.Msg+" It does not support ext operator and manual order indicator parameters.", "")
 	}
 
@@ -2529,28 +2607,28 @@ func (c *EClient) CancelOrder(orderID int64, orderCancel OrderCancel) {
 
 	me.encodeMsgID(CANCEL_ORDER)
 
-	if c.serverVersion < MIN_SERVER_VER_CME_TAGGING_FIELDS {
+	if c.ServerVersion() < MIN_SERVER_VER_CME_TAGGING_FIELDS {
 		me.encodeInt(VERSION)
 	}
 
 	me.encodeInt64(orderID)
 
-	if c.serverVersion >= MIN_SERVER_VER_MANUAL_ORDER_TIME {
+	if c.ServerVersion() >= MIN_SERVER_VER_MANUAL_ORDER_TIME {
 		me.encodeString(orderCancel.ManualOrderCancelTime)
 	}
 
-	if c.serverVersion >= MIN_SERVER_VER_RFQ_FIELDS && c.serverVersion < MIN_SERVER_VER_UNDO_RFQ_FIELDS {
+	if c.ServerVersion() >= MIN_SERVER_VER_RFQ_FIELDS && c.ServerVersion() < MIN_SERVER_VER_UNDO_RFQ_FIELDS {
 		me.encodeString("")
 		me.encodeString("")
 		me.encodeInt64(UNSET_INT)
 	}
 
-	if c.serverVersion >= MIN_SERVER_VER_CME_TAGGING_FIELDS {
+	if c.ServerVersion() >= MIN_SERVER_VER_CME_TAGGING_FIELDS {
 		me.encodeString(orderCancel.ExtOperator)
 		me.encodeInt64(orderCancel.ManualOrderIndicator)
 	}
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 func (c *EClient) cancelOrderProtoBuf(cancelOrderRequestProto *protobuf.CancelOrderRequest) {
@@ -2577,7 +2655,7 @@ func (c *EClient) cancelOrderProtoBuf(cancelOrderRequestProto *protobuf.CancelOr
 
 	me.encodeProto(msg)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 // CancelOrderAsync cancel an order by orderId.
@@ -2605,7 +2683,7 @@ func (c *EClient) ReqOpenOrders() {
 	me.encodeMsgID(REQ_OPEN_ORDERS)
 	me.encodeInt(VERSION)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 func (c *EClient) reqOpenOrdersProtoBuf(openOrdersRequestProto *protobuf.OpenOrdersRequest) {
@@ -2627,7 +2705,7 @@ func (c *EClient) reqOpenOrdersProtoBuf(openOrdersRequestProto *protobuf.OpenOrd
 
 	me.encodeProto(msg)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 // ReqAutoOpenOrders requests that newly created TWS orders be implicitly associated with the client.
@@ -2655,7 +2733,7 @@ func (c *EClient) ReqAutoOpenOrders(autoBind bool) {
 	me.encodeInt(VERSION)
 	me.encodeBool(autoBind)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 func (c *EClient) reqAutoOpenOrdersProtoBuf(autoOpenOrdersRequestProto *protobuf.AutoOpenOrdersRequest) {
@@ -2677,7 +2755,7 @@ func (c *EClient) reqAutoOpenOrdersProtoBuf(autoOpenOrdersRequestProto *protobuf
 
 	me.encodeProto(msg)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 // ReqAllOpenOrders request the open orders placed from all clients and also from TWS.
@@ -2702,7 +2780,7 @@ func (c *EClient) ReqAllOpenOrders() {
 	me.encodeMsgID(REQ_ALL_OPEN_ORDERS)
 	me.encodeInt(VERSION)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 func (c *EClient) reqAllOpenOrdersProtoBuf(allOpenOrdersRequestProto *protobuf.AllOpenOrdersRequest) {
@@ -2724,7 +2802,7 @@ func (c *EClient) reqAllOpenOrdersProtoBuf(allOpenOrdersRequestProto *protobuf.A
 
 	me.encodeProto(msg)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 // ReqGlobalCancel cancels all open orders globally. It cancels both API and TWS open orders.
@@ -2740,7 +2818,7 @@ func (c *EClient) ReqGlobalCancel(orderCancel OrderCancel) {
 		return
 	}
 
-	if c.serverVersion < MIN_SERVER_VER_CME_TAGGING_FIELDS && (orderCancel.ExtOperator != "" || orderCancel.ManualOrderIndicator != UNSET_INT) {
+	if c.ServerVersion() < MIN_SERVER_VER_CME_TAGGING_FIELDS && (orderCancel.ExtOperator != "" || orderCancel.ManualOrderIndicator != UNSET_INT) {
 		c.wrapper.Error(NO_VALID_ID, currentTimeMillis(), UPDATE_TWS.Code, UPDATE_TWS.Msg+" It does not support ext operator and manual order indicator parameters.", "")
 	}
 
@@ -2750,16 +2828,16 @@ func (c *EClient) ReqGlobalCancel(orderCancel OrderCancel) {
 
 	me.encodeMsgID(REQ_GLOBAL_CANCEL)
 
-	if c.serverVersion < MIN_SERVER_VER_CME_TAGGING_FIELDS {
+	if c.ServerVersion() < MIN_SERVER_VER_CME_TAGGING_FIELDS {
 		me.encodeInt(VERSION)
 	}
 
-	if c.serverVersion >= MIN_SERVER_VER_CME_TAGGING_FIELDS {
+	if c.ServerVersion() >= MIN_SERVER_VER_CME_TAGGING_FIELDS {
 		me.encodeString(orderCancel.ExtOperator)
 		me.encodeInt64(orderCancel.ManualOrderIndicator)
 	}
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 func (c *EClient) reqGlobalCancelProtoBuf(globalCancelRequestProto *protobuf.GlobalCancelRequest) {
@@ -2781,7 +2859,7 @@ func (c *EClient) reqGlobalCancelProtoBuf(globalCancelRequestProto *protobuf.Glo
 
 	me.encodeProto(msg)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 // ReqIDs request from TWS the next valid ID that can be used when placing an order.
@@ -2808,7 +2886,7 @@ func (c *EClient) ReqIDs(numIds int64) {
 	me.encodeInt(VERSION)
 	me.encodeInt64(numIds)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 func (c *EClient) reqIdsProtoBuf(idsRequestProto *protobuf.IdsRequest) {
@@ -2830,7 +2908,7 @@ func (c *EClient) reqIdsProtoBuf(idsRequestProto *protobuf.IdsRequest) {
 
 	me.encodeProto(msg)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 //	##########################################################################
@@ -2862,7 +2940,7 @@ func (c *EClient) ReqAccountUpdates(subscribe bool, accountName string) {
 	// Send the account code. This will only be used for FA clients
 	me.encodeString(accountName) // srv v9 and above
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 func (c *EClient) reqAccountUpdatesProtoBuf(accountDataRequestProto *protobuf.AccountDataRequest) {
@@ -2883,7 +2961,7 @@ func (c *EClient) reqAccountUpdatesProtoBuf(accountDataRequestProto *protobuf.Ac
 
 	me.encodeProto(msg)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 // ReqAccountSummary request and keep up to date the data that appears.
@@ -2950,7 +3028,7 @@ func (c *EClient) ReqAccountSummary(reqID int64, groupName string, tags string) 
 	me.encodeString(groupName)
 	me.encodeString(tags)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 func (c *EClient) reqAccountSummaryProtoBuf(accountSummaryRequestProto *protobuf.AccountSummaryRequest) {
@@ -2977,7 +3055,7 @@ func (c *EClient) reqAccountSummaryProtoBuf(accountSummaryRequestProto *protobuf
 
 	me.encodeProto(msg)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 // CancelAccountSummary cancels the request for Account Window Summary tab data.
@@ -3002,7 +3080,7 @@ func (c *EClient) CancelAccountSummary(reqID int64) {
 	me.encodeInt(VERSION)
 	me.encodeInt64(reqID)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 func (c *EClient) cancelAccountSummaryProtoBuf(cancelAccountSummaryRequestProto *protobuf.CancelAccountSummary) {
@@ -3029,7 +3107,7 @@ func (c *EClient) cancelAccountSummaryProtoBuf(cancelAccountSummaryRequestProto 
 
 	me.encodeProto(msg)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 // ReqPositions requests real-time position data for all accounts.
@@ -3045,7 +3123,7 @@ func (c *EClient) ReqPositions() {
 		return
 	}
 
-	if c.serverVersion < MIN_SERVER_VER_POSITIONS {
+	if c.ServerVersion() < MIN_SERVER_VER_POSITIONS {
 		c.wrapper.Error(NO_VALID_ID, currentTimeMillis(), UPDATE_TWS.Code, UPDATE_TWS.Msg+" It does not support positions request.", "")
 		return
 	}
@@ -3057,7 +3135,7 @@ func (c *EClient) ReqPositions() {
 	me.encodeMsgID(REQ_POSITIONS)
 	me.encodeInt(VERSION)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 func (c *EClient) reqPositionsProtoBuf(positionsRequestProto *protobuf.PositionsRequest) {
@@ -3079,7 +3157,7 @@ func (c *EClient) reqPositionsProtoBuf(positionsRequestProto *protobuf.Positions
 
 	me.encodeProto(msg)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 
 }
 
@@ -3096,7 +3174,7 @@ func (c *EClient) CancelPositions() {
 		return
 	}
 
-	if c.serverVersion < MIN_SERVER_VER_POSITIONS {
+	if c.ServerVersion() < MIN_SERVER_VER_POSITIONS {
 		c.wrapper.Error(NO_VALID_ID, currentTimeMillis(), UPDATE_TWS.Code, UPDATE_TWS.Msg+" It does not support positions request.", "")
 		return
 	}
@@ -3108,7 +3186,7 @@ func (c *EClient) CancelPositions() {
 	me.encodeMsgID(CANCEL_POSITIONS)
 	me.encodeInt(VERSION)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 func (c *EClient) cancelPositionsProtoBuf(cancelPositionsRequestProto *protobuf.CancelPositions) {
@@ -3129,7 +3207,7 @@ func (c *EClient) cancelPositionsProtoBuf(cancelPositionsRequestProto *protobuf.
 
 	me.encodeProto(msg)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 // ReqPositionsMulti requests the positions for account and/or model.
@@ -3146,7 +3224,7 @@ func (c *EClient) ReqPositionsMulti(reqID int64, account string, modelCode strin
 		return
 	}
 
-	if c.serverVersion < MIN_SERVER_VER_MODELS_SUPPORT {
+	if c.ServerVersion() < MIN_SERVER_VER_MODELS_SUPPORT {
 		c.wrapper.Error(reqID, currentTimeMillis(), UPDATE_TWS.Code, UPDATE_TWS.Msg+" It does not support positions multi request.", "")
 		return
 	}
@@ -3161,7 +3239,7 @@ func (c *EClient) ReqPositionsMulti(reqID int64, account string, modelCode strin
 	me.encodeString(account)
 	me.encodeString(modelCode)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 func (c *EClient) reqPositionsMultiProtoBuf(positionsMultiRequestProto *protobuf.PositionsMultiRequest) {
@@ -3188,7 +3266,7 @@ func (c *EClient) reqPositionsMultiProtoBuf(positionsMultiRequestProto *protobuf
 
 	me.encodeProto(msg)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 // CancelPositionsMulti cancels the positions update of assigned account.
@@ -3204,7 +3282,7 @@ func (c *EClient) CancelPositionsMulti(reqID int64) {
 		return
 	}
 
-	if c.serverVersion < MIN_SERVER_VER_MODELS_SUPPORT {
+	if c.ServerVersion() < MIN_SERVER_VER_MODELS_SUPPORT {
 		c.wrapper.Error(reqID, currentTimeMillis(), UPDATE_TWS.Code, UPDATE_TWS.Msg+" It does not support cancel positions multi request.", "")
 		return
 	}
@@ -3217,7 +3295,7 @@ func (c *EClient) CancelPositionsMulti(reqID int64) {
 	me.encodeInt(VERSION)
 	me.encodeInt64(reqID)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 func (c *EClient) cancelPositionsMultiProtoBuf(cancelPositionsMultiRequestProto *protobuf.CancelPositionsMulti) {
@@ -3244,7 +3322,7 @@ func (c *EClient) cancelPositionsMultiProtoBuf(cancelPositionsMultiRequestProto 
 
 	me.encodeProto(msg)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 // ReqAccountUpdatesMulti requests account updates for account and/or model.
@@ -3260,7 +3338,7 @@ func (c *EClient) ReqAccountUpdatesMulti(reqID int64, account string, modelCode 
 		return
 	}
 
-	if c.serverVersion < MIN_SERVER_VER_MODELS_SUPPORT {
+	if c.ServerVersion() < MIN_SERVER_VER_MODELS_SUPPORT {
 		c.wrapper.Error(reqID, currentTimeMillis(), UPDATE_TWS.Code, UPDATE_TWS.Msg+" It does not support account updates multi request.", "")
 		return
 	}
@@ -3276,7 +3354,7 @@ func (c *EClient) ReqAccountUpdatesMulti(reqID int64, account string, modelCode 
 	me.encodeString(modelCode)
 	me.encodeBool(ledgerAndNLV)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 func (c *EClient) reqAccountUpdatesMultiProtoBuf(accountUpdatesMultiRequestProto *protobuf.AccountUpdatesMultiRequest) {
@@ -3303,7 +3381,7 @@ func (c *EClient) reqAccountUpdatesMultiProtoBuf(accountUpdatesMultiRequestProto
 
 	me.encodeProto(msg)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 // CancelAccountUpdatesMulti cancels account update for reqID.
@@ -3319,7 +3397,7 @@ func (c *EClient) CancelAccountUpdatesMulti(reqID int64) {
 		return
 	}
 
-	if c.serverVersion < MIN_SERVER_VER_MODELS_SUPPORT {
+	if c.ServerVersion() < MIN_SERVER_VER_MODELS_SUPPORT {
 		c.wrapper.Error(reqID, currentTimeMillis(), UPDATE_TWS.Code, UPDATE_TWS.Msg+" It does not support cancel account updates multi request.", "")
 		return
 	}
@@ -3332,7 +3410,7 @@ func (c *EClient) CancelAccountUpdatesMulti(reqID int64) {
 	me.encodeInt(VERSION)
 	me.encodeInt64(reqID)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 func (c *EClient) cancelAccountUpdatesMultiProtoBuf(cancelAccountUpdatesMultiRequestProto *protobuf.CancelAccountUpdatesMulti) {
@@ -3359,7 +3437,7 @@ func (c *EClient) cancelAccountUpdatesMultiProtoBuf(cancelAccountUpdatesMultiReq
 
 	me.encodeProto(msg)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 //	##########################################################################
@@ -3379,7 +3457,7 @@ func (c *EClient) ReqPnL(reqID int64, account string, modelCode string) {
 		return
 	}
 
-	if c.serverVersion < MIN_SERVER_VER_PNL {
+	if c.ServerVersion() < MIN_SERVER_VER_PNL {
 		c.wrapper.Error(reqID, currentTimeMillis(), UPDATE_TWS.Code, UPDATE_TWS.Msg+" It does not support PnL request.", "")
 		return
 	}
@@ -3391,7 +3469,7 @@ func (c *EClient) ReqPnL(reqID int64, account string, modelCode string) {
 	me.encodeString(account)
 	me.encodeString(modelCode)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 func (c *EClient) reqPnLProtoBuf(pnlRequestProto *protobuf.PnLRequest) {
@@ -3418,7 +3496,7 @@ func (c *EClient) reqPnLProtoBuf(pnlRequestProto *protobuf.PnLRequest) {
 
 	me.encodeProto(msg)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 // CancelPnL cancels the PnL update of assigned account.
@@ -3434,7 +3512,7 @@ func (c *EClient) CancelPnL(reqID int64) {
 		return
 	}
 
-	if c.serverVersion < MIN_SERVER_VER_PNL {
+	if c.ServerVersion() < MIN_SERVER_VER_PNL {
 		c.wrapper.Error(reqID, currentTimeMillis(), UPDATE_TWS.Code, UPDATE_TWS.Msg+" It does not support PnL request.", "")
 		return
 	}
@@ -3444,7 +3522,7 @@ func (c *EClient) CancelPnL(reqID int64) {
 	me.encodeMsgID(CANCEL_PNL)
 	me.encodeInt64(reqID)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 func (c *EClient) cancelPnLProtoBuf(cancelPnLProto *protobuf.CancelPnL) {
@@ -3471,7 +3549,7 @@ func (c *EClient) cancelPnLProtoBuf(cancelPnLProto *protobuf.CancelPnL) {
 
 	me.encodeProto(msg)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 // ReqPnLSingle request and subscribe the single contract PnL of assigned account.
@@ -3487,7 +3565,7 @@ func (c *EClient) ReqPnLSingle(reqID int64, account string, modelCode string, co
 		return
 	}
 
-	if c.serverVersion < MIN_SERVER_VER_PNL {
+	if c.ServerVersion() < MIN_SERVER_VER_PNL {
 		c.wrapper.Error(reqID, currentTimeMillis(), UPDATE_TWS.Code, UPDATE_TWS.Msg+"  It does not support PnL request.", "")
 		return
 	}
@@ -3500,7 +3578,7 @@ func (c *EClient) ReqPnLSingle(reqID int64, account string, modelCode string, co
 	me.encodeString(modelCode)
 	me.encodeInt64(contractID)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 func (c *EClient) reqPnLSingleProtoBuf(pnlSingleRequestProto *protobuf.PnLSingleRequest) {
@@ -3527,7 +3605,7 @@ func (c *EClient) reqPnLSingleProtoBuf(pnlSingleRequestProto *protobuf.PnLSingle
 
 	me.encodeProto(msg)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 // CancelPnLSingle cancel the single contract PnL update of assigned account.
@@ -3543,7 +3621,7 @@ func (c *EClient) CancelPnLSingle(reqID int64) {
 		return
 	}
 
-	if c.serverVersion < MIN_SERVER_VER_PNL {
+	if c.ServerVersion() < MIN_SERVER_VER_PNL {
 		c.wrapper.Error(reqID, currentTimeMillis(), UPDATE_TWS.Code, UPDATE_TWS.Msg+"  It does not support PnL request.", "")
 		return
 	}
@@ -3553,7 +3631,7 @@ func (c *EClient) CancelPnLSingle(reqID int64) {
 	me.encodeMsgID(CANCEL_PNL_SINGLE)
 	me.encodeInt64(reqID)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 func (c *EClient) cancelPnLSingleProtoBuf(cancelPnLSingleProto *protobuf.CancelPnLSingle) {
@@ -3580,7 +3658,7 @@ func (c *EClient) cancelPnLSingleProtoBuf(cancelPnLSingleProto *protobuf.CancelP
 
 	me.encodeProto(msg)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 //	##########################################################################
@@ -3608,7 +3686,7 @@ func (c *EClient) ReqExecutions(reqID int64, execFilter *ExecutionFilter) {
 		return
 	}
 
-	if c.serverVersion < MIN_SERVER_VER_PARAMETRIZED_DAYS_OF_EXECUTIONS && (execFilter.LastNDays != UNSET_INT || execFilter.SpecificDates != nil) {
+	if c.ServerVersion() < MIN_SERVER_VER_PARAMETRIZED_DAYS_OF_EXECUTIONS && (execFilter.LastNDays != UNSET_INT || execFilter.SpecificDates != nil) {
 		c.wrapper.Error(reqID, currentTimeMillis(), UPDATE_TWS.Code, UPDATE_TWS.Msg+" It does not support last N days and specific dates parameters.", "")
 		return
 	}
@@ -3620,7 +3698,7 @@ func (c *EClient) ReqExecutions(reqID int64, execFilter *ExecutionFilter) {
 	me.encodeMsgID(REQ_EXECUTIONS)
 	me.encodeInt(VERSION)
 
-	if c.serverVersion >= MIN_SERVER_VER_EXECUTION_DATA_CHAIN {
+	if c.ServerVersion() >= MIN_SERVER_VER_EXECUTION_DATA_CHAIN {
 		me.encodeInt64(reqID)
 	}
 
@@ -3632,7 +3710,7 @@ func (c *EClient) ReqExecutions(reqID int64, execFilter *ExecutionFilter) {
 	me.encodeString(execFilter.Exchange)
 	me.encodeString(execFilter.Side)
 
-	if c.serverVersion >= MIN_SERVER_VER_PARAMETRIZED_DAYS_OF_EXECUTIONS {
+	if c.ServerVersion() >= MIN_SERVER_VER_PARAMETRIZED_DAYS_OF_EXECUTIONS {
 		me.encodeInt64(execFilter.LastNDays)
 		specificDatesCount := len(execFilter.SpecificDates)
 		me.encodeInt(specificDatesCount)
@@ -3641,7 +3719,7 @@ func (c *EClient) ReqExecutions(reqID int64, execFilter *ExecutionFilter) {
 		}
 	}
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 func (c *EClient) reqExecutionProtobuf(executionRequestProto *protobuf.ExecutionRequest) {
@@ -3667,7 +3745,7 @@ func (c *EClient) reqExecutionProtobuf(executionRequestProto *protobuf.Execution
 
 	me.encodeProto(msg)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 //	##########################################################################
@@ -3688,22 +3766,22 @@ func (c *EClient) ReqContractDetails(reqID int64, contract *Contract) {
 		return
 	}
 
-	if c.serverVersion < MIN_SERVER_VER_SEC_ID_TYPE && (contract.SecIDType != "" || contract.SecID != "") {
+	if c.ServerVersion() < MIN_SERVER_VER_SEC_ID_TYPE && (contract.SecIDType != "" || contract.SecID != "") {
 		c.wrapper.Error(reqID, currentTimeMillis(), UPDATE_TWS.Code, UPDATE_TWS.Msg+" It does not support secIdType and secId parameters.", "")
 		return
 	}
 
-	if c.serverVersion < MIN_SERVER_VER_TRADING_CLASS && contract.TradingClass != "" {
+	if c.ServerVersion() < MIN_SERVER_VER_TRADING_CLASS && contract.TradingClass != "" {
 		c.wrapper.Error(reqID, currentTimeMillis(), UPDATE_TWS.Code, UPDATE_TWS.Msg+" It does not support tradingClass parameter in reqContractDetails.", "")
 		return
 	}
 
-	if c.serverVersion < MIN_SERVER_VER_LINKING && contract.PrimaryExchange != "" {
+	if c.ServerVersion() < MIN_SERVER_VER_LINKING && contract.PrimaryExchange != "" {
 		c.wrapper.Error(reqID, currentTimeMillis(), UPDATE_TWS.Code, UPDATE_TWS.Msg+" It does not support primaryExchange parameter in reqContractDetails.", "")
 		return
 	}
 
-	if c.serverVersion < MIN_SERVER_VER_BOND_ISSUERID && contract.IssuerID != "" {
+	if c.ServerVersion() < MIN_SERVER_VER_BOND_ISSUERID && contract.IssuerID != "" {
 		c.wrapper.Error(reqID, currentTimeMillis(), UPDATE_TWS.Code, UPDATE_TWS.Msg+" It does not support issuerId parameter in reqContractDetails.", "")
 		return
 	}
@@ -3715,7 +3793,7 @@ func (c *EClient) ReqContractDetails(reqID int64, contract *Contract) {
 	me.encodeMsgID(REQ_CONTRACT_DATA)
 	me.encodeInt(VERSION)
 
-	if c.serverVersion >= MIN_SERVER_VER_CONTRACT_DATA_CHAIN {
+	if c.ServerVersion() >= MIN_SERVER_VER_CONTRACT_DATA_CHAIN {
 		me.encodeInt64(reqID)
 	}
 
@@ -3727,10 +3805,10 @@ func (c *EClient) ReqContractDetails(reqID int64, contract *Contract) {
 	me.encodeString(contract.Right)
 	me.encodeString(contract.Multiplier) // srv v15 and above
 
-	if c.serverVersion >= MIN_SERVER_VER_PRIMARYEXCH {
+	if c.ServerVersion() >= MIN_SERVER_VER_PRIMARYEXCH {
 		me.encodeString(contract.Exchange)
 		me.encodeString(contract.PrimaryExchange)
-	} else if c.serverVersion >= MIN_SERVER_VER_LINKING {
+	} else if c.ServerVersion() >= MIN_SERVER_VER_LINKING {
 		if contract.PrimaryExchange != "" && (contract.Exchange == "BEST" || contract.Exchange == "SMART") {
 			me.encodeString(contract.Exchange + ":" + contract.PrimaryExchange)
 		} else {
@@ -3741,22 +3819,22 @@ func (c *EClient) ReqContractDetails(reqID int64, contract *Contract) {
 	me.encodeString(contract.Currency)
 	me.encodeString(contract.LocalSymbol)
 
-	if c.serverVersion >= MIN_SERVER_VER_TRADING_CLASS {
+	if c.ServerVersion() >= MIN_SERVER_VER_TRADING_CLASS {
 		me.encodeString(contract.TradingClass)
 
 	}
 	me.encodeBool(contract.IncludeExpired) //  srv v31 and above
 
-	if c.serverVersion >= MIN_SERVER_VER_SEC_ID_TYPE {
+	if c.ServerVersion() >= MIN_SERVER_VER_SEC_ID_TYPE {
 		me.encodeString(contract.SecIDType)
 		me.encodeString(contract.SecID)
 	}
 
-	if c.serverVersion >= MIN_SERVER_VER_BOND_ISSUERID {
+	if c.ServerVersion() >= MIN_SERVER_VER_BOND_ISSUERID {
 		me.encodeString(contract.IssuerID)
 	}
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 func (c *EClient) reqContractDataProtoBuf(contractDataRequestProto *protobuf.ContractDataRequest) {
@@ -3783,7 +3861,7 @@ func (c *EClient) reqContractDataProtoBuf(contractDataRequestProto *protobuf.Con
 
 	me.encodeProto(msg)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 //	##########################################################################
@@ -3803,7 +3881,7 @@ func (c *EClient) ReqMktDepthExchanges() {
 		return
 	}
 
-	if c.serverVersion < MIN_SERVER_VER_REQ_MKT_DEPTH_EXCHANGES {
+	if c.ServerVersion() < MIN_SERVER_VER_REQ_MKT_DEPTH_EXCHANGES {
 		c.wrapper.Error(NO_VALID_ID, currentTimeMillis(), UPDATE_TWS.Code, UPDATE_TWS.Msg+" It does not support market depth exchanges request.", "")
 		return
 	}
@@ -3812,7 +3890,7 @@ func (c *EClient) ReqMktDepthExchanges() {
 
 	me.encodeMsgID(REQ_MKT_DEPTH_EXCHANGES)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 func (c *EClient) reqMarketDepthExchangesProtoBuf(marketDepthExchangesRequestProto *protobuf.MarketDepthExchangesRequest) {
@@ -3834,7 +3912,7 @@ func (c *EClient) reqMarketDepthExchangesProtoBuf(marketDepthExchangesRequestPro
 
 	me.encodeProto(msg)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 // ReqMktDepth requests the market depth for a specific contract.
@@ -3860,19 +3938,19 @@ func (c *EClient) ReqMktDepth(reqID int64, contract *Contract, numRows int, isSm
 		return
 	}
 
-	if c.serverVersion < MIN_SERVER_VER_TRADING_CLASS {
+	if c.ServerVersion() < MIN_SERVER_VER_TRADING_CLASS {
 		if contract.TradingClass != "" || contract.ConID > 0 {
 			c.wrapper.Error(reqID, currentTimeMillis(), UPDATE_TWS.Code, UPDATE_TWS.Msg+"  It does not support conId and tradingClass parameters in reqMktDepth.", "")
 			return
 		}
 	}
 
-	if c.serverVersion < MIN_SERVER_VER_SMART_DEPTH && isSmartDepth {
+	if c.ServerVersion() < MIN_SERVER_VER_SMART_DEPTH && isSmartDepth {
 		c.wrapper.Error(reqID, currentTimeMillis(), UPDATE_TWS.Code, UPDATE_TWS.Msg+"  It does not support SMART depth request.", "")
 		return
 	}
 
-	if c.serverVersion < MIN_SERVER_VER_MKT_DEPTH_PRIM_EXCHANGE && contract.PrimaryExchange != "" {
+	if c.ServerVersion() < MIN_SERVER_VER_MKT_DEPTH_PRIM_EXCHANGE && contract.PrimaryExchange != "" {
 		c.wrapper.Error(reqID, currentTimeMillis(), UPDATE_TWS.Code, UPDATE_TWS.Msg+" It does not support primaryExchange parameter in reqMktDepth.", "")
 		return
 	}
@@ -3887,7 +3965,7 @@ func (c *EClient) ReqMktDepth(reqID int64, contract *Contract, numRows int, isSm
 	me.encodeInt64(reqID)
 
 	// send contract fields
-	if c.serverVersion >= MIN_SERVER_VER_TRADING_CLASS {
+	if c.ServerVersion() >= MIN_SERVER_VER_TRADING_CLASS {
 		me.encodeInt64(contract.ConID)
 	}
 
@@ -3899,29 +3977,29 @@ func (c *EClient) ReqMktDepth(reqID int64, contract *Contract, numRows int, isSm
 	me.encodeString(contract.Multiplier) // srv v15 and above
 	me.encodeString(contract.Exchange)
 
-	if c.serverVersion >= MIN_SERVER_VER_MKT_DEPTH_PRIM_EXCHANGE {
+	if c.ServerVersion() >= MIN_SERVER_VER_MKT_DEPTH_PRIM_EXCHANGE {
 		me.encodeString(contract.PrimaryExchange)
 	}
 
 	me.encodeString(contract.Currency)
 	me.encodeString(contract.LocalSymbol)
 
-	if c.serverVersion >= MIN_SERVER_VER_TRADING_CLASS {
+	if c.ServerVersion() >= MIN_SERVER_VER_TRADING_CLASS {
 		me.encodeString(contract.TradingClass)
 	}
 
 	me.encodeInt(numRows) // srv v19 and above
 
-	if c.serverVersion >= MIN_SERVER_VER_SMART_DEPTH {
+	if c.ServerVersion() >= MIN_SERVER_VER_SMART_DEPTH {
 		me.encodeBool(isSmartDepth)
 	}
 
 	// send mktDepthOptions parameter
-	if c.serverVersion >= MIN_SERVER_VER_LINKING {
+	if c.ServerVersion() >= MIN_SERVER_VER_LINKING {
 		me.encodeTagValues(mktDepthOptions)
 	}
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 func (c *EClient) reqMarketDepthProtoBuf(marketDepthRequestProto *protobuf.MarketDepthRequest) {
@@ -3948,7 +4026,7 @@ func (c *EClient) reqMarketDepthProtoBuf(marketDepthRequestProto *protobuf.Marke
 
 	me.encodeProto(msg)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 // CancelMktDepth cancels market depth updates.
@@ -3964,7 +4042,7 @@ func (c *EClient) CancelMktDepth(reqID int64, isSmartDepth bool) {
 		return
 	}
 
-	if c.serverVersion < MIN_SERVER_VER_SMART_DEPTH && isSmartDepth {
+	if c.ServerVersion() < MIN_SERVER_VER_SMART_DEPTH && isSmartDepth {
 		c.wrapper.Error(reqID, currentTimeMillis(), UPDATE_TWS.Code, UPDATE_TWS.Msg+" It does not support SMART depth cancel.", "")
 		return
 	}
@@ -3977,11 +4055,11 @@ func (c *EClient) CancelMktDepth(reqID int64, isSmartDepth bool) {
 	me.encodeInt(VERSION)
 	me.encodeInt64(reqID)
 
-	if c.serverVersion >= MIN_SERVER_VER_SMART_DEPTH {
+	if c.ServerVersion() >= MIN_SERVER_VER_SMART_DEPTH {
 		me.encodeBool(isSmartDepth)
 	}
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 func (c *EClient) cancelMarketDepthProtoBuf(cancelMarketDepthProto *protobuf.CancelMarketDepth) {
@@ -4008,7 +4086,7 @@ func (c *EClient) cancelMarketDepthProtoBuf(cancelMarketDepthProto *protobuf.Can
 
 	me.encodeProto(msg)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 //	##########################################################################
@@ -4040,7 +4118,7 @@ func (c *EClient) ReqNewsBulletins(allMsgs bool) {
 	me.encodeInt(VERSION)
 	me.encodeBool(allMsgs)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 func (c *EClient) reqNewsBulletinsProtoBuf(newsBulletinsRequestProto *protobuf.NewsBulletinsRequest) {
@@ -4061,7 +4139,7 @@ func (c *EClient) reqNewsBulletinsProtoBuf(newsBulletinsRequestProto *protobuf.N
 
 	me.encodeProto(msg)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 // CancelNewsBulletins cancels the news bulletins updates
@@ -4084,7 +4162,7 @@ func (c *EClient) CancelNewsBulletins() {
 	me.encodeMsgID(CANCEL_NEWS_BULLETINS)
 	me.encodeInt(VERSION)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 func (c *EClient) cancelNewsBulletinsProtoBuf(cancelNewsBulletinsProto *protobuf.CancelNewsBulletins) {
@@ -4105,7 +4183,7 @@ func (c *EClient) cancelNewsBulletinsProtoBuf(cancelNewsBulletinsProto *protobuf
 
 	me.encodeProto(msg)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 //	##########################################################################
@@ -4134,7 +4212,7 @@ func (c *EClient) ReqManagedAccts() {
 	me.encodeMsgID(REQ_MANAGED_ACCTS)
 	me.encodeInt(VERSION)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 func (c *EClient) reqManagedAcctsProtoBuf(managedAccountsRequestProto *protobuf.ManagedAccountsRequest) {
@@ -4155,7 +4233,7 @@ func (c *EClient) reqManagedAcctsProtoBuf(managedAccountsRequestProto *protobuf.
 
 	me.encodeProto(msg)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 
 }
 
@@ -4174,7 +4252,7 @@ func (c *EClient) RequestFA(faDataType FaDataType) {
 		return
 	}
 
-	if c.serverVersion < MIN_SERVER_VER_FA_PROFILE_DESUPPORT && faDataType == 2 {
+	if c.ServerVersion() < MIN_SERVER_VER_FA_PROFILE_DESUPPORT && faDataType == 2 {
 		c.wrapper.Error(NO_VALID_ID, currentTimeMillis(), FA_PROFILE_NOT_SUPPORTED.Code, FA_PROFILE_NOT_SUPPORTED.Msg, "")
 		return
 	}
@@ -4187,7 +4265,7 @@ func (c *EClient) RequestFA(faDataType FaDataType) {
 	me.encodeInt(VERSION)
 	me.encodeInt(int(faDataType))
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 func (c *EClient) reqFAProtoBuf(faRequestProto *protobuf.FARequest) {
@@ -4208,7 +4286,7 @@ func (c *EClient) reqFAProtoBuf(faRequestProto *protobuf.FARequest) {
 
 	me.encodeProto(msg)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 
 }
 
@@ -4230,7 +4308,7 @@ func (c *EClient) ReplaceFA(reqID int64, faDataType FaDataType, cxml string) {
 		return
 	}
 
-	if c.serverVersion >= MIN_SERVER_VER_REPLACE_FA_END && faDataType == 2 {
+	if c.ServerVersion() >= MIN_SERVER_VER_REPLACE_FA_END && faDataType == 2 {
 		c.wrapper.Error(reqID, currentTimeMillis(), FA_PROFILE_NOT_SUPPORTED.Code, FA_PROFILE_NOT_SUPPORTED.Msg, "")
 		return
 	}
@@ -4244,11 +4322,11 @@ func (c *EClient) ReplaceFA(reqID int64, faDataType FaDataType, cxml string) {
 	me.encodeInt(int(faDataType))
 	me.encodeString(cxml)
 
-	if c.serverVersion >= MIN_SERVER_VER_REPLACE_FA_END {
+	if c.ServerVersion() >= MIN_SERVER_VER_REPLACE_FA_END {
 		me.encodeInt64(reqID)
 	}
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 func (c *EClient) replaceFAProtoBuf(faReplaceProto *protobuf.FAReplace) {
@@ -4275,7 +4353,7 @@ func (c *EClient) replaceFAProtoBuf(faReplaceProto *protobuf.FAReplace) {
 
 	me.encodeProto(msg)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 //	##########################################################################
@@ -4342,7 +4420,7 @@ func (c *EClient) ReqHistoricalData(reqID int64, contract *Contract, endDateTime
 		return
 	}
 
-	if c.serverVersion < MIN_SERVER_VER_TRADING_CLASS {
+	if c.ServerVersion() < MIN_SERVER_VER_TRADING_CLASS {
 		if contract.TradingClass != "" || contract.ConID > 0 {
 			c.wrapper.Error(reqID, currentTimeMillis(), UPDATE_TWS.Code, UPDATE_TWS.Msg, "")
 		}
@@ -4354,13 +4432,13 @@ func (c *EClient) ReqHistoricalData(reqID int64, contract *Contract, endDateTime
 
 	me.encodeMsgID(REQ_HISTORICAL_DATA)
 
-	if c.serverVersion <= MIN_SERVER_VER_SYNT_REALTIME_BARS {
+	if c.ServerVersion() <= MIN_SERVER_VER_SYNT_REALTIME_BARS {
 		me.encodeInt(VERSION)
 	}
 
 	me.encodeInt64(reqID)
 
-	if c.serverVersion >= MIN_SERVER_VER_TRADING_CLASS {
+	if c.ServerVersion() >= MIN_SERVER_VER_TRADING_CLASS {
 		me.encodeInt64(contract.ConID)
 	}
 
@@ -4375,7 +4453,7 @@ func (c *EClient) ReqHistoricalData(reqID int64, contract *Contract, endDateTime
 	me.encodeString(contract.Currency)
 	me.encodeString(contract.LocalSymbol)
 
-	if c.serverVersion >= MIN_SERVER_VER_TRADING_CLASS {
+	if c.ServerVersion() >= MIN_SERVER_VER_TRADING_CLASS {
 		me.encodeString(contract.TradingClass)
 	}
 
@@ -4397,15 +4475,15 @@ func (c *EClient) ReqHistoricalData(reqID int64, contract *Contract, endDateTime
 		}
 	}
 
-	if c.serverVersion >= MIN_SERVER_VER_SYNT_REALTIME_BARS {
+	if c.ServerVersion() >= MIN_SERVER_VER_SYNT_REALTIME_BARS {
 		me.encodeBool(keepUpToDate)
 	}
 
-	if c.serverVersion >= MIN_SERVER_VER_LINKING {
+	if c.ServerVersion() >= MIN_SERVER_VER_LINKING {
 		me.encodeTagValues(chartOptions)
 	}
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 func (c *EClient) reqHistoricalDataProtoBuf(historicalDataRequestProto *protobuf.HistoricalDataRequest) {
@@ -4432,7 +4510,7 @@ func (c *EClient) reqHistoricalDataProtoBuf(historicalDataRequestProto *protobuf
 
 	me.encodeProto(msg)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 // CancelHistoricalData cancels the update of historical data.
@@ -4458,7 +4536,7 @@ func (c *EClient) CancelHistoricalData(reqID int64) {
 	me.encodeInt(VERSION)
 	me.encodeInt64(reqID)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 func (c *EClient) cancelHistoricalDataProtoBuf(cancelHistoricalDataProto *protobuf.CancelHistoricalData) {
@@ -4485,7 +4563,7 @@ func (c *EClient) cancelHistoricalDataProtoBuf(cancelHistoricalDataProto *protob
 
 	me.encodeProto(msg)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 // ReqHeadTimeStamp request the head timestamp of assigned contract.
@@ -4502,7 +4580,7 @@ func (c *EClient) ReqHeadTimeStamp(reqID int64, contract *Contract, whatToShow s
 		return
 	}
 
-	if c.serverVersion < MIN_SERVER_VER_REQ_HEAD_TIMESTAMP {
+	if c.ServerVersion() < MIN_SERVER_VER_REQ_HEAD_TIMESTAMP {
 		c.wrapper.Error(reqID, currentTimeMillis(), UPDATE_TWS.Code, UPDATE_TWS.Msg+" It does not support head time stamp requests.", "")
 		return
 	}
@@ -4516,7 +4594,7 @@ func (c *EClient) ReqHeadTimeStamp(reqID int64, contract *Contract, whatToShow s
 	me.encodeString(whatToShow)
 	me.encodeInt(formatDate)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 func (c *EClient) reqHeadTimestampProtoBuf(headTimestampRequestProto *protobuf.HeadTimestampRequest) {
@@ -4543,7 +4621,7 @@ func (c *EClient) reqHeadTimestampProtoBuf(headTimestampRequestProto *protobuf.H
 
 	me.encodeProto(msg)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 // CancelHeadTimeStamp cancels the head timestamp data.
@@ -4559,7 +4637,7 @@ func (c *EClient) CancelHeadTimeStamp(reqID int64) {
 		return
 	}
 
-	if c.serverVersion < MIN_SERVER_VER_CANCEL_HEADTIMESTAMP {
+	if c.ServerVersion() < MIN_SERVER_VER_CANCEL_HEADTIMESTAMP {
 		c.wrapper.Error(reqID, currentTimeMillis(), UPDATE_TWS.Code, UPDATE_TWS.Msg+" It does not support head time stamp requests.", "")
 		return
 	}
@@ -4569,7 +4647,7 @@ func (c *EClient) CancelHeadTimeStamp(reqID int64) {
 	me.encodeMsgID(CANCEL_HEAD_TIMESTAMP)
 	me.encodeInt64(reqID)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 func (c *EClient) cancelHeadTimestampProtoBuf(cancelHeadTimestampProto *protobuf.CancelHeadTimestamp) {
@@ -4596,7 +4674,7 @@ func (c *EClient) cancelHeadTimestampProtoBuf(cancelHeadTimestampProto *protobuf
 
 	me.encodeProto(msg)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 // ReqHistogramData requests histogram data.
@@ -4612,7 +4690,7 @@ func (c *EClient) ReqHistogramData(reqID int64, contract *Contract, useRTH bool,
 		return
 	}
 
-	if c.serverVersion < MIN_SERVER_VER_REQ_HISTOGRAM {
+	if c.ServerVersion() < MIN_SERVER_VER_REQ_HISTOGRAM {
 		c.wrapper.Error(reqID, currentTimeMillis(), UPDATE_TWS.Code, UPDATE_TWS.Msg+" It does not support histogram requests..", "")
 		return
 	}
@@ -4625,7 +4703,7 @@ func (c *EClient) ReqHistogramData(reqID int64, contract *Contract, useRTH bool,
 	me.encodeBool(useRTH)
 	me.encodeString(timePeriod)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 func (c *EClient) reqHistogramDataProtoBuf(histogramDataRequestProto *protobuf.HistogramDataRequest) {
@@ -4652,7 +4730,7 @@ func (c *EClient) reqHistogramDataProtoBuf(histogramDataRequestProto *protobuf.H
 
 	me.encodeProto(msg)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 // CancelHistogramData cancels histogram data.
@@ -4668,7 +4746,7 @@ func (c *EClient) CancelHistogramData(reqID int64) {
 		return
 	}
 
-	if c.serverVersion < MIN_SERVER_VER_REQ_HISTOGRAM {
+	if c.ServerVersion() < MIN_SERVER_VER_REQ_HISTOGRAM {
 		c.wrapper.Error(reqID, currentTimeMillis(), UPDATE_TWS.Code, UPDATE_TWS.Msg+" It does not support histogram requests..", "")
 		return
 	}
@@ -4678,7 +4756,7 @@ func (c *EClient) CancelHistogramData(reqID int64) {
 	me.encodeMsgID(CANCEL_HISTOGRAM_DATA)
 	me.encodeInt64(reqID)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 func (c *EClient) cancelHistogramDataProtoBuf(cancelHistogramDataProto *protobuf.CancelHistogramData) {
@@ -4705,7 +4783,7 @@ func (c *EClient) cancelHistogramDataProtoBuf(cancelHistogramDataProto *protobuf
 
 	me.encodeProto(msg)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 // ReqHistoricalTicks requests historical ticks.
@@ -4721,7 +4799,7 @@ func (c *EClient) ReqHistoricalTicks(reqID int64, contract *Contract, startDateT
 		return
 	}
 
-	if c.serverVersion < MIN_SERVER_VER_HISTORICAL_TICKS {
+	if c.ServerVersion() < MIN_SERVER_VER_HISTORICAL_TICKS {
 		c.wrapper.Error(reqID, currentTimeMillis(), UPDATE_TWS.Code, UPDATE_TWS.Msg+"  It does not support historical ticks requests..", "")
 		return
 	}
@@ -4739,7 +4817,7 @@ func (c *EClient) ReqHistoricalTicks(reqID int64, contract *Contract, startDateT
 	me.encodeBool(ignoreSize)
 	me.encodeTagValues(miscOptions)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 func (c *EClient) reqHistoricalTicksProtoBuf(historicalTicksRequestProto *protobuf.HistoricalTicksRequest) {
@@ -4766,7 +4844,7 @@ func (c *EClient) reqHistoricalTicksProtoBuf(historicalTicksRequestProto *protob
 
 	me.encodeProto(msg)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 //	##########################################################################
@@ -4793,7 +4871,7 @@ func (c *EClient) ReqScannerParameters() {
 	me.encodeMsgID(REQ_SCANNER_PARAMETERS)
 	me.encodeInt(VERSION)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 func (c *EClient) reqScannerParametersProtoBuf(scannerParametersRequestProto *protobuf.ScannerParametersRequest) {
@@ -4815,7 +4893,7 @@ func (c *EClient) reqScannerParametersProtoBuf(scannerParametersRequestProto *pr
 
 	me.encodeProto(msg)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 // ReqScannerSubscription subcribes a scanner that matched the subcription.
@@ -4834,7 +4912,7 @@ func (c *EClient) ReqScannerSubscription(reqID int64, subscription *ScannerSubsc
 		return
 	}
 
-	if c.serverVersion < MIN_SERVER_VER_SCANNER_GENERIC_OPTS && len(scannerSubscriptionFilterOptions) > 0 {
+	if c.ServerVersion() < MIN_SERVER_VER_SCANNER_GENERIC_OPTS && len(scannerSubscriptionFilterOptions) > 0 {
 		c.wrapper.Error(reqID, currentTimeMillis(), UPDATE_TWS.Code, UPDATE_TWS.Msg+" It does not support API scanner subscription generic filter options", "")
 		return
 	}
@@ -4845,7 +4923,7 @@ func (c *EClient) ReqScannerSubscription(reqID int64, subscription *ScannerSubsc
 
 	me.encodeMsgID(REQ_SCANNER_SUBSCRIPTION)
 
-	if c.serverVersion < MIN_SERVER_VER_SCANNER_GENERIC_OPTS {
+	if c.ServerVersion() < MIN_SERVER_VER_SCANNER_GENERIC_OPTS {
 		me.encodeInt(VERSION)
 	}
 
@@ -4872,15 +4950,15 @@ func (c *EClient) ReqScannerSubscription(reqID int64, subscription *ScannerSubsc
 	me.encodeString(subscription.ScannerSettingPairs)
 	me.encodeString(subscription.StockTypeFilter)
 
-	if c.serverVersion >= MIN_SERVER_VER_SCANNER_GENERIC_OPTS {
+	if c.ServerVersion() >= MIN_SERVER_VER_SCANNER_GENERIC_OPTS {
 		me.encodeTagValues(scannerSubscriptionFilterOptions)
 	}
 
-	if c.serverVersion >= MIN_SERVER_VER_LINKING {
+	if c.ServerVersion() >= MIN_SERVER_VER_LINKING {
 		me.encodeTagValues(scannerSubscriptionOptions)
 	}
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 func (c *EClient) reqScannerSubscriptionProtoBuf(scannerSubscriptionRequestProto *protobuf.ScannerSubscriptionRequest) {
@@ -4907,7 +4985,7 @@ func (c *EClient) reqScannerSubscriptionProtoBuf(scannerSubscriptionRequestProto
 
 	me.encodeProto(msg)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 // CancelScannerSubscription cancel scanner.
@@ -4932,7 +5010,7 @@ func (c *EClient) CancelScannerSubscription(reqID int64) {
 	me.encodeInt(VERSION)
 	me.encodeInt64(reqID)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 func (c *EClient) cancelScannerSubscriptionProtoBuf(cancelScannerSubscriptionProto *protobuf.CancelScannerSubscription) {
@@ -4959,7 +5037,7 @@ func (c *EClient) cancelScannerSubscriptionProtoBuf(cancelScannerSubscriptionPro
 
 	me.encodeProto(msg)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 //	##########################################################################
@@ -5003,7 +5081,7 @@ func (c *EClient) ReqRealTimeBars(reqID int64, contract *Contract, barSize int, 
 		return
 	}
 
-	if c.serverVersion < MIN_SERVER_VER_TRADING_CLASS && contract.TradingClass != "" {
+	if c.ServerVersion() < MIN_SERVER_VER_TRADING_CLASS && contract.TradingClass != "" {
 		c.wrapper.Error(reqID, currentTimeMillis(), UPDATE_TWS.Code, UPDATE_TWS.Msg+" It does not support conId and tradingClass parameter in reqRealTimeBars.", "")
 		return
 	}
@@ -5016,7 +5094,7 @@ func (c *EClient) ReqRealTimeBars(reqID int64, contract *Contract, barSize int, 
 	me.encodeInt(VERSION)
 	me.encodeInt64(reqID)
 
-	if c.serverVersion >= MIN_SERVER_VER_TRADING_CLASS {
+	if c.ServerVersion() >= MIN_SERVER_VER_TRADING_CLASS {
 		me.encodeInt64(contract.ConID)
 	}
 
@@ -5031,7 +5109,7 @@ func (c *EClient) ReqRealTimeBars(reqID int64, contract *Contract, barSize int, 
 	me.encodeString(contract.Currency)
 	me.encodeString(contract.LocalSymbol)
 
-	if c.serverVersion >= MIN_SERVER_VER_TRADING_CLASS {
+	if c.ServerVersion() >= MIN_SERVER_VER_TRADING_CLASS {
 		me.encodeString(contract.TradingClass)
 	}
 
@@ -5039,11 +5117,11 @@ func (c *EClient) ReqRealTimeBars(reqID int64, contract *Contract, barSize int, 
 	me.encodeString(whatToShow)
 	me.encodeBool(useRTH)
 
-	if c.serverVersion >= MIN_SERVER_VER_LINKING {
+	if c.ServerVersion() >= MIN_SERVER_VER_LINKING {
 		me.encodeTagValues(realTimeBarsOptions)
 	}
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 func (c *EClient) reqRealTimeBarsProtoBuf(realTimeBarsRequestProto *protobuf.RealTimeBarsRequest) {
@@ -5070,7 +5148,7 @@ func (c *EClient) reqRealTimeBarsProtoBuf(realTimeBarsRequestProto *protobuf.Rea
 
 	me.encodeProto(msg)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 // CancelRealTimeBars cancels realtime bars.
@@ -5094,7 +5172,7 @@ func (c *EClient) CancelRealTimeBars(reqID int64) {
 	me.encodeInt(VERSION)
 	me.encodeInt64(reqID)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 func (c *EClient) cancelRealTimeBarsProtoBuf(cancelRealTimeBarsProto *protobuf.CancelRealTimeBars) {
@@ -5121,7 +5199,7 @@ func (c *EClient) cancelRealTimeBarsProtoBuf(cancelRealTimeBarsProto *protobuf.C
 
 	me.encodeProto(msg)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 //	##########################################################################
@@ -5141,7 +5219,7 @@ func (c *EClient) ReqNewsProviders() {
 		return
 	}
 
-	if c.serverVersion < MIN_SERVER_VER_REQ_NEWS_PROVIDERS {
+	if c.ServerVersion() < MIN_SERVER_VER_REQ_NEWS_PROVIDERS {
 		c.wrapper.Error(NO_VALID_ID, currentTimeMillis(), UPDATE_TWS.Code, UPDATE_TWS.Msg+" It does not support news providers request.", "")
 		return
 	}
@@ -5150,7 +5228,7 @@ func (c *EClient) ReqNewsProviders() {
 
 	me.encodeMsgID(REQ_NEWS_PROVIDERS)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 func (c *EClient) reqNewsProvidersProtoBuf(newsProvidersRequestProto *protobuf.NewsProvidersRequest) {
@@ -5172,7 +5250,7 @@ func (c *EClient) reqNewsProvidersProtoBuf(newsProvidersRequestProto *protobuf.N
 
 	me.encodeProto(msg)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 // ReqNewsArticle request news article.
@@ -5188,7 +5266,7 @@ func (c *EClient) ReqNewsArticle(reqID int64, providerCode string, articleID str
 		return
 	}
 
-	if c.serverVersion < MIN_SERVER_VER_REQ_NEWS_ARTICLE {
+	if c.ServerVersion() < MIN_SERVER_VER_REQ_NEWS_ARTICLE {
 		c.wrapper.Error(reqID, currentTimeMillis(), UPDATE_TWS.Code, UPDATE_TWS.Msg+" It does not support news article request.", "")
 		return
 	}
@@ -5200,11 +5278,11 @@ func (c *EClient) ReqNewsArticle(reqID int64, providerCode string, articleID str
 	me.encodeString(providerCode)
 	me.encodeString(articleID)
 
-	if c.serverVersion >= MIN_SERVER_VER_NEWS_QUERY_ORIGINS {
+	if c.ServerVersion() >= MIN_SERVER_VER_NEWS_QUERY_ORIGINS {
 		me.encodeTagValues(newsArticleOptions)
 	}
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 func (c *EClient) reqNewsArticleProtoBuf(newsArticleRequestProto *protobuf.NewsArticleRequest) {
@@ -5231,7 +5309,7 @@ func (c *EClient) reqNewsArticleProtoBuf(newsArticleRequestProto *protobuf.NewsA
 
 	me.encodeProto(msg)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 // ReqHistoricalNews request historical news.
@@ -5247,7 +5325,7 @@ func (c *EClient) ReqHistoricalNews(reqID int64, contractID int64, providerCode 
 		return
 	}
 
-	if c.serverVersion < MIN_SERVER_VER_REQ_HISTORICAL_NEWS {
+	if c.ServerVersion() < MIN_SERVER_VER_REQ_HISTORICAL_NEWS {
 		c.wrapper.Error(reqID, currentTimeMillis(), UPDATE_TWS.Code, UPDATE_TWS.Msg+" It does not support historical news request.", "")
 		return
 	}
@@ -5262,11 +5340,11 @@ func (c *EClient) ReqHistoricalNews(reqID int64, contractID int64, providerCode 
 	me.encodeString(endDateTime)
 	me.encodeInt64(totalResults)
 
-	if c.serverVersion >= MIN_SERVER_VER_NEWS_QUERY_ORIGINS {
+	if c.ServerVersion() >= MIN_SERVER_VER_NEWS_QUERY_ORIGINS {
 		me.encodeTagValues(historicalNewsOptions)
 	}
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 func (c *EClient) reqHistoricalNewsProtoBuf(historicalNewsRequestProto *protobuf.HistoricalNewsRequest) {
@@ -5293,7 +5371,7 @@ func (c *EClient) reqHistoricalNewsProtoBuf(historicalNewsRequestProto *protobuf
 
 	me.encodeProto(msg)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 //	##########################################################################
@@ -5313,7 +5391,7 @@ func (c *EClient) QueryDisplayGroups(reqID int64) {
 		return
 	}
 
-	if c.serverVersion < MIN_SERVER_VER_LINKING {
+	if c.ServerVersion() < MIN_SERVER_VER_LINKING {
 		c.wrapper.Error(reqID, currentTimeMillis(), UPDATE_TWS.Code, UPDATE_TWS.Msg+" It does not support queryDisplayGroups request.", "")
 		return
 	}
@@ -5326,7 +5404,7 @@ func (c *EClient) QueryDisplayGroups(reqID int64) {
 	me.encodeInt(VERSION)
 	me.encodeInt64(reqID)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 func (c *EClient) queryDisplayGroupsProtoBuf(queryDisplayGroupsRequest *protobuf.QueryDisplayGroupsRequest) {
@@ -5353,7 +5431,7 @@ func (c *EClient) queryDisplayGroupsProtoBuf(queryDisplayGroupsRequest *protobuf
 
 	me.encodeProto(msg)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 // SubscribeToGroupEvents subcribes the group events.
@@ -5371,7 +5449,7 @@ func (c *EClient) SubscribeToGroupEvents(reqID int64, groupID int) {
 		return
 	}
 
-	if c.serverVersion < MIN_SERVER_VER_LINKING {
+	if c.ServerVersion() < MIN_SERVER_VER_LINKING {
 		c.wrapper.Error(reqID, currentTimeMillis(), UPDATE_TWS.Code, UPDATE_TWS.Msg+" It does not support subscribeToGroupEvents request.", "")
 		return
 	}
@@ -5385,7 +5463,7 @@ func (c *EClient) SubscribeToGroupEvents(reqID int64, groupID int) {
 	me.encodeInt64(reqID)
 	me.encodeInt(groupID)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 func (c *EClient) subscribeToGroupEventsProtoBuf(subscribeToGroupEventsRequestProto *protobuf.SubscribeToGroupEventsRequest) {
@@ -5412,7 +5490,7 @@ func (c *EClient) subscribeToGroupEventsProtoBuf(subscribeToGroupEventsRequestPr
 
 	me.encodeProto(msg)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 // UpdateDisplayGroup updates the display group in TWS.
@@ -5436,7 +5514,7 @@ func (c *EClient) UpdateDisplayGroup(reqID int64, contractInfo string) {
 		return
 	}
 
-	if c.serverVersion < MIN_SERVER_VER_LINKING {
+	if c.ServerVersion() < MIN_SERVER_VER_LINKING {
 		c.wrapper.Error(reqID, currentTimeMillis(), UPDATE_TWS.Code, UPDATE_TWS.Msg+" It does not support updateDisplayGroup request.", "")
 		return
 	}
@@ -5450,7 +5528,7 @@ func (c *EClient) UpdateDisplayGroup(reqID int64, contractInfo string) {
 	me.encodeInt64(reqID)
 	me.encodeString(contractInfo)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 func (c *EClient) updateDisplayGroupProtoBuf(updateDisplayGroupRequestProto *protobuf.UpdateDisplayGroupRequest) {
@@ -5477,7 +5555,7 @@ func (c *EClient) updateDisplayGroupProtoBuf(updateDisplayGroupRequestProto *pro
 
 	me.encodeProto(msg)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 // UnsubscribeFromGroupEvents unsubcribes the display group events.
@@ -5493,7 +5571,7 @@ func (c *EClient) UnsubscribeFromGroupEvents(reqID int64) {
 		return
 	}
 
-	if c.serverVersion < MIN_SERVER_VER_LINKING {
+	if c.ServerVersion() < MIN_SERVER_VER_LINKING {
 		c.wrapper.Error(reqID, currentTimeMillis(), UPDATE_TWS.Code, UPDATE_TWS.Msg+" It does not support unsubscribeFromGroupEvents request.", "")
 		return
 	}
@@ -5506,7 +5584,7 @@ func (c *EClient) UnsubscribeFromGroupEvents(reqID int64) {
 	me.encodeInt(VERSION)
 	me.encodeInt64(reqID)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 func (c *EClient) unsubscribeFromGroupEventsProtoBuf(unsubscribeFromGroupEventsRequestProto *protobuf.UnsubscribeFromGroupEventsRequest) {
@@ -5533,7 +5611,7 @@ func (c *EClient) unsubscribeFromGroupEventsProtoBuf(unsubscribeFromGroupEventsR
 
 	me.encodeProto(msg)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 // VerifyRequest is just for IB's internal use.
@@ -5550,7 +5628,7 @@ func (c *EClient) VerifyRequest(apiName string, apiVersion string) {
 		return
 	}
 
-	if c.serverVersion < MIN_SERVER_VER_LINKING {
+	if c.ServerVersion() < MIN_SERVER_VER_LINKING {
 		c.wrapper.Error(NO_VALID_ID, currentTimeMillis(), UPDATE_TWS.Code, UPDATE_TWS.Msg+" It does not support verification request.", "")
 		return
 	}
@@ -5570,7 +5648,7 @@ func (c *EClient) VerifyRequest(apiName string, apiVersion string) {
 	me.encodeString(apiName)
 	me.encodeString(apiVersion)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 func (c *EClient) verifyRequestProtoBuf(VerifyRequest *protobuf.VerifyRequest) {
@@ -5592,7 +5670,7 @@ func (c *EClient) verifyRequestProtoBuf(VerifyRequest *protobuf.VerifyRequest) {
 
 	me.encodeProto(msg)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 // VerifyMessage is just for IB's internal use.
@@ -5609,7 +5687,7 @@ func (c *EClient) VerifyMessage(apiData string) {
 		return
 	}
 
-	if c.serverVersion < MIN_SERVER_VER_LINKING {
+	if c.ServerVersion() < MIN_SERVER_VER_LINKING {
 		c.wrapper.Error(NO_VALID_ID, currentTimeMillis(), UPDATE_TWS.Code, UPDATE_TWS.Msg+" It does not support verification request.", "")
 		return
 	}
@@ -5622,7 +5700,7 @@ func (c *EClient) VerifyMessage(apiData string) {
 	me.encodeInt(VERSION)
 	me.encodeString(apiData)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 func (c *EClient) verifyMessageProtoBuf(verifyMessageRequestProto *protobuf.VerifyMessageRequest) {
@@ -5644,7 +5722,7 @@ func (c *EClient) verifyMessageProtoBuf(verifyMessageRequestProto *protobuf.Veri
 
 	me.encodeProto(msg)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 // VerifyAndAuthRequest is just for IB's internal use.
@@ -5656,7 +5734,7 @@ func (c *EClient) VerifyAndAuthRequest(apiName string, apiVersion string, opaque
 		return
 	}
 
-	if c.serverVersion < MIN_SERVER_VER_LINKING {
+	if c.ServerVersion() < MIN_SERVER_VER_LINKING {
 		c.wrapper.Error(NO_VALID_ID, currentTimeMillis(), UPDATE_TWS.Code, UPDATE_TWS.Msg+" It does not support verification request.", "")
 		return
 	}
@@ -5677,7 +5755,7 @@ func (c *EClient) VerifyAndAuthRequest(apiName string, apiVersion string, opaque
 	me.encodeString(apiVersion)
 	me.encodeString(opaqueIsvKey)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 // VerifyAndAuthMessage is just for IB's internal use.
@@ -5689,7 +5767,7 @@ func (c *EClient) VerifyAndAuthMessage(apiData string, xyzResponse string) {
 		return
 	}
 
-	if c.serverVersion < MIN_SERVER_VER_LINKING {
+	if c.ServerVersion() < MIN_SERVER_VER_LINKING {
 		c.wrapper.Error(NO_VALID_ID, currentTimeMillis(), UPDATE_TWS.Code, UPDATE_TWS.Msg+" It does not support verification request.", "")
 		return
 	}
@@ -5703,7 +5781,7 @@ func (c *EClient) VerifyAndAuthMessage(apiData string, xyzResponse string) {
 	me.encodeString(apiData)
 	me.encodeString(xyzResponse)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 // ReqSecDefOptParams requests security definition option parameters.
@@ -5724,7 +5802,7 @@ func (c *EClient) ReqSecDefOptParams(reqID int64, underlyingSymbol string, futFo
 		return
 	}
 
-	if c.serverVersion < MIN_SERVER_VER_SEC_DEF_OPT_PARAMS_REQ {
+	if c.ServerVersion() < MIN_SERVER_VER_SEC_DEF_OPT_PARAMS_REQ {
 		c.wrapper.Error(reqID, currentTimeMillis(), UPDATE_TWS.Code, UPDATE_TWS.Msg+" It does not support security definition option request.", "")
 		return
 	}
@@ -5738,7 +5816,7 @@ func (c *EClient) ReqSecDefOptParams(reqID int64, underlyingSymbol string, futFo
 	me.encodeString(underlyingSecurityType)
 	me.encodeInt64(underlyingContractID)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 func (c *EClient) reqSecDefOptParamsProtoBuf(secDefOptParamsRequestProto *protobuf.SecDefOptParamsRequest) {
@@ -5765,7 +5843,7 @@ func (c *EClient) reqSecDefOptParamsProtoBuf(secDefOptParamsRequestProto *protob
 
 	me.encodeProto(msg)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 // ReqSoftDollarTiers request pre-defined Soft Dollar Tiers.
@@ -5788,7 +5866,7 @@ func (c *EClient) ReqSoftDollarTiers(reqID int64) {
 	me.encodeMsgID(REQ_SOFT_DOLLAR_TIERS)
 	me.encodeInt64(reqID)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 func (c *EClient) reqSoftDollarTiersProtoBuf(softDollarTiersRequestProto *protobuf.SoftDollarTiersRequest) {
@@ -5815,7 +5893,7 @@ func (c *EClient) reqSoftDollarTiersProtoBuf(softDollarTiersRequestProto *protob
 
 	me.encodeProto(msg)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 // ReqFamilyCodes requests family codes.
@@ -5831,7 +5909,7 @@ func (c *EClient) ReqFamilyCodes() {
 		return
 	}
 
-	if c.serverVersion < MIN_SERVER_VER_REQ_FAMILY_CODES {
+	if c.ServerVersion() < MIN_SERVER_VER_REQ_FAMILY_CODES {
 		c.wrapper.Error(NO_VALID_ID, currentTimeMillis(), UPDATE_TWS.Code, UPDATE_TWS.Msg+" It does not support family codes request.", "")
 		return
 	}
@@ -5840,7 +5918,7 @@ func (c *EClient) ReqFamilyCodes() {
 
 	me.encodeMsgID(REQ_FAMILY_CODES)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 func (c *EClient) reqFamilyCodesProtoBuf(familyCodesRequestProto *protobuf.FamilyCodesRequest) {
@@ -5862,7 +5940,7 @@ func (c *EClient) reqFamilyCodesProtoBuf(familyCodesRequestProto *protobuf.Famil
 
 	me.encodeProto(msg)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 // ReqMatchingSymbols requests matching symbols.
@@ -5878,7 +5956,7 @@ func (c *EClient) ReqMatchingSymbols(reqID int64, pattern string) {
 		return
 	}
 
-	if c.serverVersion < MIN_SERVER_VER_REQ_MATCHING_SYMBOLS {
+	if c.ServerVersion() < MIN_SERVER_VER_REQ_MATCHING_SYMBOLS {
 		c.wrapper.Error(reqID, currentTimeMillis(), UPDATE_TWS.Code, UPDATE_TWS.Msg+" It does not support matching symbols request.", "")
 		return
 	}
@@ -5889,7 +5967,7 @@ func (c *EClient) ReqMatchingSymbols(reqID int64, pattern string) {
 	me.encodeInt64(reqID)
 	me.encodeString(pattern)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 func (c *EClient) reqMatchingSymbolsProtoBuf(matchingSymbolsRequestProto *protobuf.MatchingSymbolsRequest) {
@@ -5916,7 +5994,7 @@ func (c *EClient) reqMatchingSymbolsProtoBuf(matchingSymbolsRequestProto *protob
 
 	me.encodeProto(msg)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 // ReqCompletedOrders request the completed orders.
@@ -5939,7 +6017,7 @@ func (c *EClient) ReqCompletedOrders(apiOnly bool) {
 	me.encodeMsgID(REQ_COMPLETED_ORDERS)
 	me.encodeBool(apiOnly)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 func (c *EClient) reqCompletedOrdersProtoBuf(completedOrdersRequestProto *protobuf.CompletedOrdersRequest) {
@@ -5961,7 +6039,7 @@ func (c *EClient) reqCompletedOrdersProtoBuf(completedOrdersRequestProto *protob
 
 	me.encodeProto(msg)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 // ReqWshMetaData requests WSHE Meta data.
@@ -5977,7 +6055,7 @@ func (c *EClient) ReqWshMetaData(reqID int64) {
 		return
 	}
 
-	if c.serverVersion < MIN_SERVER_VER_WSHE_CALENDAR {
+	if c.ServerVersion() < MIN_SERVER_VER_WSHE_CALENDAR {
 		c.wrapper.Error(reqID, currentTimeMillis(), UPDATE_TWS.Code, UPDATE_TWS.Msg+" It does not support WSHE Calendar API.", "")
 		return
 	}
@@ -5987,7 +6065,7 @@ func (c *EClient) ReqWshMetaData(reqID int64) {
 	me.encodeMsgID(REQ_WSH_META_DATA)
 	me.encodeInt64(reqID)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 func (c *EClient) reqWshMetaDataProtoBuf(wshMetaDataRequestProto *protobuf.WshMetaDataRequest) {
@@ -6014,7 +6092,7 @@ func (c *EClient) reqWshMetaDataProtoBuf(wshMetaDataRequestProto *protobuf.WshMe
 
 	me.encodeProto(msg)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 // CancelWshMetaData cancels WSHE Meta data.
@@ -6030,7 +6108,7 @@ func (c *EClient) CancelWshMetaData(reqID int64) {
 		return
 	}
 
-	if c.serverVersion < MIN_SERVER_VER_WSHE_CALENDAR {
+	if c.ServerVersion() < MIN_SERVER_VER_WSHE_CALENDAR {
 		c.wrapper.Error(reqID, currentTimeMillis(), UPDATE_TWS.Code, UPDATE_TWS.Msg+" It does not support WSHE Calendar API.", "")
 		return
 	}
@@ -6040,7 +6118,7 @@ func (c *EClient) CancelWshMetaData(reqID int64) {
 	me.encodeMsgID(CANCEL_WSH_META_DATA)
 	me.encodeInt64(reqID)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 func (c *EClient) cancelWshMetaDataProtoBuf(cancelWshMetaDataProto *protobuf.CancelWshMetaData) {
@@ -6067,7 +6145,7 @@ func (c *EClient) cancelWshMetaDataProtoBuf(cancelWshMetaDataProto *protobuf.Can
 
 	me.encodeProto(msg)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 // ReqWshEventData requests WSHE Event data.
@@ -6083,16 +6161,16 @@ func (c *EClient) ReqWshEventData(reqID int64, wshEventData WshEventData) {
 		return
 	}
 
-	if c.serverVersion < MIN_SERVER_VER_WSHE_CALENDAR {
+	if c.ServerVersion() < MIN_SERVER_VER_WSHE_CALENDAR {
 		c.wrapper.Error(reqID, currentTimeMillis(), UPDATE_TWS.Code, UPDATE_TWS.Msg+" It does not support WSHE Calendar API.", "")
 		return
 	}
-	if c.serverVersion < MIN_SERVER_VER_WSH_EVENT_DATA_FILTERS &&
+	if c.ServerVersion() < MIN_SERVER_VER_WSH_EVENT_DATA_FILTERS &&
 		(wshEventData.Filter != "" || wshEventData.FillWatchList || wshEventData.FillPortfolio) {
 		c.wrapper.Error(reqID, currentTimeMillis(), UPDATE_TWS.Code, UPDATE_TWS.Msg+" It does not support WSHE event data filters.", "")
 		return
 	}
-	if c.serverVersion < MIN_SERVER_VER_WSH_EVENT_DATA_FILTERS_DATE &&
+	if c.ServerVersion() < MIN_SERVER_VER_WSH_EVENT_DATA_FILTERS_DATE &&
 		(wshEventData.StartDate != "" || wshEventData.EndDate != "" || wshEventData.TotalLimit != UNSET_INT) {
 		c.wrapper.Error(reqID, currentTimeMillis(), UPDATE_TWS.Code, UPDATE_TWS.Msg+" It does not support WSHE event data date filters.", "")
 		return
@@ -6104,20 +6182,20 @@ func (c *EClient) ReqWshEventData(reqID int64, wshEventData WshEventData) {
 	me.encodeInt64(reqID)
 	me.encodeInt64(wshEventData.ConID)
 
-	if c.serverVersion >= MIN_SERVER_VER_WSH_EVENT_DATA_FILTERS {
+	if c.ServerVersion() >= MIN_SERVER_VER_WSH_EVENT_DATA_FILTERS {
 		me.encodeString(wshEventData.Filter)
 		me.encodeBool(wshEventData.FillWatchList)
 		me.encodeBool(wshEventData.FillPortfolio)
 		me.encodeBool(wshEventData.FillCompetitors)
 	}
 
-	if c.serverVersion >= MIN_SERVER_VER_WSH_EVENT_DATA_FILTERS_DATE {
+	if c.ServerVersion() >= MIN_SERVER_VER_WSH_EVENT_DATA_FILTERS_DATE {
 		me.encodeString(wshEventData.StartDate)
 		me.encodeString(wshEventData.EndDate)
 		me.encodeInt64(wshEventData.TotalLimit)
 	}
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 func (c *EClient) reqWshEventDataProtoBuf(wshEventDataRequestProto *protobuf.WshEventDataRequest) {
@@ -6144,7 +6222,7 @@ func (c *EClient) reqWshEventDataProtoBuf(wshEventDataRequestProto *protobuf.Wsh
 
 	me.encodeProto(msg)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 // CancelWshEventData cancels WSHE Event data.
@@ -6160,7 +6238,7 @@ func (c *EClient) CancelWshEventData(reqID int64) {
 		return
 	}
 
-	if c.serverVersion < MIN_SERVER_VER_WSHE_CALENDAR {
+	if c.ServerVersion() < MIN_SERVER_VER_WSHE_CALENDAR {
 		c.wrapper.Error(reqID, currentTimeMillis(), UPDATE_TWS.Code, UPDATE_TWS.Msg+" It does not support WSHE Calendar API.", "")
 		return
 	}
@@ -6170,7 +6248,7 @@ func (c *EClient) CancelWshEventData(reqID int64) {
 	me.encodeMsgID(CANCEL_WSH_EVENT_DATA)
 	me.encodeInt64(reqID)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 func (c *EClient) cancelWshEventDataProtoBuf(cancelWshEventDataProto *protobuf.CancelWshEventData) {
@@ -6197,7 +6275,7 @@ func (c *EClient) cancelWshEventDataProtoBuf(cancelWshEventDataProto *protobuf.C
 
 	me.encodeProto(msg)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 // ReqUserInfo requests user info.
@@ -6213,7 +6291,7 @@ func (c *EClient) ReqUserInfo(reqID int64) {
 		return
 	}
 
-	if c.serverVersion < MIN_SERVER_VER_USER_INFO {
+	if c.ServerVersion() < MIN_SERVER_VER_USER_INFO {
 		c.wrapper.Error(reqID, currentTimeMillis(), UPDATE_TWS.Code, UPDATE_TWS.Msg+" It does not support user info requests.", "")
 		return
 	}
@@ -6223,7 +6301,7 @@ func (c *EClient) ReqUserInfo(reqID int64) {
 	me.encodeMsgID(REQ_USER_INFO)
 	me.encodeInt64(reqID)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 func (c *EClient) reqUserInfoProtoBuf(userInfoRequestProto *protobuf.UserInfoRequest) {
@@ -6250,7 +6328,7 @@ func (c *EClient) reqUserInfoProtoBuf(userInfoRequestProto *protobuf.UserInfoReq
 
 	me.encodeProto(msg)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 // ReqCurrentTimeInMillis requests the current system time in milliseconds on the server side.
@@ -6266,7 +6344,7 @@ func (c *EClient) ReqCurrentTimeInMillis() {
 		return
 	}
 
-	if c.serverVersion < MIN_SERVER_VER_CURRENT_TIME_IN_MILLIS {
+	if c.ServerVersion() < MIN_SERVER_VER_CURRENT_TIME_IN_MILLIS {
 		c.wrapper.Error(NO_VALID_ID, currentTimeMillis(), UPDATE_TWS.Code, UPDATE_TWS.Msg+" It does not support current time in millis requests", "")
 		return
 	}
@@ -6275,7 +6353,7 @@ func (c *EClient) ReqCurrentTimeInMillis() {
 
 	me.encodeMsgID(REQ_CURRENT_TIME_IN_MILLIS)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 func (c *EClient) reqCurrentTimeInMillisProtoBuf(currentTimeInMillisRequestProto *protobuf.CurrentTimeInMillisRequest) {
@@ -6297,7 +6375,7 @@ func (c *EClient) reqCurrentTimeInMillisProtoBuf(currentTimeInMillisRequestProto
 
 	me.encodeProto(msg)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 // CancelContractData cancels contract data request.
@@ -6316,7 +6394,7 @@ func (c *EClient) cancelContractDataProtoBuf(cancelContractDataProto *protobuf.C
 		return
 	}
 
-	if c.serverVersion < MIN_SERVER_VER_CANCEL_CONTRACT_DATA {
+	if c.ServerVersion() < MIN_SERVER_VER_CANCEL_CONTRACT_DATA {
 		c.wrapper.Error(reqID, currentTimeMillis(), UPDATE_TWS.Code, UPDATE_TWS.Msg+"  It does not support contract data cancels.", "")
 		return
 	}
@@ -6333,7 +6411,7 @@ func (c *EClient) cancelContractDataProtoBuf(cancelContractDataProto *protobuf.C
 
 	me.encodeProto(msg)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 // CancelHistoricalTicks cancels historical ticks request.
@@ -6352,7 +6430,7 @@ func (c *EClient) cancelHistoricalTicksProtoBuf(cancelHistoricalTicksProto *prot
 		return
 	}
 
-	if c.serverVersion < MIN_SERVER_VER_CANCEL_CONTRACT_DATA {
+	if c.ServerVersion() < MIN_SERVER_VER_CANCEL_CONTRACT_DATA {
 		c.wrapper.Error(reqID, currentTimeMillis(), UPDATE_TWS.Code, UPDATE_TWS.Msg+"  It does not support historical ticks cancels.", "")
 		return
 	}
@@ -6369,7 +6447,7 @@ func (c *EClient) cancelHistoricalTicksProtoBuf(cancelHistoricalTicksProto *prot
 
 	me.encodeProto(msg)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 func (c *EClient) ReqConfigProtoBuf(configRequestProto *protobuf.ConfigRequest) {
@@ -6383,7 +6461,7 @@ func (c *EClient) ReqConfigProtoBuf(configRequestProto *protobuf.ConfigRequest) 
 		return
 	}
 
-	if c.serverVersion < MIN_SERVER_VER_CONFIG {
+	if c.ServerVersion() < MIN_SERVER_VER_CONFIG {
 		c.wrapper.Error(reqID, currentTimeMillis(), UPDATE_TWS.Code, UPDATE_TWS.Msg+"  It does not support config requests.", "")
 		return
 	}
@@ -6400,7 +6478,7 @@ func (c *EClient) ReqConfigProtoBuf(configRequestProto *protobuf.ConfigRequest) 
 
 	me.encodeProto(msg)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }
 
 func (c *EClient) UpdateConfigProtoBuf(updateConfigRequestProto *protobuf.UpdateConfigRequest) {
@@ -6414,7 +6492,7 @@ func (c *EClient) UpdateConfigProtoBuf(updateConfigRequestProto *protobuf.Update
 		return
 	}
 
-	if c.serverVersion < MIN_SERVER_VER_UPDATE_CONFIG {
+	if c.ServerVersion() < MIN_SERVER_VER_UPDATE_CONFIG {
 		c.wrapper.Error(reqID, currentTimeMillis(), UPDATE_TWS.Code, UPDATE_TWS.Msg+"  It does not support update config requests.", "")
 		return
 	}
@@ -6431,5 +6509,5 @@ func (c *EClient) UpdateConfigProtoBuf(updateConfigRequestProto *protobuf.Update
 
 	me.encodeProto(msg)
 
-	c.reqChan <- me.Bytes()
+	c.enqueueReq(me.Bytes())
 }

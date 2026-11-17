@@ -1,6 +1,9 @@
 package bot
 
 import (
+	"encoding/binary"
+	"io"
+	"net"
 	"os"
 	"path/filepath"
 	"sync"
@@ -116,7 +119,7 @@ func TestExecuteAction_LiveBracketFailureFailClosed(t *testing.T) {
 
 	eng, _ := setupFullyArmedEngine()
 	eng.AttachDB(database)
-	eng.SetDryRun(false)                  // live mode!
+	eng.SetDryRun(false)                   // live mode!
 	eng.SetBracketConfig(true, 5.0, 150.0) // 150% SL causes stop price <= 0 -> CreateBracketOrders fails
 
 	wrapper := &IBWrapper{
@@ -151,4 +154,143 @@ func TestIBKRConnection(t *testing.T) {
 	}
 	t.Log("Successfully connected to live TWS on 127.0.0.1:7497")
 	client.Disconnect()
+}
+
+func readClientHandshakePrefix(conn net.Conn) error {
+	hdr := make([]byte, 8)
+	if _, err := io.ReadFull(conn, hdr); err != nil {
+		return err
+	}
+	vLen := binary.BigEndian.Uint32(hdr[4:8])
+	if vLen > 0 && vLen < 4096 {
+		vBuf := make([]byte, vLen)
+		if _, err := io.ReadFull(conn, vBuf); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func writeServerHandshakeFrame(conn net.Conn) error {
+	payload := []byte("176\x0020261117 10:00:00 EST\x00")
+	frame := make([]byte, 4+len(payload))
+	binary.BigEndian.PutUint32(frame[:4], uint32(len(payload)))
+	copy(frame[4:], payload)
+	_, err := conn.Write(frame)
+	return err
+}
+
+func TestIBKRClient_HandshakeCleanEOF_ReturnsErrorAndDisconnected(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("net.Listen failed: %v", err)
+	}
+	defer ln.Close()
+
+	go func() {
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go func(c net.Conn) {
+				_ = readClientHandshakePrefix(c)
+				_ = c.Close() // Clean TCP FIN (io.EOF) before serverVersion
+			}(conn)
+		}
+	}()
+
+	addr := ln.Addr().(*net.TCPAddr)
+
+	eng := NewEngine()
+	client := NewIBKRClient(eng)
+	if err := client.Connect("127.0.0.1", addr.Port, 1); err == nil {
+		t.Fatalf("expected non-nil error on clean handshake EOF, got nil (IsConnected=%v)", client.IsConnected())
+	}
+	if client.IsConnected() {
+		t.Fatalf("expected IBKRClient.IsConnected() == false after handshake EOF")
+	}
+
+	raw := ibapi.NewEClient(NewIBWrapper(eng))
+	if err := raw.Connect("127.0.0.1", addr.Port, 2); err == nil {
+		t.Fatalf("expected raw EClient.Connect to return non-nil error on clean handshake EOF, got nil")
+	}
+	if raw.IsConnected() {
+		t.Fatalf("expected raw EClient.IsConnected() == false after handshake EOF")
+	}
+}
+
+func TestIBKRClient_PostHandshakeEOFAndConcurrentReqDisconnectRace(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("net.Listen failed: %v", err)
+	}
+	defer ln.Close()
+
+	go func() {
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go func(c net.Conn) {
+				defer c.Close()
+				if err := readClientHandshakePrefix(c); err != nil {
+					return
+				}
+				if err := writeServerHandshakeFrame(c); err != nil {
+					return
+				}
+				// Drain briefly or drop immediately after handshake to race EReader EOF watcher vs Connect/Req*/Disconnect
+				buf := make([]byte, 64)
+				_ = c.SetReadDeadline(time.Now().Add(2 * time.Millisecond))
+				_, _ = c.Read(buf)
+			}(conn)
+		}
+	}()
+
+	addr := ln.Addr().(*net.TCPAddr)
+	eng := NewEngine()
+	client := NewIBKRClient(eng)
+	w := client.Wrapper()
+
+	for cycle := 0; cycle < 15; cycle++ {
+		_ = client.Connect("127.0.0.1", addr.Port, 100+cycle)
+
+		var wg sync.WaitGroup
+		wg.Add(3)
+		go func() {
+			defer wg.Done()
+			w.ManagedAccounts([]string{"DU999001"})
+		}()
+		go func() {
+			defer wg.Done()
+			w.Error(-1, 0, 1102, "Connectivity restored", "")
+		}()
+		go func() {
+			defer wg.Done()
+			client.Disconnect()
+		}()
+		wg.Wait()
+	}
+
+	raw := ibapi.NewEClient(NewIBWrapper(eng))
+	for cycle := 0; cycle < 15; cycle++ {
+		_ = raw.Connect("127.0.0.1", addr.Port, int64(200+cycle))
+		var wg sync.WaitGroup
+		wg.Add(3)
+		go func() {
+			defer wg.Done()
+			raw.ReqPositions()
+		}()
+		go func() {
+			defer wg.Done()
+			raw.ReqPnL(int64(cycle+1), "DU999001", "")
+		}()
+		go func() {
+			defer wg.Done()
+			_ = raw.Disconnect()
+		}()
+		wg.Wait()
+	}
 }

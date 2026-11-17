@@ -256,11 +256,20 @@ func TestApp_CockpitMutexBreakerClampAndSaveRefresh(t *testing.T) {
 		t.Errorf("expected SaveStrategyPreset to refresh engine.ActiveStrategy, got %+v", active)
 	}
 
-	// 2. UpdateCockpitState must clamp GlobalEnabled=false while RiskBreakerTripped is true
+	// 2. UpdateCockpitState, Engine.SetCockpitState, and StartBot must enforce RiskBreakerTripped=true
 	a.engine.SetDailyLossLimit(500.0)
 	a.engine.UpdateLivePnL(-600.0, -600.0, 0.0)
 	if !a.engine.RiskBreakerTripped.Load() {
 		t.Fatal("expected RiskBreakerTripped=true")
+	}
+
+	if startErrRes := a.StartBot(); startErrRes["status"] != "error" {
+		t.Errorf("expected StartBot to refuse while RiskBreakerTripped=true, got %+v", startErrRes)
+	}
+
+	a.engine.SetCockpitState(&models.CockpitStateResponse{GlobalEnabled: true})
+	if a.engine.IsGlobalEnabled() || a.engine.GetCockpitState().GlobalEnabled {
+		t.Errorf("expected Engine.SetCockpitState to clamp GlobalEnabled=false while RiskBreakerTripped=true")
 	}
 
 	cs := a.GetCockpitState()

@@ -267,9 +267,9 @@ sequenceDiagram
 - **[`resolver.go`](../../backend/bot/resolver.go):**
   - Multi-venue contract resolution for US (`SMART/USD`) and Canadian (`SMART/CAD` with TSE/VENTURE/PURE) instruments; dot-class normalization (`BRK B`, `CTC A`).
 - **[`order.go`](../../backend/bot/order.go):**
-  - Atomic thread-safe `NextValidID` sequencing; OCA child bracket order creation (`MKT` parent + OCA `LMT` + OCA `STP`).
+  - Position sizing (`CalculatePositionSize`) and OCA child bracket order creation (`CreateBracketOrders`: `MKT` parent + OCA `LMT` + OCA `STP`).
 - **[`ibkr.go`](../../backend/bot/ibkr.go) & `third_party/ibapi`:**
-  - `IBWrapper` implements live TWS telemetry ingestion (`ConnectAck`, `ConnectionClosed`, `ManagedAccounts` dynamic account capture, `AccountSummary`, `UpdateAccountValue` native `USD`/`CAD`/`BASE` cash, `Position`, `PositionEnd` $\rightarrow$ `SyncLivePositionsToDB`, `UpdatePortfolio`, `OpenOrder`, `OpenOrderEnd`, `OrderStatus`, `Pnl`, and `BuildBrokerAlert` for `10089`/`504`/`502`/`1100`–`1102`) using race-hardened `third_party/ibapi@v0.10.50` (`watchDone`/atomic `IsConnected()`).
+  - Atomic thread-safe `NextValidID` / `NextOrderID` sequencing; `IBWrapper` implements live TWS telemetry ingestion (`ConnectAck`, `ConnectionClosed`, `ManagedAccounts` dynamic account capture, `AccountSummary`, `UpdateAccountValue` native `USD`/`CAD`/`BASE` cash, `Position`, `PositionEnd` $\rightarrow$ `SyncLivePositionsToDB`, `UpdatePortfolio`, `OpenOrder`, `OpenOrderEnd`, `OrderStatus`, `Pnl`, and `BuildBrokerAlert` for `10089`/`504`/`502`/`1100`–`1102`) using race-hardened `third_party/ibapi@v0.10.50` (per-connection watcher lifecycle, atomic `ServerVersion`/`IsConnected()`, synchronized request queue).
 - **[`session.go`](../../backend/bot/session.go):**
   - NY/Toronto Eastern Time market session classification (`RTH`, `Pre-ETH`, `Post-ETH`, `CLOSED`) and `FormatSessionStatus`, enforcing session-safe order routing.
 

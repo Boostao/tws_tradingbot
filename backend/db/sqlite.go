@@ -305,4 +305,3 @@ func (db *Database) Close() error {
 	}
 	return nil
 }
-

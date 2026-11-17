@@ -445,8 +445,14 @@ func (a *App) DisconnectTws() map[string]interface{} {
 }
 
 func (a *App) StartBot() map[string]interface{} {
+	a.cockpitMu.Lock()
+	defer a.cockpitMu.Unlock()
+
 	if a.engine == nil {
 		return map[string]interface{}{"status": "error", "message": "engine unavailable"}
+	}
+	if a.engine.RiskBreakerTripped.Load() {
+		return map[string]interface{}{"status": "error", "message": "daily loss circuit breaker tripped"}
 	}
 	strat := a.engine.GetActiveStrategy()
 	if strat == nil {

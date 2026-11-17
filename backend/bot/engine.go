@@ -1047,6 +1047,9 @@ func (e *Engine) SetCockpitState(state *models.CockpitStateResponse) {
 	cloned := cloneCockpitState(state)
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	if cloned != nil && e.RiskBreakerTripped.Load() {
+		cloned.GlobalEnabled = false
+	}
 	e.CockpitState = cloned
 	if cloned != nil {
 		e.globalEnabled.Store(cloned.GlobalEnabled)
@@ -1595,17 +1598,17 @@ func (e *Engine) BuildRuntimeState(twsConnected bool) *models.BotState {
 		recentOrders = make([]map[string]interface{}, 0, len(openOrders))
 		for _, ord := range openOrders {
 			recentOrders = append(recentOrders, map[string]interface{}{
-				"order_id":      ord.OrderID,
-				"symbol":        ord.Symbol,
-				"instrument_id": ord.InstrumentID,
-				"action":        ord.Action,
-				"order_type":    ord.OrderType,
-				"total_qty":     ord.TotalQty,
-				"filled_qty":    ord.FilledQty,
-				"remaining_qty": ord.RemainingQty,
-				"limit_price":   ord.LimitPrice,
+				"order_id":       ord.OrderID,
+				"symbol":         ord.Symbol,
+				"instrument_id":  ord.InstrumentID,
+				"action":         ord.Action,
+				"order_type":     ord.OrderType,
+				"total_qty":      ord.TotalQty,
+				"filled_qty":     ord.FilledQty,
+				"remaining_qty":  ord.RemainingQty,
+				"limit_price":    ord.LimitPrice,
 				"avg_fill_price": ord.AvgFillPrice,
-				"status":        ord.Status,
+				"status":         ord.Status,
 			})
 		}
 	}
@@ -1978,19 +1981,19 @@ func (e *Engine) RunDryRun(twsConnected bool) (*models.BotDryRun, error) {
 	openOrdersList := make([]map[string]interface{}, 0, len(openOrders))
 	for _, o := range openOrders {
 		openOrdersList = append(openOrdersList, map[string]interface{}{
-			"order_id":      o.OrderID,
-			"symbol":        o.Symbol,
-			"venue":         o.Venue,
-			"instrument_id": o.InstrumentID,
-			"action":        o.Action,
-			"order_type":    o.OrderType,
-			"total_qty":     o.TotalQty,
-			"filled_qty":    o.FilledQty,
-			"remaining_qty": o.RemainingQty,
-			"limit_price":   o.LimitPrice,
+			"order_id":       o.OrderID,
+			"symbol":         o.Symbol,
+			"venue":          o.Venue,
+			"instrument_id":  o.InstrumentID,
+			"action":         o.Action,
+			"order_type":     o.OrderType,
+			"total_qty":      o.TotalQty,
+			"filled_qty":     o.FilledQty,
+			"remaining_qty":  o.RemainingQty,
+			"limit_price":    o.LimitPrice,
 			"avg_fill_price": o.AvgFillPrice,
-			"status":        o.Status,
-			"outside_rth":   o.OutsideRTH,
+			"status":         o.Status,
+			"outside_rth":    o.OutsideRTH,
 		})
 	}
 
@@ -2027,7 +2030,7 @@ func (e *Engine) RunDryRun(twsConnected bool) (*models.BotDryRun, error) {
 				continue
 			}
 
-			signals := strategy.EvaluateRules(strat, bundle, evalSymbol)
+			signals := strategy.EvaluateRulesAt(strat, bundle, evalSymbol, now, item.Symbol, item.InstrumentID)
 			for _, sig := range signals {
 				if sig.Action != models.ActionBuy && sig.Action != models.ActionSell {
 					continue
