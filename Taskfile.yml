@@ -12,9 +12,17 @@ tasks:
       - task: "{{OS}}:build"
 
   linux:build:
-    summary: Builds the application for Linux
+    summary: Builds the production application for Linux
     cmds:
       - task: build:frontend
+      - mkdir -p {{.BIN_DIR}}
+      - go build -tags production -trimpath -buildvcs=false -o {{.BIN_DIR}}/{{.APP_NAME}} .
+    env:
+      CGO_ENABLED: "1"
+
+  build:dev:
+    summary: Builds the development Go binary for wails3 dev
+    cmds:
       - mkdir -p {{.BIN_DIR}}
       - go build -buildvcs=false -o {{.BIN_DIR}}/{{.APP_NAME}} .
     env:
@@ -28,11 +36,11 @@ tasks:
       - cd {{.BIN_DIR}} && sha256sum {{.APP_NAME}}-linux-amd64.tar.gz > {{.APP_NAME}}-linux-amd64.tar.gz.sha256
 
   windows:build:
-    summary: Builds the application for Windows
+    summary: Builds the production application for Windows
     cmds:
       - task: build:frontend
       - mkdir -p {{.BIN_DIR}}
-      - go build -buildvcs=false -o {{.BIN_DIR}}/{{.APP_NAME}}.exe .
+      - go build -tags production -trimpath -buildvcs=false -ldflags="-w -s -H windowsgui" -o {{.BIN_DIR}}/{{.APP_NAME}}.exe .
     env:
       GOOS: "windows"
       GOARCH: "amd64"
@@ -51,6 +59,12 @@ tasks:
     cmds:
       - npm install
       - npm run build
+
+  dev:frontend:
+    summary: Runs the Vite frontend dev server for wails3 dev
+    dir: frontend
+    cmds:
+      - npm run dev -- --port {{.VITE_PORT}} --strictPort
 
   generate:bindings:
     summary: Generates TypeScript bindings for the frontend

@@ -15,8 +15,11 @@ npm-debug.log
 
 # SQLite
 *.db
+*.db-*
 *.sqlite
+*.sqlite-*
 *.sqlite3
+*.sqlite3-*
 *.duckdb
 
 # Dev

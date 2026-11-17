@@ -20,11 +20,15 @@ func main() {
 	svc := NewApp(app)
 	app.RegisterService(application.NewService(svc))
 
-	application.NewWindow(application.WebviewWindowOptions{
-		Title:            "tws_traderbot",
-		Width:            1024,
-		Height:           768,
-		BackgroundColour: application.NewRGB(27, 38, 54),
+	app.Window.NewWithOptions(application.WebviewWindowOptions{
+		Name:             "main",
+		Title:            "Cobalt — Poste de pilotage TWS",
+		Width:            1440,
+		Height:           900,
+		MinWidth:         1024,
+		MinHeight:        700,
+		BackgroundColour: application.NewRGB(10, 12, 16),
+		URL:              "/",
 	})
 
 	if err := app.Run(); err != nil {

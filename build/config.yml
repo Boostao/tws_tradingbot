@@ -17,19 +17,26 @@ dev_mode:
       - .git
       - node_modules
       - frontend
+      - build
       - bin
+      - site
+      - okf
+      - tests
     file:
       - .DS_Store
       - .gitignore
+      - "*_test.go"
+      - "*.sqlite*"
     watched_extension:
       - "*.go"
     git_ignore: true
   executes:
     - cmd: wails3 task build:frontend
       type: once
-    - cmd: go mod tidy
+    - cmd: wails3 task build:dev
       type: blocking
-    - cmd: wails3 task build
-      type: blocking
+    - cmd: wails3 task dev:frontend
+      type: background
     - cmd: wails3 task run
       type: primary
+      exit_policy: shutdown

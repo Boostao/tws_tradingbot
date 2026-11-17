@@ -8,7 +8,7 @@ export default defineConfig({
                 fs: {
                         allow: [
                                 '..',
-                                'wailsjs',
+                                'bindings',
                                 '.'
                         ]
                 }
