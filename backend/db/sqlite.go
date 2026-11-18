@@ -42,6 +42,7 @@ func Connect(dbPath string) (*Database, error) {
 
 	db := &Database{conn: conn}
 	db.InitSchema()
+	_ = InitAutopilotSchema(conn)
 
 	log.Println("SQLite database connected successfully")
 	return db, nil

@@ -11,6 +11,7 @@ import (
 // Helper to construct a fully armed engine for gate testing
 func setupFullyArmedEngine() (*Engine, *models.WatchlistItem) {
 	eng := NewEngine()
+	eng.AutopilotController = eng.Autopilot
 	eng.SetGlobalEnabled(true) // Gate 1: Master breaker ON
 	// Gate 2: RiskBreakerTripped is false
 	_ = eng.StartBot(&models.Strategy{ID: "strat_1"}) // Gate 3: Engine running, Gate 5: active slot assigned

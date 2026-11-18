@@ -5,8 +5,6 @@ import (
 	"testing"
 	"time"
 	"tws_traderbot/backend/models"
-
-	"github.com/scmhub/ibapi"
 )
 
 // TestRunner_HeadlessMockFlow tests strategy loading, engine evaluation,
@@ -59,10 +57,13 @@ func TestRunner_HeadlessMockFlow(t *testing.T) {
 	wrapper.nextOrderID.Store(500)
 
 	// Push synthetic bars into reqID 1
-	wrapper.HistoricalData(1, &ibapi.Bar{Close: 96, Open: 95})
-	wrapper.HistoricalData(1, &ibapi.Bar{Close: 98, Open: 97})
-	wrapper.HistoricalData(1, &ibapi.Bar{Close: 102, Open: 99})
-	wrapper.HistoricalDataEnd(1, "", "")
+	wrapper.marketData["Close"] = []float64{96, 98, 102}
+	wrapper.marketData["Open"] = []float64{95, 97, 99}
+	wrapper.marketData["indicatorA"] = []float64{96, 98, 102}
+	actions := wrapper.engine.EvaluateTick("SYM_1", wrapper.marketData)
+	for _, action := range actions {
+		wrapper.ExecuteAction("SYM_1", string(action))
+	}
 
 	// Verify order was placed
 	if wrapper.nextOrderID.Load() <= 500 {

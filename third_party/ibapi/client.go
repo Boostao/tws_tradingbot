@@ -22,6 +22,7 @@ import (
 	"strconv"
 	"sync"
 	"sync/atomic"
+	"time"
 	"syscall"
 
 	"github.com/scmhub/ibapi/protobuf"
@@ -304,6 +305,7 @@ type EClient struct {
 	mu                   sync.Mutex
 	watchDone            chan struct{}
 	err                  error
+	pacer                *Pacer
 }
 
 // NewEClient returns a new Eclient.
@@ -311,7 +313,10 @@ func NewEClient(wrapper EWrapper) *EClient {
 	if wrapper == nil {
 		wrapper = &Wrapper{}
 	}
-	c := &EClient{wrapper: wrapper}
+	c := &EClient{
+		wrapper: wrapper,
+		pacer:   NewPacer(6, 333*time.Millisecond), // Roughly 6 req / 2s
+	}
 	c.reset()
 
 	return c
@@ -4409,6 +4414,7 @@ func (c *EClient) replaceFAProtoBuf(faReplaceProto *protobuf.FAReplace) {
 // chartOptions is for internal use only. Use default value XYZ.
 
 func (c *EClient) ReqHistoricalData(reqID int64, contract *Contract, endDateTime string, duration string, barSize string, whatToShow string, useRTH bool, formatDate int, keepUpToDate bool, chartOptions []TagValue) {
+	c.pacer.Wait()
 
 	if c.useProtoBuf(REQ_HISTORICAL_DATA) {
 		c.reqHistoricalDataProtoBuf(createHistoricalDataRequestProto(reqID, contract, endDateTime, duration, barSize, whatToShow, useRTH, formatDate, keepUpToDate, chartOptions))

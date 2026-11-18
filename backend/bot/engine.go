@@ -12,8 +12,7 @@ import (
 	"tws_traderbot/backend/db"
 	"tws_traderbot/backend/models"
 	"tws_traderbot/backend/strategy"
-
-	"github.com/wailsapp/wails/v3/pkg/application"
+	"github.com/scmhub/ibapi"
 )
 
 // The Engine abstracts the fail-closed execution loop, risk breaker, and safety gates.
@@ -25,9 +24,11 @@ type Engine struct {
 	dryRun             atomic.Bool
 	globalEnabled      atomic.Bool
 
-	CockpitState *models.CockpitStateResponse
-	App          *application.App
-	db           *db.Database
+	AutopilotController *AutopilotController
+	CockpitState        *models.CockpitStateResponse
+	Emitter             Emitter
+	Journal             *JournalWriter
+	db                  *db.Database
 
 	sessionGate  *SessionGate
 	timeProvider func() time.Time
@@ -68,6 +69,8 @@ type Engine struct {
 	latestPrices   map[string]float64
 	barBundle      *strategy.BarFrameBundle
 
+	Autopilot *AutopilotController
+
 	bracketEnabled bool
 	takeProfitPct  float64
 	stopLossPct    float64
@@ -76,9 +79,9 @@ type Engine struct {
 // NewEngine creates an initialized Engine in fail-closed default state.
 func NewEngine() *Engine {
 	e := &Engine{
-		sessionGate:    NewSessionGate(),
-		timeProvider:   time.Now,
-		dailyLossLimit: 500.0,
+		sessionGate:         NewSessionGate(),
+		timeProvider:        time.Now,
+		dailyLossLimit:      500.0,
 		totalEquity:    0.0,
 		positions:      make(map[string]models.BrokerPosition),
 		openOrders:     make(map[int64]models.BrokerOrder),
@@ -89,6 +92,8 @@ func NewEngine() *Engine {
 		takeProfitPct:  2.0,
 		stopLossPct:    1.0,
 	}
+	e.AutopilotController = NewAutopilotController(e)
+	e.Autopilot = e.AutopilotController
 
 	e.isRunning.Store(false)
 	e.RiskBreakerTripped.Store(false)
@@ -153,20 +158,23 @@ func (e *Engine) AttachDB(database *db.Database) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.db = database
+	if e.AutopilotController != nil {
+		_ = e.AutopilotController.LoadDecisions(database.Conn())
+	}
 }
 
-// AttachApp gives the engine access to Wails runtime events.
-func (e *Engine) AttachApp(app *application.App) {
+// AttachEmitter gives the engine access to event emission.
+func (e *Engine) AttachEmitter(emitter Emitter) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	e.App = app
+	e.Emitter = emitter
 }
 
-// GetApp safely retrieves the attached Wails runtime application reference.
-func (e *Engine) GetApp() *application.App {
+// GetEmitter safely retrieves the attached event emitter reference.
+func (e *Engine) GetEmitter() Emitter {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
-	return e.App
+	return e.Emitter
 }
 
 // SetDryRun configures dry-run execution mode.
@@ -202,6 +210,23 @@ func (e *Engine) IsGlobalEnabled() bool {
 // IsRunning returns whether the bot engine is currently running.
 func (e *Engine) IsRunning() bool {
 	return e.isRunning.Load()
+}
+
+// InitJournal initializes the journal writer.
+func (e *Engine) InitJournal(path string) error {
+	jw, err := NewJournalWriter(path)
+	if err != nil {
+		return err
+	}
+	e.Journal = jw
+	return nil
+}
+
+// LogEvent logs an event to the journal asynchronously.
+func (e *Engine) LogEvent(name string, data any) {
+	if e.Journal != nil {
+		e.Journal.Write(name, data)
+	}
 }
 
 // SetDailyLossLimit sets the threshold for automated daily loss risk breaker trip.
@@ -481,6 +506,17 @@ func (e *Engine) GetBracketPercentages() (float64, float64) {
 	return e.takeProfitPct, e.stopLossPct
 }
 
+// PlaceAutopilotOrder routes autopilot order requests through the controller.
+func (e *Engine) PlaceAutopilotOrder(orderID int64, contract *ibapi.Contract, action string, qty int, price float64, symbol string, decisionKey string) {
+	e.mu.RLock()
+	controller := e.AutopilotController
+	e.mu.RUnlock()
+	if controller == nil {
+		return
+	}
+	controller.PlaceAutopilotOrder(orderID, contract, action, qty, price, symbol, decisionKey)
+}
+
 // SetTimeProvider overrides the time retrieval function for deterministic testing.
 func (e *Engine) SetTimeProvider(fn func() time.Time) {
 	e.mu.Lock()
@@ -615,10 +651,10 @@ func (e *Engine) UpdatePnL(realized, unrealized float64) {
 	e.unrealizedPnL = unrealized
 	total := realized + unrealized
 	limit := e.dailyLossLimit
-	app := e.App
+	emitter := e.Emitter
 	e.mu.Unlock()
 
-	e.evaluateDailyLossBreaker(realized, unrealized, total, limit, app)
+	e.evaluateDailyLossBreaker(realized, unrealized, total, limit, emitter)
 }
 
 // UpdateLivePnL stores streaming TWS ReqPnL updates and evaluates the daily loss breaker.
@@ -633,13 +669,13 @@ func (e *Engine) UpdateLivePnL(daily, unrealized, realized float64) {
 		effectiveTotal = realized + unrealized
 	}
 	limit := e.dailyLossLimit
-	app := e.App
+	emitter := e.Emitter
 	e.mu.Unlock()
 
-	e.evaluateDailyLossBreaker(realized, unrealized, effectiveTotal, limit, app)
+	e.evaluateDailyLossBreaker(realized, unrealized, effectiveTotal, limit, emitter)
 }
 
-func (e *Engine) evaluateDailyLossBreaker(realized, unrealized, total, limit float64, app *application.App) {
+func (e *Engine) evaluateDailyLossBreaker(realized, unrealized, total, limit float64, emitter Emitter) {
 	// Risk Breaker Check: if limit > 0 and total PnL <= -dailyLossLimit, automatic trip
 	if limit > 0 && total <= -limit {
 		e.RiskBreakerTripped.Store(true)
@@ -655,8 +691,8 @@ func (e *Engine) evaluateDailyLossBreaker(realized, unrealized, total, limit flo
 			}
 		}
 
-		if app != nil {
-			app.Event.Emit("circuit_breaker_tripped", map[string]interface{}{
+		if emitter != nil {
+			emitter.Emit("circuit_breaker_tripped", map[string]interface{}{
 				"realized":   realized,
 				"unrealized": unrealized,
 				"total_pnl":  total,
@@ -667,7 +703,7 @@ func (e *Engine) evaluateDailyLossBreaker(realized, unrealized, total, limit flo
 
 			msg := fmt.Sprintf("[%s] 🚨 COUPE-CIRCUIT DÉCLENCHÉ: Perte journalière ($%.2f) excède la limite ($%.2f). Exécution automatique suspendue.",
 				time.Now().Format("15:04:05"), total, limit)
-			app.Event.Emit("ledger_entry", msg)
+			emitter.Emit("ledger_entry", msg)
 		}
 	}
 }
@@ -969,7 +1005,7 @@ func (e *Engine) ResetBrokerTelemetry() {
 func (e *Engine) SyncLivePositionsToDB() error {
 	e.mu.RLock()
 	dbRef := e.db
-	app := e.App
+	emitter := e.Emitter
 	e.mu.RUnlock()
 
 	if dbRef == nil {
@@ -979,8 +1015,8 @@ func (e *Engine) SyncLivePositionsToDB() error {
 	if err := dbRef.SyncLivePositions(positions); err != nil {
 		return err
 	}
-	if app != nil {
-		app.Event.Emit("positions_synced", map[string]interface{}{
+	if emitter != nil {
+		emitter.Emit("positions_synced", map[string]interface{}{
 			"count":     len(positions),
 			"timestamp": time.Now().UTC().Format(time.RFC3339),
 		})
@@ -993,7 +1029,7 @@ func (e *Engine) ResetCircuitBreaker() error {
 	e.mu.RLock()
 	limit := e.dailyLossLimit
 	_, _, totalPnL := e.getPnLLocked()
-	app := e.App
+	emitter := e.Emitter
 	e.mu.RUnlock()
 
 	// Guard: cannot reset if daily loss is actively breached
@@ -1004,13 +1040,13 @@ func (e *Engine) ResetCircuitBreaker() error {
 	e.RiskBreakerTripped.Store(false)
 	e.SetGlobalEnabled(true)
 
-	if app != nil {
-		app.Event.Emit("circuit_breaker_reset", map[string]interface{}{
+	if emitter != nil {
+		emitter.Emit("circuit_breaker_reset", map[string]interface{}{
 			"status":    "ARMED",
 			"timestamp": time.Now().UTC().Format(time.RFC3339),
 		})
 		msg := fmt.Sprintf("[%s] 🛡️ Coupe-circuit réarmé manuellement. Prêt pour l'exécution.", time.Now().Format("15:04:05"))
-		app.Event.Emit("ledger_entry", msg)
+		emitter.Emit("ledger_entry", msg)
 	}
 
 	return nil
@@ -1281,7 +1317,7 @@ func (e *Engine) RecordFill(fill *models.TradeRecord) error {
 
 	e.mu.RLock()
 	dbRef := e.db
-	app := e.App
+	emitter := e.Emitter
 	e.mu.RUnlock()
 
 	if dbRef != nil {
@@ -1290,15 +1326,15 @@ func (e *Engine) RecordFill(fill *models.TradeRecord) error {
 		}
 	}
 
-	if app != nil {
-		app.Event.Emit("trade_fill", fill)
+	if emitter != nil {
+		emitter.Emit("trade_fill", fill)
 		prefix := "[LIVE FILL]"
 		if fill.Mode == "dry_run" {
 			prefix = "[DRY-RUN SIMULATED FILL]"
 		}
 		msg := fmt.Sprintf("[%s] %s %s %d %s @ $%.2f (OrderID: %d, Status: %s)",
 			fill.CreatedAt.Format("15:04:05"), prefix, fill.Action, fill.Quantity, fill.Symbol, fill.Price, fill.OrderID, fill.Status)
-		app.Event.Emit("ledger_entry", msg)
+		emitter.Emit("ledger_entry", msg)
 	}
 
 	return nil
@@ -1479,7 +1515,7 @@ func (e *Engine) EvaluateTick(symbol string, marketData map[string][]float64) []
 
 	e.mu.RLock()
 	strat := e.ActiveStrategy
-	app := e.App
+	emitter := e.Emitter
 	e.mu.RUnlock()
 
 	if strat == nil {
@@ -1494,8 +1530,8 @@ func (e *Engine) EvaluateTick(symbol string, marketData map[string][]float64) []
 	var actions []models.ActionType
 
 	// Emit a pulse event so the UI knows we are actively scanning this symbol
-	if app != nil {
-		app.Event.Emit("pulse_tick", map[string]interface{}{
+	if emitter != nil {
+		emitter.Emit("pulse_tick", map[string]interface{}{
 			"symbol": symbol,
 			"time":   time.Now().Format(time.RFC3339),
 		})
@@ -1514,8 +1550,8 @@ func (e *Engine) EvaluateTick(symbol string, marketData map[string][]float64) []
 		active := strategy.EvaluateConditions(rule.Condition, marketData)
 
 		// Map rule evaluation to the UI Matrix Heatmap
-		if app != nil {
-			app.Event.Emit("matrix_update", map[string]interface{}{
+		if emitter != nil {
+			emitter.Emit("matrix_update", map[string]interface{}{
 				"symbol": symbol,
 				"rule":   rule.Name,
 				"active": active,
@@ -1526,10 +1562,10 @@ func (e *Engine) EvaluateTick(symbol string, marketData map[string][]float64) []
 			actions = append(actions, rule.Action)
 
 			// Broadcast execution intent to UI Ledger
-			if app != nil {
+			if emitter != nil {
 				msg := fmt.Sprintf("[%s] %s Action triggered by rule: %s",
 					time.Now().Format("15:04:05"), rule.Action, rule.Name)
-				app.Event.Emit("ledger_entry", msg)
+				emitter.Emit("ledger_entry", msg)
 			}
 		}
 	}

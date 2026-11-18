@@ -1,0 +1,20 @@
+=== RUN   TestTier1
+--- PASS: TestTier1 (0.00s)
+testing: warning: no tests to run
+PASS
+
+================================================================================
+              E2E OPAQUE-BOX TEST EXECUTION SUMMARY (tws_traderbot)            
+================================================================================
+Tier 1 (Feature Coverage):          0 /   0 PASSED (  0.0%) [  0.00s]
+Tier 2 (Boundary & Corner):         0 /   0 PASSED (  0.0%) [  0.00s]
+Tier 3 (Interactions):              0 /   0 PASSED (  0.0%) [  0.00s]
+Tier 4 (Real-World Scenarios):      0 /   0 PASSED (  0.0%) [  0.00s]
+Tier 5 (Adversarial Hardening):     0 /   0 PASSED (  0.0%) [  0.00s]
+--------------------------------------------------------------------------------
+TOTAL:                              0 /    0 PASSED (  0.0%) [  0.00s]
+FEATURE COVERAGE:                  0 / 55 FEATURES (  0.0%)
+================================================================================
+RESULT: 0 TESTS FAILED (EXIT CODE 1)
+================================================================================
+ok  	tws_traderbot/tests/e2e	0.004s [no tests to run]

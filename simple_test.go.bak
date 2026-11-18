@@ -1,0 +1,3 @@
+package test
+import ("testing"; "fmt")
+func TestPrint(t *testing.T) { fmt.Println("DEBUG: working") }

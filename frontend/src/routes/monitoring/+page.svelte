@@ -127,6 +127,8 @@
 		dailyLossLimit > 0 ? Math.min(100, (dailyLossUsed / dailyLossLimit) * 100) : 0;
 	$: breakerRemaining = dailyLossLimit > 0 ? Math.max(0, dailyLossLimit - dailyLossUsed) : 0;
 	$: breakerNearBreach = dailyLossLimit > 0 && breakerUsedPct >= 90;
+	$: totalExposure = openPositions.reduce((sum, pos) => sum + Math.abs(numberValue(pos.market_value) ?? 0), 0);
+	$: exposurePct = (botState?.equity && botState.equity > 0) ? (totalExposure / botState.equity) * 100 : 0;
 
 	// Panel 2: Open Positions
 	$: openPositions = Array.isArray(botState?.open_positions) ? botState.open_positions : [];
@@ -417,6 +419,13 @@
 					<div class="monitoring-stat-tile">
 						<span class="monitoring-stat-label">{tr('monitoring_buying_power')}</span>
 						<strong class="font-mono">{formatMoney(botState?.buying_power)}</strong>
+					</div>
+					<div class="monitoring-stat-tile">
+						<span class="monitoring-stat-label">{tr('total_exposure')}</span>
+						<strong class="font-mono">{formatMoney(totalExposure)}</strong>
+						<div class="monitoring-gauge-track" style="height: 4px; margin-top: 4px;" role="progressbar" aria-valuenow={Math.round(exposurePct)} aria-valuemin={0} aria-valuemax={100}>
+							<div class="monitoring-gauge-fill" style={`width: ${exposurePct.toFixed(1)}%; background: var(--cobalt-cyan);`}></div>
+						</div>
 					</div>
 				</div>
 

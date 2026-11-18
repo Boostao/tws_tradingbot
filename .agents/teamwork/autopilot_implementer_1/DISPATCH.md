@@ -1,0 +1,2 @@
+## 2026-11-18T18:30:55Z
+Implement `backend/bot/autopilot.go` to serve as the execution driver. This component should handle the Autopilot lifecycle (start/stop/failsafe), manage the `autopilotExecMode`, and hold the logic for binding `workspace`, `slot`, `strategy_id`, and `watchlist_id` to the autopilot session. Include the logic for `StopAutopilot` and `FailsafeStop` to ensure secure cancellation of orders as specified in `ORIGINAL_REQUEST.md`. Ensure it interacts correctly with the `PlaceAutopilotOrder` chokepoint.

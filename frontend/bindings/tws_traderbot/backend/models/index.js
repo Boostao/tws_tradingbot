@@ -4,6 +4,8 @@
 
 export {
     ActionType,
+    AutopilotRun,
+    AutopilotState,
     BotDryRun,
     BotDryRunSubscription,
     BotState,

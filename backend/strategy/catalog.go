@@ -2,6 +2,7 @@ package strategy
 
 import (
 	"fmt"
+	"log"
 	"time"
 	"tws_traderbot/backend/db"
 	"tws_traderbot/backend/models"
@@ -607,6 +608,7 @@ func SeedStrategyCatalog(database *db.Database) error {
 	}
 
 	existing, err := database.LoadStrategyLibrary()
+	log.Printf("Existing strategies: %d", len(existing))
 	if err == nil && len(existing) >= 20 {
 		return nil // Already seeded
 	}

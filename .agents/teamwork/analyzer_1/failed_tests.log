@@ -1,0 +1,49 @@
+        [DIAGNOSTIC FAILURE REPORT]
+        [DIAGNOSTIC FAILURE REPORT]
+        [DIAGNOSTIC FAILURE REPORT]
+        [DIAGNOSTIC FAILURE REPORT]
+        [DIAGNOSTIC FAILURE REPORT]
+        [DIAGNOSTIC FAILURE REPORT]
+    tier1_test.go:4746: Expected no error, but got: exit status 1: FAIL: 1 i18n violation(s):
+        [DIAGNOSTIC FAILURE REPORT]
+        Action Err:   exit status 1: FAIL: 1 i18n violation(s):
+        FAIL: test_repo_passes_i18n_parity (test_i18n_parity.TestI18nParity.test_repo_passes_i18n_parity)
+        FAIL: test_pkg_08_hygiene_lockstep_i18n_and_v2_bindings (test_v2_packaging_and_brand.TestV2PackagingAndBrand.test_pkg_08_hygiene_lockstep_i18n_and_v2_bindings)
+        FAILED (failures=2)
+        [DIAGNOSTIC FAILURE REPORT]
+        FAIL: test_repo_passes_i18n_parity (test_i18n_parity.TestI18nParity.test_repo_passes_i18n_parity)
+        FAIL: test_pkg_08_hygiene_lockstep_i18n_and_v2_bindings (test_v2_packaging_and_brand.TestV2PackagingAndBrand.test_pkg_08_hygiene_lockstep_i18n_and_v2_bindings)
+        FAILED (failures=2)
+--- FAIL: TestTier1 (1.03s)
+    --- FAIL: TestTier1/E2E-T1-F35-04_Total_preset_count_equals_exactly_20 (0.00s)
+    --- FAIL: TestTier1/E2E-T1-F42-01_Translation_key_count_symmetry_en__fr (0.01s)
+    --- FAIL: TestTier1/E2E-T1-F42-02_Translation_key_set_equality (0.01s)
+    --- FAIL: TestTier1/E2E-T1-F42-04_Switch_language_to_French (0.01s)
+    --- FAIL: TestTier1/E2E-T1-F42-05_Switch_language_to_English (0.01s)
+    --- FAIL: TestTier1/E2E-T1-F50-03_Key_parity_comparison_en_vs_fr (0.01s)
+    --- FAIL: TestTier1/E2E-T1-F50-04_Clean_i18n_parity_pass_exits_code_0 (0.03s)
+    --- FAIL: TestTier1/E2E-T1-F54-02_OKF_unit_test_discovery_passes (0.12s)
+        [DIAGNOSTIC FAILURE REPORT]
+        [DIAGNOSTIC FAILURE REPORT]
+        [DIAGNOSTIC FAILURE REPORT]
+        [DIAGNOSTIC FAILURE REPORT]
+        [DIAGNOSTIC FAILURE REPORT]
+        [DIAGNOSTIC FAILURE REPORT]
+        [DIAGNOSTIC FAILURE REPORT]
+--- FAIL: TestTier2 (1.22s)
+    --- FAIL: TestTier2/E2E-T2-F35-01_Library_reset_restores_exactly_20_preset (0.00s)
+    --- FAIL: TestTier2/E2E-T2-F35-02_Single_preset_deletion_leaves_exactly_19 (0.00s)
+    --- FAIL: TestTier2/E2E-T2-F42-03_Missing_French_key_detection_halts_linte (0.04s)
+    --- FAIL: TestTier2/E2E-T2-F42-04_Missing_English_key_detection_halts_lint (0.03s)
+    --- FAIL: TestTier2/E2E-T2-F50-03_Empty_translation_value_flagged (0.03s)
+    --- FAIL: TestTier2/E2E-T2-F50-04_Syntax_error_in_translationsts_reported (0.04s)
+    --- FAIL: TestTier2/E2E-T2-F50-05_Python_unit_test_discovery_passes (0.10s)
+        [DIAGNOSTIC FAILURE REPORT]
+        [DIAGNOSTIC FAILURE REPORT]
+--- FAIL: TestTier3 (0.19s)
+    --- FAIL: TestTier3/E2E-T3-M10_Fresh_application_boot_seeds_5_watchlist (0.00s)
+    --- FAIL: TestTier3/E2E-T3-M11_Validate_absence_of_banned_framework_jar (0.04s)
+FAIL
+RESULT: 17 TESTS FAILED (EXIT CODE 1)
+FAIL	tws_traderbot/tests/e2e	9.867s
+FAIL

@@ -38,6 +38,23 @@ type IBWrapper struct {
 	marketData        map[string][]float64
 	nextOrderID       atomic.Int64
 	nextReqID         atomic.Int64
+	subscriptionMeta    map[int64]SubscriptionMeta
+	metaMu              sync.RWMutex
+	subscriptionManager *SubscriptionManager
+}
+
+// SubscriptionMeta tracks metadata for historical data requests to handle pacing.
+type SubscriptionMeta struct {
+	Symbol       string
+	Contract     *ibapi.Contract
+	EndDateTime  string
+	Duration     string
+	BarSize      string
+	WhatToShow   string
+	UseRTH       bool
+	FormatDate   int
+	KeepUpToDate bool
+	ChartOptions []ibapi.TagValue
 }
 
 // Compile-time assertion that *IBWrapper implements ibapi.EWrapper cleanly.
@@ -46,8 +63,9 @@ var _ ibapi.EWrapper = (*IBWrapper)(nil)
 // NewIBWrapper constructs a standalone IBWrapper bound to an Engine (useful for testing and E2E harnesses).
 func NewIBWrapper(engine *Engine) *IBWrapper {
 	w := &IBWrapper{
-		engine:     engine,
-		marketData: make(map[string][]float64),
+		engine:           engine,
+		marketData:       make(map[string][]float64),
+		subscriptionMeta: make(map[int64]SubscriptionMeta),
 	}
 	w.nextOrderID.Store(1)
 	w.nextReqID.Store(1)
@@ -60,9 +78,14 @@ func NewIBKRClient(engine *Engine) *IBKRClient {
 	wrapper.connected = &c.connected
 
 	client := ibapi.NewEClient(wrapper)
+	wrapper.subscriptionManager = NewSubscriptionManager(wrapper)
 	wrapper.client = client
 	c.client = client
 	c.wrapper = wrapper
+	
+	if engine.AutopilotController != nil {
+		engine.AutopilotController.SetClient(client)
+	}
 	return c
 }
 
@@ -380,14 +403,22 @@ func (w *IBWrapper) Error(reqID int64, errTime int64, errCode int64, errString s
 		return
 	}
 
+	if errCode == 504 && w.disconnecting.Load() {
+		return
+	}
+
+	if errCode == 10089 {
+		w.subscriptionManager.HandleSubscriptionError(errCode, errString)
+	}
+
 	alert := BuildBrokerAlert(errCode, errString)
 	if w.engine != nil {
 		w.engine.AddBrokerAlert(alert)
 		if errCode == 1100 {
 			w.engine.RecordDisconnect(errString)
 		}
-		if app := w.engine.GetApp(); app != nil {
-			app.Event.Emit("broker_alert", alert)
+		if emitter := w.engine.GetEmitter(); emitter != nil {
+			emitter.Emit("broker_alert", alert)
 		}
 	}
 
@@ -660,34 +691,14 @@ func (w *IBWrapper) HistoricalData(reqID int64, bar *ibapi.Bar) {
 
 // HistoricalDataEnd triggers Engine evaluation with cloned data under read-lock.
 func (w *IBWrapper) HistoricalDataEnd(reqID int64, startDateStr string, endDateStr string) {
-	fmt.Printf("IBKR: Finished streaming historical data block for %d. Starting evaluation...\n", reqID)
+	fmt.Printf("IBKR: Finished streaming historical data block for %d.\n", reqID)
+	// Evaluation moved to snapshot mechanism
+}
 
-	if w.engine != nil && w.engine.IsRunning() {
-		symbol := fmt.Sprintf("SYM_%d", reqID)
-
-		w.mu.RLock()
-		closeSrc := w.marketData[fmt.Sprintf("Close_%d", reqID)]
-		openSrc := w.marketData[fmt.Sprintf("Open_%d", reqID)]
-		closeCopy := append([]float64(nil), closeSrc...)
-		openCopy := append([]float64(nil), openSrc...)
-		w.mu.RUnlock()
-
-		normMap := map[string][]float64{
-			"Close":      closeCopy,
-			"Open":       openCopy,
-			"indicatorA": closeCopy,
-		}
-
-		actions := w.engine.EvaluateTick(symbol, normMap)
-
-		if len(actions) > 0 {
-			fmt.Printf(">>> TRADING RULES TRIGGERED for %s: %v\n", symbol, actions)
-			for _, action := range actions {
-				w.ExecuteAction(symbol, string(action))
-			}
-		} else {
-			fmt.Printf(">>> No rules triggered for %s.\n", symbol)
-		}
+// HistoricalDataUpdate feeds bars to the SubscriptionManager/Engine.
+func (w *IBWrapper) HistoricalDataUpdate(reqID int64, bar *ibapi.Bar) {
+	if w.subscriptionManager != nil {
+		w.subscriptionManager.UpdateBar(reqID, bar)
 	}
 }
 
@@ -711,10 +722,10 @@ func (w *IBWrapper) ExecuteAction(symbol string, actionType string) {
 	can, reason := w.engine.CanExecute(symbol, models.ActionType(strings.ToLower(upperAction)))
 	if !can {
 		fmt.Printf("[FAIL-CLOSED REJECT] Order execution blocked for %s: %s\n", symbol, reason)
-		if app := w.engine.GetApp(); app != nil {
+		if emitter := w.engine.GetEmitter(); emitter != nil {
 			msg := fmt.Sprintf("[%s] ❌ ORDRE REFUSÉ pour %s: %s", time.Now().Format("15:04:05"), symbol, reason)
-			app.Event.Emit("ledger_entry", msg)
-			app.Event.Emit("order_rejected", map[string]interface{}{
+			emitter.Emit("ledger_entry", msg)
+			emitter.Emit("order_rejected", map[string]interface{}{
 				"symbol": symbol,
 				"action": upperAction,
 				"reason": reason,
@@ -762,93 +773,12 @@ func (w *IBWrapper) ExecuteAction(symbol string, actionType string) {
 	// 4. Atomic Order ID Sequencing
 	orderId := w.NextOrderID()
 
-	// 5. Strict Dry-Run Guard: Never call w.client.PlaceOrder in dry-run mode
-	if w.engine.IsDryRun() {
-		ocaGroup := ""
-		if w.engine.IsBracketEnabled() {
-			ocaGroup = fmt.Sprintf("OCA_%d", orderId)
-		}
-
-		fill := &models.TradeRecord{
-			OrderID:   orderId,
-			Symbol:    contract.Symbol,
-			Action:    upperAction,
-			Quantity:  qty,
-			Price:     price,
-			Status:    "SIMULATED_FILL",
-			OCAGroup:  ocaGroup,
-			Mode:      "dry_run",
-			CreatedAt: time.Now().UTC(),
-		}
-		_ = w.engine.RecordFill(fill)
-		fmt.Printf("[DRY-RUN SIMULATED FILL] %s %d %s @ $%.2f (OrderID: %d)\n", upperAction, qty, contract.Symbol, price, orderId)
-		return
-	}
-
-	// 6. Live Execution Guard
+	// 5. Autopilot
+	// We pass the orderID directly to PlaceAutopilotOrder so it can be used for OCA grouping.
+	// If brackets are enabled, we can use the orderId as the decisionKey to group them.
+	decisionKey := ""
 	if w.engine.IsBracketEnabled() {
-		tpOrderID := w.NextOrderID()
-		slOrderID := w.NextOrderID()
-		tpPct, slPct := w.engine.GetBracketPercentages()
-
-		bundle, err := CreateBracketOrders(orderId, tpOrderID, slOrderID, upperAction, qty, "MKT", price, tpPct, slPct, "")
-		if err != nil || bundle == nil {
-			reason := fmt.Sprintf("Live bracket order creation failed: %v", err)
-			fmt.Printf("[FAIL-CLOSED REJECT] Live execution blocked for %s: %s\n", symbol, reason)
-			if app := w.engine.GetApp(); app != nil {
-				msg := fmt.Sprintf("[%s] ❌ ORDRE REFUSÉ pour %s: %s", time.Now().Format("15:04:05"), symbol, reason)
-				app.Event.Emit("ledger_entry", msg)
-				app.Event.Emit("order_rejected", map[string]interface{}{
-					"symbol": symbol,
-					"action": upperAction,
-					"reason": reason,
-				})
-			}
-			return
-		}
-
-		if w.client != nil {
-			w.client.PlaceOrder(bundle.Parent.OrderID, contract, bundle.Parent)
-			w.client.PlaceOrder(bundle.TakeProfit.OrderID, contract, bundle.TakeProfit)
-			w.client.PlaceOrder(bundle.StopLoss.OrderID, contract, bundle.StopLoss)
-		}
-		fill := &models.TradeRecord{
-			OrderID:   orderId,
-			Symbol:    contract.Symbol,
-			Action:    upperAction,
-			Quantity:  qty,
-			Price:     price,
-			Status:    "SUBMITTED",
-			OCAGroup:  bundle.OCAGroup,
-			Mode:      "live",
-			CreatedAt: time.Now().UTC(),
-		}
-		_ = w.engine.RecordFill(fill)
-		return
+		decisionKey = fmt.Sprintf("%d", orderId)
 	}
-
-	// Standard unbracketed live market order
-	order := ibapi.NewOrder()
-	order.OrderID = orderId
-	order.Action = upperAction
-	order.OrderType = "MKT"
-	order.TotalQuantity = ibapi.StringToDecimal(fmt.Sprintf("%d", qty))
-	order.TIF = "DAY"
-	order.Transmit = true
-
-	if w.client != nil {
-		w.client.PlaceOrder(orderId, contract, order)
-	}
-
-	fill := &models.TradeRecord{
-		OrderID:   orderId,
-		Symbol:    contract.Symbol,
-		Action:    upperAction,
-		Quantity:  qty,
-		Price:     price,
-		Status:    "SUBMITTED",
-		Mode:      "live",
-		CreatedAt: time.Now().UTC(),
-	}
-	_ = w.engine.RecordFill(fill)
+	w.engine.AutopilotController.PlaceAutopilotOrder(orderId, contract, upperAction, qty, price, symbol, decisionKey)
 }

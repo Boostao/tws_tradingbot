@@ -38,7 +38,8 @@ import {
 	UpdateConfig,
 	UpdateStrategy,
 	UpdateTWSConnection,
-	ValidateStrategy
+	ValidateStrategy,
+	GetAutopilotState
 } from '../../bindings/tws_traderbot/app';
 
 export const API_BASE = '';

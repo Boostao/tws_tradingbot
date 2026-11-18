@@ -1,0 +1,86 @@
+--- "/home/bruno/Work/Active project/cobalt/tws_traderbot/backend/bot/ibkr.go"	2026-11-17 22:30:18.426234537 -0500
++++ /home/bruno/.gemini/antigravity/worktrees/b1ada1dc-c94d-4a77-bccc-7b73b2769279/subagent-Build-Worker-4--Replacement--teamwork-follower-9d42c799/backend/bot/ibkr.go	2026-11-17 22:32:23.199247715 -0500
+@@ -39,6 +39,7 @@
+ 	nextOrderID       atomic.Int64
+ 	nextReqID         atomic.Int64
+ 	subscriptionMeta  map[int64]SubscriptionMeta
++	pacingQueue       chan HistRequest
+ 	metaMu            sync.RWMutex
+ }
+ 
+@@ -56,6 +57,20 @@
+ 	ChartOptions []ibapi.TagValue
+ }
+ 
++// HistRequest encapsulates a historical data request for pacing.
++type HistRequest struct {
++	ReqID        int64
++	Contract     *ibapi.Contract
++	EndDateTime  string
++	Duration     string
++	BarSize      string
++	WhatToShow   string
++	UseRTH       bool
++	FormatDate   int
++	KeepUpToDate bool
++	ChartOptions []ibapi.TagValue
++}
++
+ // Compile-time assertion that *IBWrapper implements ibapi.EWrapper cleanly.
+ var _ ibapi.EWrapper = (*IBWrapper)(nil)
+ 
+@@ -65,12 +80,28 @@
+ 		engine:           engine,
+ 		marketData:       make(map[string][]float64),
+ 		subscriptionMeta: make(map[int64]SubscriptionMeta),
++		pacingQueue:      make(chan HistRequest, 100),
+ 	}
+ 	w.nextOrderID.Store(1)
+ 	w.nextReqID.Store(1)
+ 	return w
+ }
+ 
++// StartPacingPump starts the pacing queue processor.
++func (w *IBWrapper) StartPacingPump() {
++	go w.processPacingQueue()
++}
++
++// processPacingQueue handles paced retries for historical data requests.
++func (w *IBWrapper) processPacingQueue() {
++	for req := range w.pacingQueue {
++		time.Sleep(2 * time.Second) // Pacing: 0.5 req/s to be safe
++		if w.client != nil && w.connected.Load() {
++			w.client.ReqHistoricalData(req.ReqID, req.Contract, req.EndDateTime, req.Duration, req.BarSize, req.WhatToShow, req.UseRTH, req.FormatDate, req.KeepUpToDate, req.ChartOptions)
++		}
++	}
++}
++
+ func NewIBKRClient(engine *Engine) *IBKRClient {
+ 	c := &IBKRClient{}
+ 	wrapper := NewIBWrapper(engine)
+@@ -405,12 +436,19 @@
+ 		if ok {
+ 			// Classify pacing vs subscription error
+ 			if strings.Contains(errString, "pacing") || strings.Contains(errString, "rate limit") {
+-				fmt.Printf("IBKR: Pacing violation for reqID %d (%s), backing off...\n", reqID, meta.Symbol)
+-				time.AfterFunc(10*time.Second, func() {
+-					if w.client != nil {
+-						w.client.ReqHistoricalData(reqID, meta.Contract, meta.EndDateTime, meta.Duration, meta.BarSize, meta.WhatToShow, meta.UseRTH, meta.FormatDate, meta.KeepUpToDate, meta.ChartOptions)
+-					}
+-				})
++				fmt.Printf("IBKR: Pacing violation for reqID %d (%s), queuing retry...\n", reqID, meta.Symbol)
++				w.pacingQueue <- HistRequest{
++					ReqID:        reqID,
++					Contract:     meta.Contract,
++					EndDateTime:  meta.EndDateTime,
++					Duration:     meta.Duration,
++					BarSize:      meta.BarSize,
++					WhatToShow:   meta.WhatToShow,
++					UseRTH:       meta.UseRTH,
++					FormatDate:   meta.FormatDate,
++					KeepUpToDate: meta.KeepUpToDate,
++					ChartOptions: meta.ChartOptions,
++				}
+ 				return
+ 			}
+ 		}

@@ -41,8 +41,6 @@ github.com/robaho/fixed v0.0.0-20251201003256-beee5759f86a/go.mod h1:gOuZr6norIE
 github.com/rs/xid v1.6.0/go.mod h1:7XoLgs4eV+QndskICGsho+ADou8ySMSjJKDIan90Nz0=
 github.com/rs/zerolog v1.34.0 h1:k43nTLIwcTVQAncfCw4KZ2VY6ukYoZaBPNOE8txlOeY=
 github.com/rs/zerolog v1.34.0/go.mod h1:bJsvje4Z08ROH4Nhs5iH600c3IkWhwp44iRc54W6wYQ=
-github.com/scmhub/ibapi v0.10.50 h1:eCHND+F4yhKOL2tovD0EMqd0Av3E6msp/4C+TL2Uwjc=
-github.com/scmhub/ibapi v0.10.50/go.mod h1:codoOOEwT48pn9R4pBQny41OLqqgwqLRC5Mm+OEEIhQ=
 github.com/shopspring/decimal v1.4.0 h1:bxl37RwXBklmTi0C79JfXCEBD1cqqHt0bbgBAGFp81k=
 github.com/shopspring/decimal v1.4.0/go.mod h1:gawqmDU56v4yIKSwfBSFip1HdCCXN8/+DMd9qYNcwME=
 github.com/stretchr/testify v1.11.1 h1:7s2iGBzp5EwR7/aIZr8ao5+dra3wiQyKjjFuvgVKu7U=

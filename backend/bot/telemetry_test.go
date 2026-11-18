@@ -295,7 +295,7 @@ func TestEngine_ResetCircuitBreaker_ConcurrentWithUpdateLivePnL(t *testing.T) {
 				} else {
 					eng.UpdateLivePnL(float64(id*10+i%50), 25.0, 10.0)
 				}
-				eng.AttachApp(nil)
+				eng.AttachEmitter(nil)
 			}
 		}(w)
 

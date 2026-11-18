@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"tws_traderbot/backend/api"
 	"tws_traderbot/backend/bot"
 	"tws_traderbot/backend/db"
 	"tws_traderbot/backend/models"
@@ -20,8 +21,9 @@ type App struct {
 	app        *application.App
 	db         *db.Database
 	engine     *bot.Engine
-	ibkrClient *bot.IBKRClient
-	cockpitMu  sync.Mutex
+	ibkrClient     *bot.IBKRClient
+	cockpitManager *bot.CockpitManager
+	cockpitMu      sync.Mutex
 }
 
 // NewApp creates a new App application struct
@@ -36,18 +38,28 @@ func NewApp(app *application.App) *App {
 	engine.AttachDB(database)
 	// TWS Paper Trading Client
 	ibkrClient := bot.NewIBKRClient(engine)
+	cockpitManager := bot.NewCockpitManager(database, engine)
 
 	return &App{
-		app:        app,
-		db:         database,
-		engine:     engine,
-		ibkrClient: ibkrClient,
+		app:            app,
+		db:             database,
+		engine:         engine,
+		ibkrClient:     ibkrClient,
+		cockpitManager: cockpitManager,
+		cockpitMu:      sync.Mutex{},
+	}
+}
+
+// Emit implements bot.Emitter.
+func (a *App) Emit(name string, data any) {
+	if a.app != nil {
+		a.app.Event.Emit(name, data)
 	}
 }
 
 // ServiceStartup is called when the service starts. The app reference is already stored.
 func (a *App) ServiceStartup(ctx context.Context, options application.ServiceOptions) error {
-	a.engine.AttachApp(a.app)
+	a.engine.AttachEmitter(a)
 
 	cfg := a.GetConfig()
 	a.syncConfigToEngine(cfg)
@@ -189,73 +201,12 @@ func (a *App) GetWatchlist() *models.WatchlistResponse {
 
 // GetCockpitState returns the current cockpit state from SQLite
 func (a *App) GetCockpitState() *models.CockpitStateResponse {
-	state, err := a.db.LoadCockpitState()
-	if err == nil && state != nil && len(state.Workspaces) >= 3 {
-		lib, errLib := a.db.LoadStrategyLibrary()
-		if errLib == nil {
-			state.StrategyLibrary = lib
-		}
-		if state.ActiveWorkspaceID == "" {
-			state.ActiveWorkspaceID = "achat"
-		}
-		return state
-	}
+	return a.cockpitManager.GetState()
+}
 
-	// Default initialization with 3 canonical Cobalt workspaces
-	defaultState := &models.CockpitStateResponse{
-		GlobalEnabled:     false,
-		ActiveWorkspaceID: "achat",
-		Workspaces: []models.CockpitWorkspace{
-			{
-				ID:      "achat",
-				Name:    "Achat",
-				Kind:    "long",
-				Enabled: true,
-				StrategySlots: []models.CockpitStrategySlot{
-					{
-						ID:         "slot_1",
-						Label:      "Croisement 10-30",
-						StrategyID: "screener_10_30_haut",
-						Enabled:    true,
-					},
-				},
-			},
-			{
-				ID:      "short",
-				Name:    "Short",
-				Kind:    "short",
-				Enabled: false,
-				StrategySlots: []models.CockpitStrategySlot{
-					{
-						ID:         "slot_1",
-						Label:      "Croisement Bas",
-						StrategyID: "screener_10_30_bas",
-						Enabled:    false,
-					},
-				},
-			},
-			{
-				ID:      "swing",
-				Name:    "Swing",
-				Kind:    "swing",
-				Enabled: false,
-				StrategySlots: []models.CockpitStrategySlot{
-					{
-						ID:         "slot_1",
-						Label:      "Weinstein Phase 2",
-						StrategyID: "cours_weinstein_p2",
-						Enabled:    false,
-					},
-				},
-			},
-		},
-	}
-	lib, errLib := a.db.LoadStrategyLibrary()
-	if errLib == nil {
-		defaultState.StrategyLibrary = lib
-	}
-	_ = a.db.SaveCockpitState(defaultState)
-	return defaultState
+// GetAutopilotState returns the current autopilot system state
+func (a *App) GetAutopilotState() *models.AutopilotState {
+	return api.GetAutopilotState(a.engine)
 }
 
 // Greet returns a greeting for the given name
@@ -265,128 +216,11 @@ func (a *App) Greet(name string) string {
 
 // UpdateCockpitState updates the global cockpit state in SQLite
 func (a *App) UpdateCockpitState(update *models.CockpitStateResponse) (*models.CockpitStateResponse, error) {
-	if update == nil {
-		return nil, fmt.Errorf("cockpit state update payload cannot be nil")
-	}
-
-	a.cockpitMu.Lock()
-	defer a.cockpitMu.Unlock()
-
-	state, err := a.db.LoadCockpitState()
-	if err != nil || state == nil || len(state.Workspaces) < 3 {
-		state = a.GetCockpitState()
-	}
-
-	state.GlobalEnabled = update.GlobalEnabled
-	if a.engine != nil && a.engine.RiskBreakerTripped.Load() {
-		state.GlobalEnabled = false
-	}
-	if update.ActiveWorkspaceID != "" {
-		state.ActiveWorkspaceID = update.ActiveWorkspaceID
-	}
-	if update.Workspaces != nil && len(update.Workspaces) > 0 {
-		state.Workspaces = update.Workspaces
-	}
-
-	// Enforce 1/1 active slot concurrency invariant across all workspaces:
-	// Only the slot matching the active workspace should remain enabled if any slot is enabled.
-	for i := range state.Workspaces {
-		ws := &state.Workspaces[i]
-		if ws.ID == state.ActiveWorkspaceID {
-			// In the active workspace, at most one slot may be enabled
-			armedFound := false
-			for j := range ws.StrategySlots {
-				slot := &ws.StrategySlots[j]
-				if slot.Enabled && !armedFound {
-					armedFound = true
-				} else {
-					slot.Enabled = false
-				}
-			}
-		} else {
-			ws.Enabled = false
-			for j := range ws.StrategySlots {
-				ws.StrategySlots[j].Enabled = false
-			}
-		}
-	}
-
-	lib, errLib := a.db.LoadStrategyLibrary()
-	if errLib == nil {
-		state.StrategyLibrary = lib
-	}
-
-	err = a.db.SaveCockpitState(state)
-	if err != nil {
-		return nil, err
-	}
-
-	_, activeStrategyID, strat := a.resolveSelectedStrategy(state)
-
-	activeSlotEnabled := false
-	for _, ws := range state.Workspaces {
-		if ws.Enabled {
-			for _, slot := range ws.StrategySlots {
-				if slot.Enabled && slot.StrategyID != "" {
-					activeSlotEnabled = true
-					break
-				}
-			}
-		}
-	}
-
-	if a.engine != nil {
-		a.engine.SetCockpitState(state)
-		a.engine.SetActiveStrategy(strat)
-		globalEnabled := a.engine.IsGlobalEnabled()
-		if globalEnabled && !a.engine.RiskBreakerTripped.Load() && activeSlotEnabled && activeStrategyID != "" && strat != nil {
-			a.engine.StopBot()
-			_ = a.engine.StartBot(strat)
-		} else {
-			a.engine.StopBot()
-		}
-		a.engine.RecordRuntimeReload("cockpit_update")
-	}
-
-	return state, nil
+	return a.cockpitManager.UpdateState(update)
 }
 
 func (a *App) resolveSelectedStrategy(state *models.CockpitStateResponse) (wsID, stratID string, strat *models.Strategy) {
-	if a.engine != nil {
-		return a.engine.ResolveSelectedStrategy(state)
-	}
-	if state == nil || len(state.Workspaces) == 0 {
-		return "", "", nil
-	}
-	var targetWS *models.CockpitWorkspace
-	for i := range state.Workspaces {
-		if state.Workspaces[i].ID == state.ActiveWorkspaceID {
-			targetWS = &state.Workspaces[i]
-			break
-		}
-	}
-	if targetWS == nil {
-		targetWS = &state.Workspaces[0]
-	}
-	wsID = targetWS.ID
-	for _, slot := range targetWS.StrategySlots {
-		if slot.Enabled && slot.StrategyID != "" {
-			stratID = slot.StrategyID
-			break
-		}
-	}
-	if stratID == "" {
-		for _, slot := range targetWS.StrategySlots {
-			if slot.StrategyID != "" {
-				stratID = slot.StrategyID
-				break
-			}
-		}
-	}
-	if stratID != "" && a.db != nil {
-		strat, _ = a.db.LoadStrategyPreset(stratID)
-	}
-	return wsID, stratID, strat
+	return a.cockpitManager.ResolveSelectedStrategy(state)
 }
 
 // GetRuntimeState returns the actual bot engine state

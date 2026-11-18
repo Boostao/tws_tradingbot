@@ -26,6 +26,7 @@
 	import { refreshRuntimeState, runtimeState } from '$lib/stores/runtime';
 	import { launchTour, openHelpDrawer } from '$lib/stores/onboarding';
 	import SlideToArm from '$lib/components/SlideToArm.svelte';
+	import AutopilotPanel from '$lib/components/AutopilotPanel.svelte';
 	import { Compass, LayoutGrid, Power, RefreshCcw, Search, ShieldAlert, Sparkles, Tags, X } from 'lucide-svelte';
 
 	let cockpit: CockpitState | null = null;
@@ -560,6 +561,8 @@
 					{/if}
 				</div>
 			</div>
+
+			<AutopilotPanel />
 
 			<div class="cockpit-grid">
 				<section class="card cockpit-column">

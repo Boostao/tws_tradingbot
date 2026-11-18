@@ -299,3 +299,90 @@ func TestResolveContractFromSymbol(t *testing.T) {
 		}
 	}
 }
+
+func TestResolveDataContract(t *testing.T) {
+	tests := []struct {
+		name             string
+		symbol           string
+		expectedSymbol   string
+		expectedSecType  string
+		expectedExchange string
+		expectedCurrency string
+		expectErr        bool
+	}{
+		{
+			name:             "SPX Index Mapping",
+			symbol:           "SPX",
+			expectedSymbol:   "SPX",
+			expectedSecType:  "IND",
+			expectedExchange: "CBOE",
+			expectedCurrency: "USD",
+			expectErr:        false,
+		},
+		{
+			name:             "VIX Index Mapping",
+			symbol:           "VIX",
+			expectedSymbol:   "VIX",
+			expectedSecType:  "IND",
+			expectedExchange: "CBOE",
+			expectedCurrency: "USD",
+			expectErr:        false,
+		},
+		{
+			name:             "TSX Index Mapping",
+			symbol:           "TSX",
+			expectedSymbol:   "TSX",
+			expectedSecType:  "IND",
+			expectedExchange: "TSE",
+			expectedCurrency: "CAD",
+			expectErr:        false,
+		},
+		{
+			name:             "Valid Equity",
+			symbol:           "AAPL",
+			expectedSymbol:   "AAPL",
+			expectedSecType:  "STK",
+			expectedExchange: "SMART",
+			expectedCurrency: "USD",
+			expectErr:        false,
+		},
+		{
+			name:      "Unmapped TVC Macro",
+			symbol:    "DXY",
+			expectErr: true,
+		},
+		{
+			name:      "Unmapped Crypto",
+			symbol:    "BTCUSD",
+			expectErr: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			c, err := ResolveDataContract(tc.symbol)
+			if tc.expectErr {
+				if err == nil {
+					t.Errorf("expected error for %s, got nil", tc.symbol)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error for %s: %v", tc.symbol, err)
+			}
+			if c.Symbol != tc.expectedSymbol {
+				t.Errorf("Symbol: expected %q, got %q", tc.expectedSymbol, c.Symbol)
+			}
+			if c.SecType != tc.expectedSecType {
+				t.Errorf("SecType: expected %q, got %q", tc.expectedSecType, c.SecType)
+			}
+			if c.Exchange != tc.expectedExchange {
+				t.Errorf("Exchange: expected %q, got %q", tc.expectedExchange, c.Exchange)
+			}
+			if c.Currency != tc.expectedCurrency {
+				t.Errorf("Currency: expected %q, got %q", tc.expectedCurrency, c.Currency)
+			}
+		})
+	}
+}
+

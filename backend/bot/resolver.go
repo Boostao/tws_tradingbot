@@ -176,6 +176,38 @@ func ResolveContract(item *models.WatchlistItem) (*ibapi.Contract, error) {
 	return contract, nil
 }
 
+// ResolveDataContract resolves a symbol into a contract for data purposes (market data/bars).
+// Supports explicit mappings for indices and rejects unmapped complex/non-supported types.
+func ResolveDataContract(symbol string) (*ibapi.Contract, error) {
+	symUpper := strings.ToUpper(strings.TrimSpace(symbol))
+
+	// Explicit mappings
+	switch symUpper {
+	case "SPX":
+		return &ibapi.Contract{Symbol: "SPX", SecType: "IND", Exchange: "CBOE", Currency: "USD"}, nil
+	case "VIX":
+		return &ibapi.Contract{Symbol: "VIX", SecType: "IND", Exchange: "CBOE", Currency: "USD"}, nil
+	case "TSX":
+		return &ibapi.Contract{Symbol: "TSX", SecType: "IND", Exchange: "TSE", Currency: "CAD"}, nil
+	}
+
+	norm := models.NormalizeSymbol(symUpper)
+
+	// reject unmapped CONTFUT/crypto/TVC macro
+	if norm.IsRegimeReference {
+		return nil, fmt.Errorf("data contract mapping not found for unmapped index or macro symbol: %s", symbol)
+	}
+
+	return &ibapi.Contract{
+		Symbol:          norm.Symbol,
+		SecType:         "STK",
+		Exchange:        "SMART",
+		Currency:        norm.Currency,
+		PrimaryExchange: norm.Venue,
+	}, nil
+}
+
+
 // ResolveContractFromSymbol creates a contract directly from a raw ticker or instrument ID string.
 func ResolveContractFromSymbol(raw string) (*ibapi.Contract, error) {
 	norm := models.NormalizeSymbol(raw)

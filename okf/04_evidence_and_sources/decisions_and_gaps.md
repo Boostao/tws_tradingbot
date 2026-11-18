@@ -199,3 +199,22 @@ flowchart LR
 * **Evidence & Invariants:**
   * `/strategy` renders a fixed-viewport 3-pane workbench (searchable/workspace-filtered Preset Stack, `Filtres Macro → Entrées → Sorties` pipeline, 2-col Rule Inspector across 22 indicators & 9 timeframes, slide-over JSON drawer), with `ValidateStrategy` allowing `ActionFilter` alongside `ActionBuy`/`ActionSell`.
   * `HelpDrawer.svelte` (`F1`/`?`) and 3-track `OnboardingTour.svelte` (`localStorage` key `cobalt_onboarding_state`, 1-click launchers on `/manual`) provide in-cockpit guidance while reactive `$language` switching (`928` EN/FR keys) preserves unsaved route state.
+
+---
+
+### D-19: Async Telemetry Journaling & JSON Digest Pipeline
+* **Status:** **Settled & Implemented**
+* **Evidence & Invariants:**
+  * Async journal writer (`backend/bot/journal.go`) processes state changes/order events in a buffered queue to avoid Wails IPC flooding.
+  * `GenerateJSONDigest` (`backend/bot/reporter.go`) summarizes journaled events for operational audits.
+
+---
+
+## 3. Known Gaps & Ambiguities
+
+| ID | Description | Status | Assignment |
+|---|---|---|---|
+| **G-01** | Optional local TradingView webhook bridge (`D-10`) | `Planned` | Engineering |
+| **G-02** | Multi-account institutional fleet routing | `Planned` | Engineering |
+| **G-03** | Advanced algorithmic execution (TWAP/VWAP) | `Planned` | Engineering |
+
