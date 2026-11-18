@@ -1,5 +1,6 @@
 # Go and Build
 build/bin/
+build/autopilot/
 dist/
 *.exe
 *.app

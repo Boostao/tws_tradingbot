@@ -1,0 +1,38 @@
+--- "/home/bruno/Work/Active project/cobalt/tws_traderbot/third_party/ibapi/client.go"	2026-11-17 20:22:52.515286059 -0500
++++ /home/bruno/.gemini/antigravity/worktrees/b1ada1dc-c94d-4a77-bccc-7b73b2769279/subagent-Build-Worker-1-teamwork-follower-a1a8e99f/third_party/ibapi/client.go	2026-11-17 22:31:00.955579882 -0500
+@@ -23,6 +23,7 @@
+ 	"sync"
+ 	"sync/atomic"
+ 	"syscall"
++	"time"
+ 
+ 	"github.com/scmhub/ibapi/protobuf"
+ 	"google.golang.org/protobuf/proto"
+@@ -304,6 +305,7 @@
+ 	mu                   sync.Mutex
+ 	watchDone            chan struct{}
+ 	err                  error
++	pacer                *Pacer
+ }
+ 
+ // NewEClient returns a new Eclient.
+@@ -311,7 +313,10 @@
+ 	if wrapper == nil {
+ 		wrapper = &Wrapper{}
+ 	}
+-	c := &EClient{wrapper: wrapper}
++	c := &EClient{
++		wrapper: wrapper,
++		pacer:   NewPacer(6, 333*time.Millisecond), // Roughly 6 req / 2s
++	}
+ 	c.reset()
+ 
+ 	return c
+@@ -4409,6 +4414,7 @@
+ // chartOptions is for internal use only. Use default value XYZ.
+ 
+ func (c *EClient) ReqHistoricalData(reqID int64, contract *Contract, endDateTime string, duration string, barSize string, whatToShow string, useRTH bool, formatDate int, keepUpToDate bool, chartOptions []TagValue) {
++	c.pacer.Wait()
+ 
+ 	if c.useProtoBuf(REQ_HISTORICAL_DATA) {
+ 		c.reqHistoricalDataProtoBuf(createHistoricalDataRequestProto(reqID, contract, endDateTime, duration, barSize, whatToShow, useRTH, formatDate, keepUpToDate, chartOptions))

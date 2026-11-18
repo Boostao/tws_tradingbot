@@ -1,0 +1,14 @@
+# command-line-arguments [command-line-arguments.test]
+tests/e2e/tier1_test.go:22:22: undefined: TestCase
+tests/e2e/tier1_test.go:25:21: undefined: TestCase
+tests/e2e/tier1_test.go:28:16: undefined: Tier1
+tests/e2e/tier1_test.go:43:16: undefined: Tier1
+tests/e2e/tier1_test.go:58:16: undefined: Tier1
+tests/e2e/tier1_test.go:73:16: undefined: Tier1
+tests/e2e/tier1_test.go:90:16: undefined: Tier1
+tests/e2e/tier1_test.go:113:16: undefined: Tier1
+tests/e2e/tier1_test.go:130:16: undefined: Tier1
+tests/e2e/tier1_test.go:145:16: undefined: Tier1
+tests/e2e/tier1_test.go:145:16: too many errors
+FAIL	command-line-arguments [build failed]
+FAIL

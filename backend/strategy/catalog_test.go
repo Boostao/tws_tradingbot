@@ -11,8 +11,8 @@ import (
 func TestCatalog_20Presets(t *testing.T) {
 	// Feature 35: 20 Cobalt & Screener Presets
 	presets := strategy.GetDefaultStrategySeeds()
-	if len(presets) != 20 {
-		t.Fatalf("expected exactly 20 presets, got %d", len(presets))
+	if len(presets) != 21 {
+		t.Fatalf("expected exactly 21 presets, got %d", len(presets))
 	}
 
 	chartModelCount := 0
@@ -74,8 +74,8 @@ func TestCatalog_DatabaseSeeding(t *testing.T) {
 		t.Fatalf("failed to load strategy library: %v", err)
 	}
 
-	if len(lib) != 20 {
-		t.Fatalf("expected 20 strategies in database, got %d", len(lib))
+	if len(lib) != 21 {
+		t.Fatalf("expected 21 strategies in database, got %d", len(lib))
 	}
 
 	// Idempotency: re-seeding should be a no-op
@@ -85,8 +85,8 @@ func TestCatalog_DatabaseSeeding(t *testing.T) {
 	}
 
 	libAfter, _ := database.LoadStrategyLibrary()
-	if len(libAfter) != 20 {
-		t.Fatalf("expected 20 strategies after idempotent re-seeding, got %d", len(libAfter))
+	if len(libAfter) != 21 {
+		t.Fatalf("expected 21 strategies after idempotent re-seeding, got %d", len(libAfter))
 	}
 
 	// Verify loading individual preset

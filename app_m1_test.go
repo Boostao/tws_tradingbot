@@ -30,9 +30,10 @@ func setupTestApp(t *testing.T) *App {
 	ibkr := bot.NewIBKRClient(eng)
 
 	a := &App{
-		db:         database,
-		engine:     eng,
-		ibkrClient: ibkr,
+		db:             database,
+		engine:         eng,
+		ibkrClient:     ibkr,
+		cockpitManager: bot.NewCockpitManager(database, eng),
 	}
 
 	cfg := a.GetConfig()

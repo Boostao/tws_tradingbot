@@ -78,6 +78,16 @@ export function DryRunBot() {
 }
 
 /**
+ * Emit implements bot.Emitter.
+ * @param {string} name
+ * @param {any} data
+ * @returns {$CancellablePromise<void>}
+ */
+export function Emit(name, data) {
+    return $Call.ByID(4033440178, name, data);
+}
+
+/**
  * ExportStrategyFile allows user to save current strategy to disk
  * @param {{ [_ in string]?: any }} strategy
  * @returns {$CancellablePromise<void>}
@@ -103,12 +113,22 @@ export function FailsafeStop() {
 }
 
 /**
+ * GetAutopilotState returns the current autopilot system state
+ * @returns {$CancellablePromise<models$0.AutopilotState | null>}
+ */
+export function GetAutopilotState() {
+    return $Call.ByID(600979727).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType6($result);
+    }));
+}
+
+/**
  * GetCockpitState returns the current cockpit state from SQLite
  * @returns {$CancellablePromise<models$0.CockpitStateResponse | null>}
  */
 export function GetCockpitState() {
     return $Call.ByID(1652565109).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType6($result);
+        return $$createType8($result);
     }));
 }
 
@@ -128,7 +148,7 @@ export function GetConfig() {
  */
 export function GetDiagnostics() {
     return $Call.ByID(2811458213).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType8($result);
+        return $$createType10($result);
     }));
 }
 
@@ -138,7 +158,7 @@ export function GetDiagnostics() {
  */
 export function GetRecentTrades() {
     return $Call.ByID(1907987451).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType10($result);
+        return $$createType12($result);
     }));
 }
 
@@ -148,7 +168,7 @@ export function GetRecentTrades() {
  */
 export function GetRuntimeState() {
     return $Call.ByID(3201211474).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType12($result);
+        return $$createType14($result);
     }));
 }
 
@@ -168,7 +188,7 @@ export function GetStrategy() {
  */
 export function GetStrategyLibrary() {
     return $Call.ByID(2233467349).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType14($result);
+        return $$createType16($result);
     }));
 }
 
@@ -179,7 +199,7 @@ export function GetStrategyLibrary() {
  */
 export function GetStrategyPreset(id) {
     return $Call.ByID(2538167625, id).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType16($result);
+        return $$createType18($result);
     }));
 }
 
@@ -190,7 +210,7 @@ export function GetStrategyPreset(id) {
  */
 export function GetSymbols(query) {
     return $Call.ByID(2798504988, query).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType18($result);
+        return $$createType20($result);
     }));
 }
 
@@ -231,7 +251,7 @@ export function GetWatchlistById(id) {
  */
 export function GetWatchlists() {
     return $Call.ByID(2599292627).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType20($result);
+        return $$createType22($result);
     }));
 }
 
@@ -284,7 +304,7 @@ export function ImportWatchlistFile() {
  */
 export function MoveStrategyOrder(id, direction) {
     return $Call.ByID(3989190995, id, direction).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType14($result);
+        return $$createType16($result);
     }));
 }
 
@@ -336,7 +356,7 @@ export function ResetCircuitBreaker() {
  */
 export function SaveStrategyPreset(strat) {
     return $Call.ByID(2868857102, strat).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType21($result);
+        return $$createType23($result);
     }));
 }
 
@@ -374,7 +394,7 @@ export function StopBot() {
  */
 export function ToggleStrategyPin(id) {
     return $Call.ByID(3736488475, id).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType14($result);
+        return $$createType16($result);
     }));
 }
 
@@ -385,7 +405,7 @@ export function ToggleStrategyPin(id) {
  */
 export function UpdateCockpitState(update) {
     return $Call.ByID(3742451386, update).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType6($result);
+        return $$createType8($result);
     }));
 }
 
@@ -429,7 +449,7 @@ export function UpdateTWSConnection(host, port, clientID) {
  */
 export function ValidateStrategy(strat) {
     return $Call.ByID(1369221750, strat).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType23($result);
+        return $$createType25($result);
     }));
 }
 
@@ -439,22 +459,24 @@ const $$createType1 = $Create.Nullable($$createType0);
 const $$createType2 = $Create.Map($Create.Any, $Create.Any);
 const $$createType3 = models$0.BotDryRun.createFrom;
 const $$createType4 = $Create.Nullable($$createType3);
-const $$createType5 = models$0.CockpitStateResponse.createFrom;
+const $$createType5 = models$0.AutopilotState.createFrom;
 const $$createType6 = $Create.Nullable($$createType5);
-const $$createType7 = models$0.DiagnosticsResponse.createFrom;
+const $$createType7 = models$0.CockpitStateResponse.createFrom;
 const $$createType8 = $Create.Nullable($$createType7);
-const $$createType9 = models$0.TradeRecord.createFrom;
-const $$createType10 = $Create.Array($$createType9);
-const $$createType11 = models$0.BotState.createFrom;
-const $$createType12 = $Create.Nullable($$createType11);
-const $$createType13 = models$0.CockpitStrategySummary.createFrom;
-const $$createType14 = $Create.Array($$createType13);
-const $$createType15 = models$0.Strategy.createFrom;
-const $$createType16 = $Create.Nullable($$createType15);
-const $$createType17 = models$0.SymbolsResponse.createFrom;
+const $$createType9 = models$0.DiagnosticsResponse.createFrom;
+const $$createType10 = $Create.Nullable($$createType9);
+const $$createType11 = models$0.TradeRecord.createFrom;
+const $$createType12 = $Create.Array($$createType11);
+const $$createType13 = models$0.BotState.createFrom;
+const $$createType14 = $Create.Nullable($$createType13);
+const $$createType15 = models$0.CockpitStrategySummary.createFrom;
+const $$createType16 = $Create.Array($$createType15);
+const $$createType17 = models$0.Strategy.createFrom;
 const $$createType18 = $Create.Nullable($$createType17);
-const $$createType19 = models$0.WatchlistSummary.createFrom;
-const $$createType20 = $Create.Array($$createType19);
-const $$createType21 = $Create.Nullable($$createType13);
-const $$createType22 = models$0.ValidationResult.createFrom;
-const $$createType23 = $Create.Nullable($$createType22);
+const $$createType19 = models$0.SymbolsResponse.createFrom;
+const $$createType20 = $Create.Nullable($$createType19);
+const $$createType21 = models$0.WatchlistSummary.createFrom;
+const $$createType22 = $Create.Array($$createType21);
+const $$createType23 = $Create.Nullable($$createType15);
+const $$createType24 = models$0.ValidationResult.createFrom;
+const $$createType25 = $Create.Nullable($$createType24);

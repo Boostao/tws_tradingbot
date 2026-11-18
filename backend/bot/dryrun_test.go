@@ -22,11 +22,8 @@ func TestDryRunGuard_RecordsSimulatedFillInSQLite(t *testing.T) {
 	eng.AttachDB(database)
 	eng.SetDryRun(true) // Explicit dry-run mode
 
-	wrapper := &IBWrapper{
-		engine:     eng,
-		client:     nil, // Nil client: if PlaceOrder is ever called, it would panic or fail
-		marketData: make(map[string][]float64),
-	}
+	wrapper := NewIBWrapper(eng)
+	wrapper.client = nil // Nil client: if PlaceOrder is ever called, it would panic or fail
 	wrapper.NextValidID(1000)
 
 	// Execute action under dry-run
@@ -89,11 +86,8 @@ func TestDryRun_BracketOCAGroupRecorded(t *testing.T) {
 	eng.SetDryRun(true)
 	eng.SetBracketConfig(true, 3.0, 1.5) // Enable brackets
 
-	wrapper := &IBWrapper{
-		engine:     eng,
-		client:     nil,
-		marketData: make(map[string][]float64),
-	}
+	wrapper := NewIBWrapper(eng)
+	wrapper.client = nil
 	wrapper.NextValidID(5000)
 
 	wrapper.ExecuteAction("AAPL", "BUY")
@@ -123,11 +117,8 @@ func TestAtomicNextValidID_ConcurrentRaceSafety(t *testing.T) {
 	eng.AttachDB(database)
 	eng.SetDryRun(true)
 
-	wrapper := &IBWrapper{
-		engine:     eng,
-		client:     nil,
-		marketData: make(map[string][]float64),
-	}
+	wrapper := NewIBWrapper(eng)
+	wrapper.client = nil
 	const startID = int64(7000)
 	wrapper.NextValidID(startID)
 

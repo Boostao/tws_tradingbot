@@ -264,6 +264,8 @@ sequenceDiagram
     7. Orderable Equity Invariant (`IsOrderable && !IsRegimeReference`)
     8. Session Gate (`session.go`: RTH vs ETH, blocks MKT orders during ETH)
     9. Sizing & Dry-Run Guard: Calculates position size (`# shares`, `$ notional`, `% portfolio`); routes dry-run fills to SQLite `trade_ledger` without calling live `PlaceOrder`.
+- **[`journal.go`](../../backend/bot/journal.go):**
+  - Async event journaling for state changes and order events, with throttling for Wails IPC efficiency.
 - **[`resolver.go`](../../backend/bot/resolver.go):**
   - Multi-venue contract resolution for US (`SMART/USD`) and Canadian (`SMART/CAD` with TSE/VENTURE/PURE) instruments; dot-class normalization (`BRK B`, `CTC A`).
 - **[`order.go`](../../backend/bot/order.go):**

@@ -22,6 +22,111 @@ export const ActionType = {
     ActionAlert: "alert",
 };
 
+/**
+ * AutopilotRun tracks the metadata of an active autopilot session.
+ */
+export class AutopilotRun {
+    /**
+     * Creates a new AutopilotRun instance.
+     * @param {Partial<AutopilotRun>} [$$source = {}] - The source object to create the AutopilotRun.
+     */
+    constructor($$source = {}) {
+        if (!("run_id" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["run_id"] = "";
+        }
+        if (!("strategy_id" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["strategy_id"] = "";
+        }
+        if (!("started_at" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["started_at"] = 0;
+        }
+        if (!("is_active" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["is_active"] = false;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new AutopilotRun instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {AutopilotRun}
+     */
+    static createFrom($$source = {}) {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new AutopilotRun(/** @type {Partial<AutopilotRun>} */($$parsedSource));
+    }
+}
+
+/**
+ * AutopilotState represents the current state of the autopilot system.
+ */
+export class AutopilotState {
+    /**
+     * Creates a new AutopilotState instance.
+     * @param {Partial<AutopilotState>} [$$source = {}] - The source object to create the AutopilotState.
+     */
+    constructor($$source = {}) {
+        if (!("exec_mode" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["exec_mode"] = 0;
+        }
+        if (!("active_orders" in $$source)) {
+            /**
+             * @member
+             * @type {BrokerOrder[]}
+             */
+            this["active_orders"] = [];
+        }
+        if (!("session" in $$source)) {
+            /**
+             * @member
+             * @type {AutopilotRun | null}
+             */
+            this["session"] = null;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new AutopilotState instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {AutopilotState}
+     */
+    static createFrom($$source = {}) {
+        const $$createField1_0 = $$createType1;
+        const $$createField2_0 = $$createType3;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("active_orders" in $$parsedSource) {
+            $$parsedSource["active_orders"] = $$createField1_0($$parsedSource["active_orders"]);
+        }
+        if ("session" in $$parsedSource) {
+            $$parsedSource["session"] = $$createField2_0($$parsedSource["session"]);
+        }
+        return new AutopilotState(/** @type {Partial<AutopilotState>} */($$parsedSource));
+    }
+}
+
 export class BotDryRun {
     /**
      * Creates a new BotDryRun instance.
@@ -94,11 +199,11 @@ export class BotDryRun {
      * @returns {BotDryRun}
      */
     static createFrom($$source = {}) {
-        const $$createField2_0 = $$createType1;
-        const $$createField3_0 = $$createType2;
-        const $$createField4_0 = $$createType3;
-        const $$createField5_0 = $$createType3;
-        const $$createField6_0 = $$createType5;
+        const $$createField2_0 = $$createType5;
+        const $$createField3_0 = $$createType6;
+        const $$createField4_0 = $$createType7;
+        const $$createField5_0 = $$createType7;
+        const $$createField6_0 = $$createType9;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("subscriptions" in $$parsedSource) {
             $$parsedSource["subscriptions"] = $$createField2_0($$parsedSource["subscriptions"]);
@@ -450,13 +555,13 @@ export class BotState {
      * @returns {BotState}
      */
     static createFrom($$source = {}) {
-        const $$createField23_0 = $$createType7;
-        const $$createField24_0 = $$createType9;
-        const $$createField25_0 = $$createType11;
-        const $$createField30_0 = $$createType12;
-        const $$createField31_0 = $$createType3;
-        const $$createField32_0 = $$createType3;
-        const $$createField33_0 = $$createType2;
+        const $$createField23_0 = $$createType11;
+        const $$createField24_0 = $$createType1;
+        const $$createField25_0 = $$createType13;
+        const $$createField30_0 = $$createType14;
+        const $$createField31_0 = $$createType7;
+        const $$createField32_0 = $$createType7;
+        const $$createField33_0 = $$createType6;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("open_positions" in $$parsedSource) {
             $$parsedSource["open_positions"] = $$createField23_0($$parsedSource["open_positions"]);
@@ -800,9 +905,9 @@ export class CockpitStateResponse {
      * @returns {CockpitStateResponse}
      */
     static createFrom($$source = {}) {
-        const $$createField2_0 = $$createType14;
-        const $$createField3_0 = $$createType16;
-        const $$createField4_0 = $$createType18;
+        const $$createField2_0 = $$createType16;
+        const $$createField3_0 = $$createType18;
+        const $$createField4_0 = $$createType20;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("workspaces" in $$parsedSource) {
             $$parsedSource["workspaces"] = $$createField2_0($$parsedSource["workspaces"]);
@@ -1001,7 +1106,7 @@ export class CockpitWorkspace {
      * @returns {CockpitWorkspace}
      */
     static createFrom($$source = {}) {
-        const $$createField5_0 = $$createType20;
+        const $$createField5_0 = $$createType22;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("strategy_slots" in $$parsedSource) {
             $$parsedSource["strategy_slots"] = $$createField5_0($$parsedSource["strategy_slots"]);
@@ -1075,8 +1180,8 @@ export class Condition {
      * @returns {Condition}
      */
     static createFrom($$source = {}) {
-        const $$createField1_0 = $$createType22;
-        const $$createField2_0 = $$createType22;
+        const $$createField1_0 = $$createType24;
+        const $$createField2_0 = $$createType24;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("indicator_a" in $$parsedSource) {
             $$parsedSource["indicator_a"] = $$createField1_0($$parsedSource["indicator_a"]);
@@ -1195,10 +1300,10 @@ export class DiagnosticsResponse {
      * @returns {DiagnosticsResponse}
      */
     static createFrom($$source = {}) {
-        const $$createField0_0 = $$createType23;
-        const $$createField1_0 = $$createType24;
-        const $$createField2_0 = $$createType25;
-        const $$createField9_0 = $$createType11;
+        const $$createField0_0 = $$createType25;
+        const $$createField1_0 = $$createType26;
+        const $$createField2_0 = $$createType27;
+        const $$createField9_0 = $$createType13;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("startup" in $$parsedSource) {
             $$parsedSource["startup"] = $$createField0_0($$parsedSource["startup"]);
@@ -1484,7 +1589,7 @@ export class Indicator {
      * @returns {Indicator}
      */
     static createFrom($$source = {}) {
-        const $$createField6_0 = $$createType2;
+        const $$createField6_0 = $$createType6;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("params" in $$parsedSource) {
             $$parsedSource["params"] = $$createField6_0($$parsedSource["params"]);
@@ -1592,10 +1697,10 @@ export class ReplaceWatchlistRequest {
      * @returns {ReplaceWatchlistRequest}
      */
     static createFrom($$source = {}) {
-        const $$createField3_0 = $$createType12;
-        const $$createField4_0 = $$createType27;
-        const $$createField5_0 = $$createType29;
-        const $$createField6_0 = $$createType18;
+        const $$createField3_0 = $$createType14;
+        const $$createField4_0 = $$createType29;
+        const $$createField5_0 = $$createType31;
+        const $$createField6_0 = $$createType20;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("symbols" in $$parsedSource) {
             $$parsedSource["symbols"] = $$createField3_0($$parsedSource["symbols"]);
@@ -1685,7 +1790,7 @@ export class Rule {
      * @returns {Rule}
      */
     static createFrom($$source = {}) {
-        const $$createField4_0 = $$createType31;
+        const $$createField4_0 = $$createType33;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("condition" in $$parsedSource) {
             $$parsedSource["condition"] = $$createField4_0($$parsedSource["condition"]);
@@ -1810,8 +1915,8 @@ export class Strategy {
      * @returns {Strategy}
      */
     static createFrom($$source = {}) {
-        const $$createField4_0 = $$createType12;
-        const $$createField5_0 = $$createType33;
+        const $$createField4_0 = $$createType14;
+        const $$createField5_0 = $$createType35;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("tickers" in $$parsedSource) {
             $$parsedSource["tickers"] = $$createField4_0($$parsedSource["tickers"]);
@@ -1972,7 +2077,7 @@ export class SymbolsResponse {
      * @returns {SymbolsResponse}
      */
     static createFrom($$source = {}) {
-        const $$createField0_0 = $$createType35;
+        const $$createField0_0 = $$createType37;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("symbols" in $$parsedSource) {
             $$parsedSource["symbols"] = $$createField0_0($$parsedSource["symbols"]);
@@ -2129,7 +2234,7 @@ export class ValidationResult {
      * @returns {ValidationResult}
      */
     static createFrom($$source = {}) {
-        const $$createField1_0 = $$createType12;
+        const $$createField1_0 = $$createType14;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("errors" in $$parsedSource) {
             $$parsedSource["errors"] = $$createField1_0($$parsedSource["errors"]);
@@ -2238,7 +2343,7 @@ export class WatchlistGroup {
      * @returns {WatchlistGroup}
      */
     static createFrom($$source = {}) {
-        const $$createField3_0 = $$createType29;
+        const $$createField3_0 = $$createType31;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("items" in $$parsedSource) {
             $$parsedSource["items"] = $$createField3_0($$parsedSource["items"]);
@@ -2466,9 +2571,9 @@ export class WatchlistResponse {
      * @returns {WatchlistResponse}
      */
     static createFrom($$source = {}) {
-        const $$createField4_0 = $$createType12;
-        const $$createField5_0 = $$createType27;
-        const $$createField6_0 = $$createType18;
+        const $$createField4_0 = $$createType14;
+        const $$createField5_0 = $$createType29;
+        const $$createField6_0 = $$createType20;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("symbols" in $$parsedSource) {
             $$parsedSource["symbols"] = $$createField4_0($$parsedSource["symbols"]);
@@ -2561,39 +2666,41 @@ export class WatchlistSummary {
 }
 
 // Private type creation functions
-const $$createType0 = BotDryRunSubscription.createFrom;
+const $$createType0 = BrokerOrder.createFrom;
 const $$createType1 = $Create.Array($$createType0);
-const $$createType2 = $Create.Map($Create.Any, $Create.Any);
-const $$createType3 = $Create.Array($$createType2);
-const $$createType4 = BotState.createFrom;
-const $$createType5 = $Create.Nullable($$createType4);
-const $$createType6 = BrokerPosition.createFrom;
+const $$createType2 = AutopilotRun.createFrom;
+const $$createType3 = $Create.Nullable($$createType2);
+const $$createType4 = BotDryRunSubscription.createFrom;
+const $$createType5 = $Create.Array($$createType4);
+const $$createType6 = $Create.Map($Create.Any, $Create.Any);
 const $$createType7 = $Create.Array($$createType6);
-const $$createType8 = BrokerOrder.createFrom;
-const $$createType9 = $Create.Array($$createType8);
-const $$createType10 = BrokerAlert.createFrom;
+const $$createType8 = BotState.createFrom;
+const $$createType9 = $Create.Nullable($$createType8);
+const $$createType10 = BrokerPosition.createFrom;
 const $$createType11 = $Create.Array($$createType10);
-const $$createType12 = $Create.Array($Create.Any);
-const $$createType13 = CockpitWorkspace.createFrom;
-const $$createType14 = $Create.Array($$createType13);
-const $$createType15 = CockpitStrategySummary.createFrom;
+const $$createType12 = BrokerAlert.createFrom;
+const $$createType13 = $Create.Array($$createType12);
+const $$createType14 = $Create.Array($Create.Any);
+const $$createType15 = CockpitWorkspace.createFrom;
 const $$createType16 = $Create.Array($$createType15);
-const $$createType17 = WatchlistFeed.createFrom;
-const $$createType18 = $Create.Nullable($$createType17);
-const $$createType19 = CockpitStrategySlot.createFrom;
-const $$createType20 = $Create.Array($$createType19);
-const $$createType21 = Indicator.createFrom;
-const $$createType22 = $Create.Nullable($$createType21);
-const $$createType23 = DiagnosticsStartup.createFrom;
-const $$createType24 = DiagnosticsRuntime.createFrom;
-const $$createType25 = DiagnosticsSymbols.createFrom;
-const $$createType26 = WatchlistGroup.createFrom;
-const $$createType27 = $Create.Array($$createType26);
-const $$createType28 = WatchlistItem.createFrom;
+const $$createType17 = CockpitStrategySummary.createFrom;
+const $$createType18 = $Create.Array($$createType17);
+const $$createType19 = WatchlistFeed.createFrom;
+const $$createType20 = $Create.Nullable($$createType19);
+const $$createType21 = CockpitStrategySlot.createFrom;
+const $$createType22 = $Create.Array($$createType21);
+const $$createType23 = Indicator.createFrom;
+const $$createType24 = $Create.Nullable($$createType23);
+const $$createType25 = DiagnosticsStartup.createFrom;
+const $$createType26 = DiagnosticsRuntime.createFrom;
+const $$createType27 = DiagnosticsSymbols.createFrom;
+const $$createType28 = WatchlistGroup.createFrom;
 const $$createType29 = $Create.Array($$createType28);
-const $$createType30 = Condition.createFrom;
-const $$createType31 = $Create.Nullable($$createType30);
-const $$createType32 = Rule.createFrom;
-const $$createType33 = $Create.Array($$createType32);
-const $$createType34 = SymbolRecord.createFrom;
+const $$createType30 = WatchlistItem.createFrom;
+const $$createType31 = $Create.Array($$createType30);
+const $$createType32 = Condition.createFrom;
+const $$createType33 = $Create.Nullable($$createType32);
+const $$createType34 = Rule.createFrom;
 const $$createType35 = $Create.Array($$createType34);
+const $$createType36 = SymbolRecord.createFrom;
+const $$createType37 = $Create.Array($$createType36);

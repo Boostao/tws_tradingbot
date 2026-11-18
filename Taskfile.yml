@@ -126,9 +126,24 @@ tasks:
   test:backend:
     summary: Runs Go backend unit tests
     cmds:
-      - go test -v ./backend/...
+      - go test -v -tags=testing ./backend/...
 
   test:e2e:
     summary: Runs the hermetic E2E test suite (Tiers 1-4)
     cmds:
       - go test -v -count=1 ./tests/e2e/...
+
+  autopilot:run:
+    summary: Runs the autopilot CLI
+    cmds:
+      - go run ./cmd/autopilot
+
+  autopilot:replay:
+    summary: Runs the autopilot replay
+    cmds:
+      - go run ./cmd/autopilot replay
+
+  autopilot:probe:
+    summary: Runs the autopilot probe
+    cmds:
+      - go run ./cmd/autopilot probe

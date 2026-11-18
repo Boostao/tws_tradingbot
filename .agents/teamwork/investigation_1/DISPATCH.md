@@ -1,0 +1,2 @@
+## 2026-11-18T18:49:06Z
+Investigate the failure of `TestDryRun_BracketOCAGroupRecorded` in `backend/bot/`. Specifically, analyze why `decisionKey` is sometimes empty during the test even when brackets are enabled, leading to the `expected OCAGroup OCA_5000, got ""` failure. Inspect `backend/bot/autopilot_orders.go`, `backend/bot/ibkr.go`, and the test code itself. Provide a report with the root cause and a proposed fix.
